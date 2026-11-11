@@ -113,6 +113,11 @@ uniform mat4 invViewProj;
 uniform vec2 upUv;
 uniform float waterReflect;
 uniform vec2 ditherShift;
+// where the visible screen sits in the render target (overscan margin less the sub-pixel shift), and its size
+uniform vec2 skyOff;
+uniform vec2 skyRes;
+// whole pixels to move the dissolving previous view by, so it stays where it was on screen
+uniform vec2 prevShift;
 // 1: snap to the palette (Fine/Classic/Chunky); 0: full-colour shading (Smooth)
 uniform float snap;
 // Film Diffusion (0, and haloScale 1, on the plain path)
@@ -174,24 +179,41 @@ void main(){
   // lawns and walls whose colour sat near a palette boundary; flat palette clusters read better.
   float dither = spread * smoothstep(.01, .06, max(glowC.r, max(glowC.g, glowC.b)));
   if (sky){
-    // 1. sky
-    float y = vUv.y;
+    // 1. sky, a backdrop fixed to the screen: evaluated at this pixel's place on the screen (q), not
+    // in the render target, which is drawn with an overscan margin and shifted by the camera's
+    // sub-pixel offset. Otherwise the backdrop would wobble by up to half a pixel as the camera moves.
+    vec2 q = gl_FragCoord.xy - skyOff;
+    vec2 sUv = q / skyRes;
+    float y = sUv.y;
     c = mix(bgBottom, bgTop, smoothstep(0., 1., y));
-    float band = fbm(vec2(vUv.x * 2.6 + time * .006, vUv.y * 7.));
+    float band = fbm(vec2(sUv.x * 2.6 + time * .006, sUv.y * 7.));
     float cl = smoothstep(.56, .78, band) * bgClouds * smoothstep(.25, .95, y);
     c = mix(c, mix(bgBottom, vec3(1.), .4), cl * .55);
     // Stars live on a grid at most 300 cells tall, one render pixel each, so density and the hash's
     // input range stay the same at any render height (a per-pixel hash at Smooth's ~700 rows
     // degraded into vertical streaks). At palette heights (≤ 300) the grid is the pixel grid.
-    float sg = min(res.y, 300.);
-    vec2 sgrid = vec2(res.x / res.y, 1.) * sg;
-    vec2 cell = floor(vUv * sgrid);
-    float s = hash(cell);
-    bool here = all(equal(floor((cell + .5) / sgrid * res), floor(vUv * res)));
-    if (s > .993 && here) c += vec3(.8) * stars * (.55 + .45 * sin(time * 1.5 + s * 400.));
-    vec2 mp = (vUv - vec2(.86, .8)) * vec2(res.x / res.y, 1.);
+    // Each star is a one-pixel tent at its place on the screen: a single pixel when the screen and
+    // the render target line up, shared between neighbours when they don't, so it never moves.
+    float sg = min(skyRes.y, 300.);
+    vec2 sgrid = vec2(skyRes.x / skyRes.y, 1.) * sg;
+    vec2 base = floor(sUv * sgrid);
+    float st = 0.;
+    for (int i = -1; i <= 1; i++){
+      for (int j = -1; j <= 1; j++){
+        vec2 cell = base + vec2(float(i), float(j));
+        float s = hash(cell);
+        if (s <= .993) continue;
+        vec2 dp = abs((cell + .5) / sgrid * skyRes - q);
+        st += max(0., 1. - dp.x) * max(0., 1. - dp.y) * (.55 + .45 * sin(time * 1.5 + s * 400.));
+      }
+    }
+    c += vec3(.8) * stars * st;
+    vec2 mp = (sUv - vec2(.86, .8)) * vec2(skyRes.x / skyRes.y, 1.);
     float md = length(mp);
-    float crescent = step(md, .045) * (1. - step(length(mp - vec2(.018, .01)), .04));
+    // edges by pixel coverage, not a hard step: the render grid slides under the still moon as the
+    // camera moves, and a hard edge would flicker a pixel in and out; coverage changes smoothly
+    float aa = 1. / skyRes.y; // one screen pixel, in these units
+    float crescent = clamp((.045 - md) / aa + .5, 0., 1.) * (1. - clamp((.04 - length(mp - vec2(.018, .01))) / aa + .5, 0., 1.));
     c = mix(c, vec3(.96, .95, .86), crescent * moon);
   } else {
     vec4 sc = texture2D(tColor, vUv);
@@ -270,7 +292,7 @@ void main(){
   }
   // 8. camera-step dissolve: the previous view survives where the Bayer threshold is above 'fade'
   if (fade > 0. && B4(gl_FragCoord.xy) < fade){
-    o = texture2D(tPrev, vUv).rgb;
+    o = texture2D(tPrev, (floor(gl_FragCoord.xy) + prevShift + .5) * px).rgb;
     flag = 0.;
   }
   gl_FragColor = vec4(o, flagOut > .5 ? flag : 1.);
@@ -418,6 +440,9 @@ export class PostPass {
         upUv: { value: new THREE.Vector2() },
         waterReflect: { value: 0.4 },
         ditherShift: { value: new THREE.Vector2() },
+        skyOff: { value: new THREE.Vector2() },
+        skyRes: { value: new THREE.Vector2(this.w, this.h) },
+        prevShift: { value: new THREE.Vector2() },
         snap: { value: 1 },
         flagOut: { value: 0 },
         haloScale: { value: 1 },
@@ -449,6 +474,23 @@ export class PostPass {
     this.fadeLeft = 0; // the previous view no longer lines up
     this.resizeTargets(this.gpu);
     this.diff?.setSize(w, h);
+    this.setSkyFrame(0, 0, w, h); // until told otherwise, the screen is the whole render target
+  }
+
+  /** Where the previous view's snapshot was taken, in the same terms as setSkyFrame's offset. */
+  private readonly snapOff = new THREE.Vector2();
+
+  /**
+   * Where the visible screen sits in the render target: its lower-left corner at (`offX`, `offY`)
+   * render pixels (the overscan margin less the camera's sub-pixel shift, y up) and `w`×`h` in
+   * size. The sky is drawn in these screen terms so it stays still while the canvas is shifted,
+   * and a dissolving previous view is moved by the change, so it stays where it was on screen.
+   */
+  setSkyFrame(offX: number, offY: number, w: number, h: number): void {
+    const u = this.gpu.compMat.uniforms;
+    (u.skyOff!.value as THREE.Vector2).set(offX, offY);
+    (u.skyRes!.value as THREE.Vector2).set(w, h);
+    (u.prevShift!.value as THREE.Vector2).set(Math.round(this.snapOff.x - offX), Math.round(this.snapOff.y - offY));
   }
 
   /**
@@ -544,6 +586,9 @@ export class PostPass {
     this.prevIdx = next;
     u.tPrev!.value = g.prev[next].texture;
     this.fadeLeft = DISSOLVE_S;
+    // the snapshot was composited in the current screen frame: no shift until the frame moves
+    this.snapOff.copy(u.skyOff!.value as THREE.Vector2);
+    (u.prevShift!.value as THREE.Vector2).set(0, 0);
   }
 
   render(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, time: number, wind: THREE.Vector2, dt: number): void {
