@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { APATO, CAFE, DROPS, GROUND, MICRO_HOME, POLES, SHOPS } from '../src/world/layout';
+import { APATO, CAFE, DROPS, G, GROUND, MICRO_HOME, POLES, SHOPS, SIGNS } from '../src/world/layout';
+import { EAVE, setback, streetContext } from '../src/world/grammar/street';
+import { townRoofs } from '../src/world/grammar/footprints';
 import { planApato, planCafe, planMicroHome } from '../src/world/grammar/archetypes/landmarks';
-import { dropPoles, poleSpans } from '../src/world/grammar/wires';
+import { dropPoles, poleSpans, routeDrop } from '../src/world/grammar/wires';
 import { BAY_M, planShopHouse, shopFootprint } from '../src/world/grammar/archetypes/shophouse';
 import { classifyGap, planSeam } from '../src/world/grammar/seams';
 import type { Footprint, Part, ShopHouseSpec } from '../src/world/grammar/types';
@@ -156,5 +158,114 @@ describe('landmark archetypes', () => {
     expect(wins(planApato({ ...APATO, w: 9.2 }))).toHaveLength(8); // a wider block gains a unit
     const mullions = (ps: Part[]) => flat(ps).filter((p) => p.op === 'box' && p.w === 0.14 && p.h === 1.9);
     expect(mullions(planCafe(CAFE))).toHaveLength(3);
+  });
+});
+
+describe('priority layers and setbacks', () => {
+  const shop = (id: string, z0: number, z1: number, extra: Partial<ShopHouseSpec> = {}): ShopHouseSpec => ({ ...SHOPS[1]!, id, z0, z1, ...extra });
+  const gable = (ps: Part[]) => flat(ps).find((p): p is Extract<Part, { op: 'gableZ' }> => p.op === 'gableZ')!;
+
+  it('trims eaves 2 cm short of a neighbour, and keeps them full where there is room', () => {
+    const ctx = streetContext([shop('a', 0, 4, { roof: 'flat' }), shop('b', 4.1, 8), shop('c', 12, 16, { roof: 'flat' })]);
+    const b = ctx.get('b')!;
+    expect(b.eaveBefore).toBeCloseTo(0.08); // 0.1 m gap − 2 cm
+    expect(b.eaveAfter).toBe(EAVE); // 4 m to the next shop
+    const g = gable(planShopHouse(shop('b', 4.1, 8), b));
+    expect(g.z - g.w / 2).toBeCloseTo(4.1 - 0.08); // stops short of a's wall at z = 4
+  });
+
+  it('slides a shop board to the nearest spot that clears a neighbour’s, or drops it to an A-frame', () => {
+    const wide = { spec: SIGNS.florist, y: 3 }; // FLORIST is 3.125 m wide: on a 2 m shop it overhangs to z = 2.56
+    const slide = streetContext([shop('a', 0, 2, { sign: wide }), shop('b', 2.1, 6, { sign: wide })]);
+    expect(slide.get('b')!.sign!.aframe).toBe(false);
+    expect(slide.get('b')!.sign!.z).toBeCloseTo(1 + 3.125 / 2 + 0.02 + 3.125 / 2); // just clear of a's board
+    const drop = streetContext([shop('a', 0, 2, { sign: wide }), shop('b', 2.1, 4.9, { sign: wide })]);
+    expect(drop.get('b')!.sign!.aframe).toBe(true);
+    const parts = flat(planShopHouse(shop('b', 2.1, 4.9, { sign: wide }), drop.get('b')));
+    const board = parts.find((p): p is Extract<Part, { op: 'sign' }> => p.op === 'sign' && p.sign === SIGNS.florist)!;
+    expect(board.y).toBeLessThan(2); // down on the pavement
+  });
+
+  it('keeps today’s boards on the facades: only BOOKS moves, 6 cm, off a 4 cm overlap with FLORIST', () => {
+    const ctx = streetContext(SHOPS);
+    expect(ctx.get('bakery')!.sign).toEqual({ z: 1.5, aframe: false });
+    expect(ctx.get('florist')!.sign).toEqual({ z: 4.7, aframe: false });
+    const books = ctx.get('books')!.sign!;
+    expect(books.aframe).toBe(false);
+    expect(books.z - 7.6).toBeGreaterThan(0.03);
+    expect(books.z - 7.6).toBeLessThan(0.07);
+  });
+
+  it('steps a rebuilt shop back to 2 m from the centre of a lane under 4 m, and only then', () => {
+    expect(setback(shop('a', 0, 4, { rebuilt: true, lane: 3 }))).toBeCloseTo(0.5);
+    expect(setback(shop('a', 0, 4, { rebuilt: false, lane: 3 }))).toBe(0);
+    expect(setback(shop('a', 0, 4, { rebuilt: true, lane: 5 }))).toBe(0);
+    const ctx = streetContext([shop('a', 0, 4, { rebuilt: true, lane: 3 })]);
+    expect(ctx.get('a')!.frontX).toBeCloseTo(SHOPS[1]!.frontX - 0.5);
+  });
+
+  it('gives a rebuilt neighbour a fresh seam seed, and leaves revision 0 seeds as they were', () => {
+    const fp = (id: string, z0: number, z1: number, revision = 0): Footprint => ({
+      id,
+      use: 'shop',
+      revision,
+      x0: -16,
+      x1: -10,
+      z0,
+      z1,
+      height: 4,
+      front: 'x1',
+    });
+    const before = classifyGap(fp('a', 0, 4), fp('b', 4.2, 8)).seed;
+    expect(classifyGap(fp('a', 0, 4, 0), fp('b', 4.2, 8, 0)).seed).toBe(before);
+    expect(classifyGap(fp('a', 0, 4, 1), fp('b', 4.2, 8)).seed).not.toBe(before);
+  });
+});
+
+describe('wire anchors', () => {
+  it('holds a drop up with an anchor where it would pass through a roof', () => {
+    const roof = { x0: -2, x1: 2, z0: -2, z1: 2, top: 6 };
+    const r = routeDrop([-6, 7.5, 0], [6, 4, 0], [roof]);
+    expect(r).toHaveLength(3);
+    expect(r[1]![1]).toBeGreaterThan(roof.top);
+    expect(routeDrop([-6, 9, 0], [6, 9, 0], [roof])).toHaveLength(2); // clears it: no anchor
+  });
+
+  it('never treats the building being fed as an obstacle, and leaves today’s drops straight', () => {
+    const roof = { x0: -2, x1: 2, z0: -2, z1: 2, top: 6 };
+    expect(routeDrop([-6, 7.5, 0], [0, 4, 2.2], [roof])).toHaveLength(2);
+    const owners = dropPoles(
+      DROPS.map((d) => [d.x, d.z] as const),
+      POLES,
+    );
+    DROPS.forEach((d, i) => {
+      const p = POLES[owners[i]!]!;
+      expect(routeDrop([p[0], G + 7.2, p[1]], [d.x, d.y, d.z], townRoofs()), `drop ${i}`).toHaveLength(2);
+    });
+  });
+});
+
+describe('edit locality', () => {
+  it('re-plans only the edited shop and its neighbour through 1,000 random edits (the rest hash the same)', () => {
+    const rng = new Rng(11);
+    const base = (i: number): ShopHouseSpec => ({ ...SHOPS[i % 4]!, id: `s${i}`, z0: i * 3.2, z1: i * 3.2 + 3 });
+    const street = Array.from({ length: 6 }, (_, i) => base(i));
+    const hash = (specs: ShopHouseSpec[], id: string) => {
+      const ctx = streetContext(specs);
+      return JSON.stringify(
+        planShopHouse(
+          specs.find((s) => s.id === id)!,
+          ctx.get(id),
+        ),
+      );
+    };
+    const untouched = ['s2', 's3', 's4', 's5'].map((id) => hash(street, id));
+    for (let i = 0; i < 1000; i++) {
+      // the first shop changes width, height, roof and board; it always keeps clear of s1's frontage
+      const z1 = rng.range(1.5, 3.1);
+      const edited = { ...street[0]!, z0: rng.range(-3, 0), z1, height: rng.range(3.4, 5.6), roof: rng.pick(['flat', 'gable', 'shed'] as const) };
+      const specs = [edited, ...street.slice(1)];
+      expect(['s2', 's3', 's4', 's5'].map((id) => hash(specs, id))).toEqual(untouched);
+    }
   });
 });

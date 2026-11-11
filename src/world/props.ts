@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { dropPoles, poleSpans } from './grammar/wires';
+import { ANCHOR_CLEAR, dropPoles, poleSpans, routeDrop } from './grammar/wires';
+import { townRoofs } from './grammar/footprints';
 import type { Kit } from './kit';
 import type { Materials } from '../render/materials';
 import {
@@ -169,9 +170,14 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     DROPS.map((d) => [d.x, d.z] as const),
     P,
   );
+  const roofs = townRoofs();
   DROPS.forEach((d, i) => {
     const p = owners[i]!;
-    if (p >= 0) k.wire(new THREE.Vector3(P[p]![0], G + 7.2, P[p]![1]), new THREE.Vector3(d.x, d.y, d.z), 0.05, wireMat);
+    if (p < 0) return;
+    // a drop that would pass through a roof is held up by an anchor bracket on that roof's edge
+    const route = routeDrop([P[p]![0], G + 7.2, P[p]![1]], [d.x, d.y, d.z], roofs);
+    for (let j = 0; j + 1 < route.length; j++) k.wire(new THREE.Vector3(...route[j]!), new THREE.Vector3(...route[j + 1]!), 0.05, wireMat);
+    for (const [x, y, z] of route.slice(1, -1)) k.cyl(0.03, 0.03, ANCHOR_CLEAR + 0.2, poleM, x, y - (ANCHOR_CLEAR + 0.2) / 2, z, 4);
   });
   // convex road mirrors at the blind corners: orange-rimmed, angled down the lane
   k.merged(() => {

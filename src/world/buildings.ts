@@ -5,6 +5,7 @@ import { evaluate } from './grammar/evaluate';
 import { planAttachments, planShopHouse, shopFootprint } from './grammar/archetypes/shophouse';
 import { planApato, planArch, planCafe, planMicroHome, planSento, planTemple, planToolShed } from './grammar/archetypes/landmarks';
 import { classifyGap, planSeam } from './grammar/seams';
+import { streetContext } from './grammar/street';
 
 /** A roller shutter that rolls up at opening time. */
 export interface Shutter {
@@ -52,8 +53,11 @@ export function buildBuildings(k: Kit): BuildingsOut {
   evaluate(k, planApato(APATO), hooks);
   evaluate(k, planTemple(TEMPLE), hooks);
   // the shopping street: shop-house bodies, then their street-side attachments, then the arch
-  for (const spec of SHOPS) evaluate(k, planShopHouse(spec), hooks);
-  for (const spec of SHOPS) evaluate(k, planAttachments(spec), hooks);
+  // the street context settles the priority layers first: eaves trimmed short of neighbours,
+  // setbacks, and where each shop board fits (or drops to an A-frame)
+  const street = streetContext(SHOPS);
+  for (const spec of SHOPS) evaluate(k, planShopHouse(spec, street.get(spec.id)), hooks);
+  for (const spec of SHOPS) evaluate(k, planAttachments(spec, street.get(spec.id)!.frontX), hooks);
   evaluate(k, planArch(ARCH), hooks);
   evaluate(k, planCafe(CAFE), hooks);
   evaluate(k, planToolShed(TOOL_SHED), hooks);
@@ -62,9 +66,11 @@ export function buildBuildings(k: Kit): BuildingsOut {
   // Built last: seams are new geometry, and nothing before them should change.
   const row = [...SHOPS].sort((a, b) => a.z0 - b.z0);
   for (let i = 0; i + 1 < row.length; i++) {
-    const a = shopFootprint(row[i]!),
-      b = shopFootprint(row[i + 1]!);
-    evaluate(k, planSeam(classifyGap(a, b), a, b, row[i]!.frontX), hooks);
+    const fa = street.get(row[i]!.id)!.frontX,
+      fb = street.get(row[i + 1]!.id)!.frontX;
+    const a = shopFootprint(row[i]!, fa),
+      b = shopFootprint(row[i + 1]!, fb);
+    evaluate(k, planSeam(classifyGap(a, b), a, b, Math.max(fa, fb)), hooks);
   }
 
   return { lanterns, shutters, parasols, chimneyTop: new THREE.Vector3(SENTO.chimney.x, SENTO.y + SENTO.chimney.h + 0.2, SENTO.chimney.z) };

@@ -1,5 +1,6 @@
 import { G } from '../../layout';
 import type { Part, ShopHouseSpec, ShopAttachment } from '../types';
+import { EAVE, type ShopContext } from '../street';
 
 /**
  * Shop-house archetype: semantic facade zones, top to bottom of the plan:
@@ -21,19 +22,30 @@ export const UPPER_FLOOR_H = 4.4;
 export const bayCount = (frontage: number): number => Math.max(1, Math.round(frontage / BAY_M));
 export const upperWindowCount = (frontage: number): number => Math.max(2, Math.round(frontage / UPPER_WINDOW_M));
 
-export function planShopHouse(s: ShopHouseSpec): Part[] {
+/** A shop on its own (no neighbours): full eaves, its recorded front line, its board centred. */
+const alone = (s: ShopHouseSpec): ShopContext => ({
+  eaveBefore: EAVE,
+  eaveAfter: EAVE,
+  frontX: s.frontX,
+  sign: s.sign ? { z: (s.z0 + s.z1) / 2, aframe: false } : null,
+});
+
+export function planShopHouse(s: ShopHouseSpec, ctx: ShopContext = alone(s)): Part[] {
   const d = s.z1 - s.z0; // frontage
   const cz = (s.z0 + s.z1) / 2;
-  const cx = s.frontX - s.depth / 2;
-  const fx = s.frontX;
+  const fx = ctx.frontX;
+  const cx = fx - s.depth / 2;
   const ry = Math.PI / 2; // facing +x
   const bays = bayCount(d);
   const bw = d / bays;
   const bayZ = (i: number) => s.z0 + bw * (i + 0.5);
 
   const body: Part[] = [{ op: 'box', w: s.depth, h: s.height, d, mat: s.wall, x: cx, y: G + s.height / 2, z: cz }];
-  if (s.roof === 'gable') body.push({ op: 'gableZ', w: d + 0.4, d: s.depth + 0.6, h: 1.4, mat: { named: 'roof' }, x: cx, y: G + s.height, z: cz });
-  else if (s.roof === 'shed')
+  if (s.roof === 'gable') {
+    // eaves overhang each side unless a neighbour's wall is near (street.ts trims them short of it)
+    const w = d + ctx.eaveBefore + ctx.eaveAfter;
+    body.push({ op: 'gableZ', w, d: s.depth + 0.6, h: 1.4, mat: { named: 'roof' }, x: cx, y: G + s.height, z: cz + (ctx.eaveAfter - ctx.eaveBefore) / 2 });
+  } else if (s.roof === 'shed')
     body.push({ op: 'shed', x0: fx - s.depth, x1: fx, z0: s.z0, z1: s.z1, y: G + s.height, rise: 1, hi: 'x0', wall: s.wall, roof: { named: 'roof' } });
   else {
     body.push({ op: 'box', w: s.depth + 0.1, h: 0.3, d: d + 0.1, mat: { named: 'dark' }, x: cx, y: G + s.height + 0.15, z: cz });
@@ -55,16 +67,22 @@ export function planShopHouse(s: ShopHouseSpec): Part[] {
     if (s.crest) parts.push({ op: 'sign', sign: s.crest, x: fx + 0.09, y: G + 1.85, z: cz, ry });
   }
   if (s.awning) parts.push({ op: 'box', w: 1.1, h: 0.14, d: d * 0.9, mat: s.awning, x: fx + 0.55, y: G + 2.55, z: cz, rz: -0.38 });
-  if (s.sign) parts.push({ op: 'sign', sign: s.sign.spec, x: fx + 0.08, y: G + s.sign.y, z: cz, ry });
+  if (s.sign && ctx.sign && !ctx.sign.aframe) parts.push({ op: 'sign', sign: s.sign.spec, x: fx + 0.08, y: G + s.sign.y, z: ctx.sign.z, ry });
+  else if (s.sign && ctx.sign?.aframe) {
+    // no room on the facade: the board goes down onto an A-frame on the pavement
+    parts.push({ op: 'box', w: 0.05, h: 1.1, d: 0.9, mat: { solid: '#45291b' }, x: fx + 1.1, y: G + 0.55, z: cz, rz: 0.14 });
+    parts.push({ op: 'sign', sign: s.sign.spec, x: fx + 1.06, y: G + 0.75, z: cz, ry });
+  }
   return parts;
 }
 
 /** The ground footprint of a shop-house, for seam rules. */
-export const shopFootprint = (s: ShopHouseSpec) => ({
+export const shopFootprint = (s: ShopHouseSpec, frontX = s.frontX) => ({
   id: s.id,
   use: s.use,
-  x0: s.frontX - s.depth,
-  x1: s.frontX,
+  revision: s.revision ?? 0,
+  x0: frontX - s.depth,
+  x1: frontX,
   z0: s.z0,
   z1: s.z1,
   height: s.height,
@@ -76,8 +94,8 @@ export const shopFootprint = (s: ShopHouseSpec) => ({
  * frontage: the ramen shop's lanterns and back-lit sign, an AC unit, the bakery's bread rack, the
  * florist's buckets, the bookshop's 100-yen cart. Planned after all shop bodies, in street order.
  */
-export function planAttachments(s: ShopHouseSpec): Part[] {
-  const fx = s.frontX;
+export function planAttachments(s: ShopHouseSpec, frontX = s.frontX): Part[] {
+  const fx = frontX;
   const cz = (s.z0 + s.z1) / 2;
   const parts: Part[] = [];
   for (const a of s.attachments ?? []) parts.push(...attachment(a, s, fx, cz));

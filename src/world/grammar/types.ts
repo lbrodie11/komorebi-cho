@@ -70,6 +70,12 @@ export interface ShopHouseSpec {
   sign?: { spec: SignSpec; y: number };
   hours: readonly [number, number];
   age: number;
+  /** Rebuilt since the lane was laid out: subject to the setback rule (street.ts). */
+  rebuilt?: boolean;
+  /** Width of the lane the shop faces, metres. */
+  lane?: number;
+  /** Bumped when the parcel is rebuilt: part of the building's seed. */
+  revision?: number;
   /** Street-side attachments (planned after all shop bodies, in street order). */
   attachments?: readonly ShopAttachment[];
 }
@@ -85,6 +91,8 @@ export type ShopAttachment =
 export interface Footprint {
   id: string;
   use: Use;
+  /** Bumped when the parcel is rebuilt; part of the seam seed. */
+  revision?: number;
   x0: number;
   x1: number;
   z0: number;

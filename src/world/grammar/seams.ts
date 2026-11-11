@@ -40,7 +40,10 @@ export function classifyGap(a: Footprint, b: Footprint): Seam {
   else if (gap < UTILITY_MAX) kind = 'utility';
   else if (gap < SERVICE_MAX) kind = 'service';
   else kind = p.use === 'food' && q.use === 'food' ? 'awning' : 'yokocho';
-  return { a: p.id, b: q.id, kind, gap, seed: hashString(`${p.id}|${q.id}`) };
+  // seed = hash(both parcels, and their revisions once rebuilt): a rebuilt neighbour gets a fresh seam,
+  // an edit anywhere else never changes it. Revision 0 leaves the original seeds as they were.
+  const rev = (f: Footprint) => (f.revision ? `#${f.revision}` : '');
+  return { a: p.id, b: q.id, kind, gap, seed: hashString(`${p.id}${rev(p)}|${q.id}${rev(q)}`) };
 }
 
 /**
