@@ -30,8 +30,8 @@ export interface Piece {
   chords: readonly ChordStep[];
   melody: readonly ThemeNote[];
   /** The melody's instrument, the comping hand's, and the drums (none: just keys and bass). */
-  lead: 'ep' | 'piano' | 'pluck';
-  comp: 'ep' | 'piano';
+  lead: 'rhodes' | 'piano' | 'pluck';
+  comp: 'rhodes' | 'piano';
   drums: 'brush' | 'boom' | null;
   /** How many 8-bar passes make the piece before a rest (the shape is fixed: theme, variation, ...). */
   passes: number;
@@ -87,7 +87,7 @@ export const PIECES: Record<PieceId, Piece> = {
       N(7, 4, 4, 14),
     ],
     lead: 'piano',
-    comp: 'ep',
+    comp: 'rhodes',
     drums: 'brush',
     passes: 4,
   },
@@ -128,8 +128,8 @@ export const PIECES: Record<PieceId, Piece> = {
       N(7, 0, 4, 11),
       N(7, 4, 4, 14),
     ],
-    lead: 'ep',
-    comp: 'ep',
+    lead: 'rhodes',
+    comp: 'rhodes',
     drums: 'brush',
     passes: 3,
   },
@@ -178,7 +178,7 @@ export const PIECES: Record<PieceId, Piece> = {
       N(7, 4, 4, 16),
     ],
     lead: 'pluck',
-    comp: 'ep',
+    comp: 'rhodes',
     drums: 'boom',
     passes: 4,
   },

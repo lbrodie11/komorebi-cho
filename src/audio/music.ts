@@ -40,6 +40,8 @@ export class Music {
   /** Layer buses: what the director turns up and down. */
   private readonly bus: Record<keyof Layers, GainNode>;
   private readonly tremolo: GainNode;
+  /** The suitcase auto-panners, one per bus the Rhodes plays into. */
+  private readonly autopan = new Map<AudioNode, StereoPannerNode>();
   private readonly crackle: GainNode;
   private readonly plucks = new Map<string, AudioBuffer>();
   private readonly drive: WaveShaperNode;
@@ -53,11 +55,11 @@ export class Music {
       return n;
     };
     this.bus = { drums: mk(0), pad: mk(0), bass: mk(0), keys: mk(0), lead: mk(0) };
-    // the electric piano's soft tremolo: one LFO shared by every EP voice
+    // the Rhodes suitcase's stereo tremolo: one slow LFO swinging the pan
     const lfo = c.createOscillator();
-    lfo.frequency.value = 4.6;
+    lfo.frequency.value = 4.2;
     this.tremolo = c.createGain();
-    this.tremolo.gain.value = 0.1;
+    this.tremolo.gain.value = 0.35;
     lfo.connect(this.tremolo);
     lfo.start();
     // the bass's gentle saturation
@@ -153,7 +155,7 @@ export class Music {
     // the chord, voice-led from the last
     this.voicing = voiceLead(this.voicing, p.key, step);
     const comp = (n: number, at0: number, v0: number, d: number, out: AudioNode) =>
-      p.comp === 'ep' ? this.epiano(n, at0, v0, d, out) : this.piano(n, at0, v0, d, out);
+      p.comp === 'rhodes' ? this.rhodes(n, at0, v0, d, out) : this.piano(n, at0, v0, d, out);
     for (const [i, n] of this.voicing.entries()) {
       const h = humanise(this.rng, 'keys', pos);
       comp(n, at(0) + h.offset + (p.comp === 'piano' ? i * 0.022 : 0), h.vel * 0.8, eighth * 7, this.bus.keys);
@@ -174,7 +176,7 @@ export class Music {
     // the melody: the theme or one of its variations (new each pass)
     if (!this.line || this.line.variation !== v || bar % 8 === 0) this.line = { variation: v, notes: variation(p, v) };
     const lead = (n: number, at0: number, v0: number, d: number, out: AudioNode) =>
-      p.lead === 'ep' ? this.epiano(n, at0, v0, d, out) : p.lead === 'pluck' ? this.pluck(n, at0, v0, d, out) : this.piano(n, at0, v0, d, out);
+      p.lead === 'rhodes' ? this.rhodes(n, at0, v0, d, out) : p.lead === 'pluck' ? this.pluck(n, at0, v0, d, out) : this.piano(n, at0, v0, d, out);
     for (const x of this.line.notes) {
       if (x.bar !== bar % 8) continue;
       // later passes breathe: a note left out now and then (never the motif in bar 0)
@@ -222,41 +224,68 @@ export class Music {
 
   // ── Instruments ──────────────────────────────────────────────────────────
 
-  /** Electric piano: 2-operator FM, the index shaped by an envelope and by velocity (harder = brighter). */
-  private epiano(midi: number, t: number, vel: number, dur: number, out: AudioNode): void {
+  /**
+   * Rhodes piano: a tine struck by a hammer, ringing over a tone bar.
+   *  - the body: a warm 1:1 FM tone whose index decays, so it settles towards a sine (the tone bar);
+   *  - the bark: struck harder, the index starts higher (more of the growl you hear in a Rhodes);
+   *  - the tine: a short metallic "ding" on the attack (a high-ratio modulator, gone in ~50 ms);
+   *  - the suitcase: its stereo tremolo, the voice swinging gently between the speakers.
+   * Low notes ring longer, as on the real instrument.
+   */
+  private rhodes(midi: number, t: number, vel: number, dur: number, out: AudioNode): void {
     const c = this.a.ctx;
     const f = mtof(midi);
+    const dest = this.suitcase(out);
+    const ring = 1 + (Math.max(0, 76 - midi) / 24) * 1.6; // seconds-ish: lower rings longer
+    const end = t + Math.max(dur, 0.2) + ring + 0.5;
+    // the body (tone bar), with the bark in its index
     const car = c.createOscillator();
     car.frequency.value = f;
     const mod = c.createOscillator();
     mod.frequency.value = f;
     const index = c.createGain();
-    const peak = f * (0.8 + vel * 2.2);
-    index.gain.setValueAtTime(peak, t);
-    index.gain.setTargetAtTime(f * 0.25, t + 0.005, 0.25);
+    index.gain.setValueAtTime(f * (0.25 + vel * vel * 1.9), t);
+    index.gain.setTargetAtTime(f * 0.06, t + 0.004, 0.35);
     mod.connect(index).connect(car.frequency);
     const amp = c.createGain();
     amp.gain.setValueAtTime(0, t);
-    amp.gain.linearRampToValueAtTime(vel * 0.16, t + 0.006);
-    amp.gain.setTargetAtTime(vel * 0.07, t + 0.01, 0.4);
-    amp.gain.setTargetAtTime(0, t + Math.max(dur, 0.15), 0.25);
-    const trem = c.createGain();
-    trem.gain.value = 1;
-    this.tremolo.connect(trem.gain);
-    car.connect(amp).connect(trem).connect(out);
-    const end = t + Math.max(dur, 0.15) + 1.5;
+    amp.gain.linearRampToValueAtTime(vel * 0.17, t + 0.004);
+    amp.gain.setTargetAtTime(vel * 0.05, t + 0.01, ring * 0.45);
+    amp.gain.setTargetAtTime(0, t + Math.max(dur, 0.2), 0.22);
+    car.connect(amp).connect(dest);
+    // the tine's ding
+    const tine = c.createOscillator();
+    tine.frequency.value = f;
+    const tmod = c.createOscillator();
+    tmod.frequency.value = f * 14;
+    const tidx = c.createGain();
+    tidx.gain.setValueAtTime(f * (0.6 + vel * 1.4), t);
+    tidx.gain.setTargetAtTime(0, t + 0.002, 0.018);
+    tmod.connect(tidx).connect(tine.frequency);
+    const tamp = c.createGain();
+    tamp.gain.setValueAtTime(vel * 0.06, t);
+    tamp.gain.setTargetAtTime(0, t + 0.002, 0.045);
+    tine.connect(tamp).connect(dest);
     for (const o of [car, mod]) {
       o.start(t);
       o.stop(end);
     }
-    car.onended = () => {
-      try {
-        this.tremolo.disconnect(trem.gain);
-      } catch {
-        /* already gone */
-      }
-      trem.disconnect();
-    };
+    for (const o of [tine, tmod]) {
+      o.start(t);
+      o.stop(t + 0.3);
+    }
+  }
+
+  /** The suitcase's stereo tremolo for a bus: one auto-panner per destination, shared by every Rhodes voice. */
+  private suitcase(out: AudioNode): AudioNode {
+    let p = this.autopan.get(out);
+    if (!p) {
+      const pan = this.a.ctx.createStereoPanner();
+      this.tremolo.connect(pan.pan);
+      pan.connect(out);
+      this.autopan.set(out, (p = pan));
+    }
+    return p;
   }
 
   /** Felt piano: soft hammer, warm partials, decay that shortens up the keyboard. */

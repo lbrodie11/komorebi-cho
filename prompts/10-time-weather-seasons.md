@@ -65,6 +65,8 @@ Weather and seasons that change **affordances**, not just colours, plus small fe
    - **OKLab experiment:** rebuild the palette LUT with OKLab distance and compare side by side; adopt it only if it visibly helps (watch warm dusk walls snapping to grey).
    - **The benchmark scene:** Sunday Café at blue hour in the rain. New players start at 16:36, so make sure golden hour into blue hour lands in the first minutes too.
 
+**Seen while working on prompt 11 (check first):** at dusk in the rain, the lit shop windows show as large flat yellow blocks: the glass reads as a flat, saturated rectangle rather than a window, and the effect is strongest on the florist and the ramen shop. Main does the same (compared on the same frame, 16:48 in rain, before and after prompt 08's changes), so it predates this work. Likely suspects: the rain/wetness boost on window emission or the wet-glass reflection, pushing the glass to the top of the palette with no variation; or the wet-street mirror reflecting the windows back over the facades. The fix should keep the windows warm and readable as windows (frames, a little variation behind the glass) and keep the hierarchy check (the kissaten still the brightest thing at 19:15).
+
 ## Acceptance criteria
 - A 30-minute fast-forward through a year shows all four seasons, at least five weather states and every festival, with no visual glitches.
 - Residents measurably change behaviour in rain (path heat-map comparison in the PR).
