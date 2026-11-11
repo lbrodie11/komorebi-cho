@@ -204,6 +204,7 @@ const history = new History({
   move: (id, x, z, ry) => build.move(id, x, z, ry),
   shop: (id, z0, z1) => applyShop(id, z0, z1, freshEdit),
 });
+build.onShopCarry = (on) => hud.setShopCarry(on);
 build.onCommit = (c) => {
   freshEdit = true;
   try {
@@ -1216,7 +1217,6 @@ function frame(now: number): void {
   const sky = skyAt(hour, rain, clock.season);
   world.update(dt, time, clock, sky, gm);
   build.showIslands();
-  hud.setShopCarry(build.carryingShop);
   const s0 = performance.now();
   if (!frozen) {
     residents.update(dt, gm, hour, rain, time);

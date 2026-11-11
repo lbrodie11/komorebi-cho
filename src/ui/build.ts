@@ -99,7 +99,17 @@ export class BuildTool {
   /** Move mode: the shop under the pointer (nothing placed nearer). */
   private shopHover: ShopExtent | null = null;
   /** Move mode: the shop being carried: where it was, its frontage now, where the pointer took hold, where it would go. */
-  private heldShop: { id: string; from: { z0: number; z1: number }; front: number; grab: number; z0: number; z1: number; ok: boolean } | null = null;
+  private held_: { id: string; from: { z0: number; z1: number }; front: number; grab: number; z0: number; z1: number; ok: boolean } | null = null;
+  /** Told when a shop is picked up or put down (the HUD shows Narrower / Wider; the frame loop may be idle). */
+  onShopCarry: ((carrying: boolean) => void) | null = null;
+  private get heldShop() {
+    return this.held_;
+  }
+  private set heldShop(v) {
+    const was = this.held_ !== null;
+    this.held_ = v;
+    if (was !== (v !== null)) this.onShopCarry?.(v !== null);
+  }
   /** The pointer's last ground point and snap mode, so a resize can re-place the carried shop. */
   private lastHit: { z: number; free: boolean } | null = null;
   /**
