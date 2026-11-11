@@ -171,9 +171,19 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
   - **Kept with the choice:** the causes are stored on the resident (`Agent.cause`).
   - **Credit:** a shared moment on that seat is split between the thing it happened at and those causes. A lantern can earn a friendship made on a bench that was always there.
   - **Tests:** `tests/field.test.ts` and `tests/bonds-sim.test.ts`.
+- **Sixth step (2026-11-11): every placed thing can triangulate, "helped", and the hook as a test.**
+  - **Admiring:** someone stopping to admire any placed thing draws the eyes of people near it, so all the admire-only items have an emission now.
+  - **Lanterns at dusk:** a placed lantern catches the eye of whoever is by it as the lamps come on at 18:00.
+  - **"Helped":** a promotion names edits that helped (a 20–50% share) as well as those that made it possible (50% or more). The story lines say "had a part in it".
+  - **`tests/hook.test.ts`, the acceptance run:** the same seed runs twice over nine days, with and without a bench and a wind chime by the pond.
+    - With them, pairs climb and the event names the edit.
+    - The same pairs climb less far in the bare town.
+    - The bare town credits nothing.
+    - Story diversity is over 0.75.
+    - The ledger is deterministic.
 - **Still to do:**
   - Task 1, the scoring split and the "Why?" view.
-  - Task 3, the rest: attention profiles as catalogue data, so every admire-only item has one, and festivals (prompt 10).
+  - Task 3, the rest: per-item attention profiles as catalogue data (radius, when), and festivals (prompt 10).
   - Task 5, the rest: the but-for check covers seats only. Extend it to other choices (a route past a vending machine, a view), and add the "helped" label for overdetermined cases.
   - The three-panel bond sheet and the "while you were away" line.
-  - The acceptance run: the hook test, the metamorphic tests and the soak.
+  - The metamorphic tests (an unrelated object moved far away changes no credit; renamed ids change nothing) and the cost measurement.

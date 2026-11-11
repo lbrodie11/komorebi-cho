@@ -29,6 +29,8 @@ export const MOMENT_HALF_LIFE = 8;
 export const FADE_DAYS = 7;
 /** An edit is credited with a promotion when it carries at least this share of the moments behind it. */
 export const CREDIT_SHARE = 0.5;
+/** ...and "helped" with at least this share. */
+export const HELP_SHARE = 0.2;
 
 const idx = (r: Rung): number => RUNGS.indexOf(r);
 
@@ -58,6 +60,8 @@ export interface Promotion {
   to: Rung;
   day: number;
   credited: string[];
+  /** Edits that had a real part in it but not the main one (each under CREDIT_SHARE, at least HELP_SHARE). */
+  helped: string[];
 }
 
 /** One key per pair, whichever way round they're named. */
@@ -169,10 +173,13 @@ export class Bonds {
     o.promotedOn = d;
     // who made it possible: the edits behind at least CREDIT_SHARE of the moments since the last rung
     const total = Object.values(o.credit).reduce((s, v) => s + v, 0);
-    const credited = total > 0 ? Object.keys(o.credit).filter((id) => id !== '' && o.credit[id]! / total >= CREDIT_SHARE - 1e-9) : [];
+    const share = (id: string) => (total > 0 ? o.credit[id]! / total : 0);
+    const ids = Object.keys(o.credit).filter((id) => id !== '');
+    const credited = ids.filter((id) => share(id) >= CREDIT_SHARE - 1e-9);
+    const helped = ids.filter((id) => share(id) < CREDIT_SHARE - 1e-9 && share(id) >= HELP_SHARE - 1e-9);
     o.credit = {};
     const [x, y] = a < b ? [a, b] : [b, a];
-    return { a: x, b: y, from, to: next, day: d, credited };
+    return { a: x, b: y, from, to: next, day: d, credited, helped };
   }
 
   /**

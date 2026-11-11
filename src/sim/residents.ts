@@ -583,6 +583,7 @@ export class Residents {
     this.syncPassages();
     this.diaryDay(rain);
     this.socialPass(gm);
+    this.duskPass(hour);
     for (const a of this.agents) {
       a.ring.visible = this.highlights && !a.hidden && this.minutes - a.changedAt < DAY;
       a.still = this.reducedMotion;
@@ -1278,15 +1279,29 @@ export class Residents {
     return looking.length;
   }
 
+  /** The hour last tick (to catch the lamps coming on). */
+  private lastHour = -1;
+  /** As the evening lamps come on (18:00), each lantern the player placed catches the eye of whoever is by it. */
+  private duskPass(hour: number): void {
+    const was = this.lastHour;
+    this.lastHour = hour;
+    if (was < 0 || !(was < 18 && hour >= 18 && hour - was < 1)) return;
+    for (const o of this.smart.objects.values()) if (o.placed && o.glow) this.attention(o.x, o.z, 3.5, 'lit', o);
+  }
+
   /** A pair climbed a rung: a line in the feed (naming the thing the player placed, if it was behind it), and an event. */
   private promoted(p: Promotion | null): void {
     if (!p) return;
-    const made = p.credited.map((id) => this.smart.objects.get(id)).find((o) => o);
-    const key = `story.bond.${p.to}${made ? '.because' : ''}` as MsgKey;
+    // the thing behind it: what made it possible, or failing that something that helped
+    const of = (ids: readonly string[]) => ids.map((id) => this.smart.objects.get(id)).find((o) => o);
+    const made = of(p.credited);
+    const helper = made ? undefined : of(p.helped);
+    const key = `story.bond.${p.to}${made ? '.because' : helper ? '.helped' : ''}` as MsgKey;
     // told from greeting terms up, and a first nod only when something the player placed was behind
     // it: fourteen neighbours becoming nodding acquaintances would otherwise fill the feed
-    if (p.to !== 'familiar' && (p.to !== 'nod' || made)) this.story(msg(key, { a: who(p.a), b: who(p.b), ...(made ? { thing: thing(made.label) } : {}) }), p.a);
-    this.bus.emit('bond', { a: p.a, b: p.b, to: p.to, credited: p.credited });
+    if (p.to !== 'familiar' && (p.to !== 'nod' || made))
+      this.story(msg(key, { a: who(p.a), b: who(p.b), ...((made ?? helper) ? { thing: thing((made ?? helper)!.label) } : {}) }), p.a);
+    this.bus.emit('bond', { a: p.a, b: p.b, to: p.to, credited: p.credited, helped: p.helped });
   }
 
   /** When each pair last greeted (game minutes), and the chats already told today. */
@@ -1463,6 +1478,9 @@ export class Residents {
         if (o.kind === 'vending' || o.kind === 'cafe') a.needs.thirst = 0;
         if (o.kind === 'bench' || o.kind === 'cafe') a.needs.fatigue = 0;
         if (o.kind === 'shrine') this.bus.emit('prayed', { x: o.x, z: o.z });
+        // someone stopping to admire a thing the player placed makes the people near it look too:
+        // every such thing can bring two strangers' eyes to the same place
+        if (o.placed && o.kind === 'admire') this.attention(o.x, o.z, 3.5, 'admire', o);
         this.remember(a, o);
         if (o.placed) {
           const others = this.agents.filter((b) => b !== a && !b.hidden && b.arrived && b.task?.obj?.id === o.id).map((b) => b.p.id);

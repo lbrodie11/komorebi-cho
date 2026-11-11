@@ -46,7 +46,13 @@ describe('the bond ladder', () => {
     let q = null;
     for (let d = 9; d < 14 && !q; d++) q = b.moment('mitsuko', 'genzo', d + 0.2);
     expect(q).toMatchObject({ to: 'chat', credited: [] });
-    // two edits that each did half: both helped
+    // a third of the moments at a lantern, the rest nobody's doing: it helped, it didn't make it
+    const h = new Bonds();
+    for (let d = 0; d < 6; d++) h.together('a', 'b', d);
+    h.moment('a', 'b', 6, { lantern: 1 });
+    h.moment('a', 'b', 6.4);
+    expect(h.moment('a', 'b', 6.8)).toMatchObject({ to: 'greeting', credited: [], helped: ['lantern'] });
+    // two edits that each did half: both made it possible
     const c = new Bonds();
     for (let d = 0; d < 6; d++) c.together('a', 'b', d);
     c.moment('a', 'b', 6, { bench: 0.5, lantern: 0.5 });
