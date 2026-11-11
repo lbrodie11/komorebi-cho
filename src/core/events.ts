@@ -43,6 +43,8 @@ export type GameEvents = {
   routine: { who: string; id: string };
   /** A resident used a placed object; `with` are the others using it at the same moment (drives Memories). */
   used: { who: string; id: string; with: string[] };
+  /** Someone rang the shrine's bell rope (they came to pray), at (x, z): for the soundscape. */
+  prayed: { x: number; z: number };
   bell: { hour: number };
   sfx: { name: 'place' | 'remove' | 'flap' | 'meow' | 'click' | 'shutter' | 'chime'; x?: number; z?: number };
 };

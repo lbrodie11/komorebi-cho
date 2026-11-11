@@ -326,6 +326,7 @@ export const en = {
   'caption.creak': '[a bench creaks]',
   'caption.footsteps': '[footsteps on wet stone]',
   'caption.drips': '[dripping eaves]',
+  'caption.suzu': '[a shrine bell rattles]',
 
   // ── The story feed ──
   'story.label': 'What the neighborhood is up to',

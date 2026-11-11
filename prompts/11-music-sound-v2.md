@@ -46,7 +46,7 @@ Done (first pass):
 - **Captions** for every emitter (when it comes within earshot) and event.
 - **Soundtrack export:** `soundtrack.html` (dev only) renders the score offline for a mood, measures it and offers a WAV.
 
-Not verified (needs people): the listening acceptance criteria (the theme on its own, the 60-minute session on headphones, laptop speakers and a phone), and audio CPU on the reference laptop. Offline, 2 minutes of score rendered in 11–20 s on a heavily loaded machine. Still to do: HRTF for a few sources (if it sounds better), the shrine bell rope when someone prays, placed wind chimes through the spatial path (they still use the effects bus), 30-minute loudness renders including the one-shots.
+Not verified (needs people): the listening acceptance criteria (the theme on its own, the 60-minute session on headphones, laptop speakers and a phone), and audio CPU on the reference laptop. Offline, 2 minutes of score rendered in 11–20 s on a heavily loaded machine. The shrine's bell rope rattles when someone prays; placed wind chimes and every other effect are positioned through the same listener. Still to do: HRTF for a few sources (if it sounds better), and 30-minute loudness renders including the one-shots.
 
 ## Tasks (in phases; review and listen after each)
 1. **One exceptional theme first: "The Last Train Home"** (68–74 BPM, nostalgic). Evaluate it as music on its own before making anything adaptive.

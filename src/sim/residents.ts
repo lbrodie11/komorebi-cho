@@ -1021,6 +1021,7 @@ export class Residents {
       onArrive: () => {
         if (o.kind === 'vending' || o.kind === 'cafe') a.needs.thirst = 0;
         if (o.kind === 'bench' || o.kind === 'cafe') a.needs.fatigue = 0;
+        if (o.kind === 'shrine') this.bus.emit('prayed', { x: o.x, z: o.z });
         this.remember(a, o);
         if (o.placed) {
           const others = this.agents.filter((b) => b !== a && !b.hidden && b.arrived && b.task?.obj?.id === o.id).map((b) => b.p.id);

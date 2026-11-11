@@ -29,7 +29,8 @@ export type CaptionKind =
   | 'cup'
   | 'creak'
   | 'footsteps'
-  | 'drips';
+  | 'drips'
+  | 'suzu';
 
 export interface AmbienceState {
   hour: number;
@@ -40,7 +41,7 @@ export interface AmbienceState {
 }
 
 /** Neighbourhood sounds the simulation causes. */
-export type LifeEvent = 'shutter' | 'cup' | 'creak' | 'footstep';
+export type LifeEvent = 'shutter' | 'cup' | 'creak' | 'footstep' | 'suzu';
 
 /** The same kind of sound is captioned at most once in this many seconds. */
 const CAPTION_GAP = 30;
@@ -262,7 +263,7 @@ export class Ambience {
 
   /** Something in the neighbourhood made a sound, at (x, z): through the density budget, from where it happened. */
   event(kind: LifeEvent, x: number, z: number): void {
-    const importance = kind === 'shutter' ? 0.8 : kind === 'footstep' ? 0.2 : 0.5;
+    const importance = kind === 'shutter' || kind === 'suzu' ? 0.8 : kind === 'footstep' ? 0.2 : 0.5;
     const t = this.a.now + 0.02;
     if (!this.budget.allow(t, importance)) return;
     const at = place(this.listener, x, z);
@@ -280,6 +281,12 @@ export class Ambience {
       case 'creak':
         this.creak(t, 0.05 * at.gain, at.pan);
         this.caption('creak');
+        break;
+      case 'suzu':
+        // the shrine's bell rope: a cluster of small bells, shaken twice
+        for (const k of [0, 0.32])
+          for (let i = 0; i < 5; i++) this.ping(t + k + this.rng.range(0, 0.06), this.rng.range(3300, 4300), 0.35, 0.02 * at.gain, at.pan, this.a.ambience);
+        this.caption('suzu');
         break;
       case 'footstep':
         this.noiseHit(t, (this.state.wet ?? 0) > 0.3 ? 900 : 1600, 1.2, 0.08, 0.05 * at.gain, at.pan, false);

@@ -428,6 +428,7 @@ function meet(id: string): void {
 }
 bus.on('sfx', ({ name, x, z }) => sound.sfx(name, x !== undefined && z !== undefined ? { x, z } : undefined));
 world.onShutter = (x, z) => sound.event('shutter', x, z);
+bus.on('prayed', ({ x, z }) => sound.event('suzu', x, z));
 // the neighbourhood's own sounds, from where they happen: a bench taking someone's weight, a cup set down
 bus.on('used', ({ id }) => {
   const o = smart.objects.get(id);
