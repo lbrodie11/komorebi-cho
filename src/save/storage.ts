@@ -4,6 +4,7 @@ import type { PlaceableKind } from '../world/props';
 import { DEFAULT_PIXEL, PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
 import { LEGACY_DIFFUSION_DEFAULT, sanitizeDiffusion } from '../render/diffusion';
 import { isKey, type Msg, type Params } from '../i18n';
+import type { Memory } from '../sim/memories';
 import type { SaveStamp } from './tabs';
 
 export const SAVE_VERSION = 2;
@@ -20,12 +21,16 @@ export interface PlacedRecord {
 export interface SaveData extends SaveStamp {
   version: number;
   minutes: number;
+  /** Camera rotation (radians). Optional: restored on return visits; zoom and pan always start at Fit. */
+  yaw?: number;
   season: Season;
   weather: WeatherMode;
   placed: PlacedRecord[];
   memory: Record<string, string[]>;
   /** First-minutes hints already done ('place', 'react', 'meet'). */
   tutorial: string[];
+  /** Journal memories (sim/memories.ts), oldest first. Optional on disk. */
+  memories: Memory[];
   /** The Notes panel: the last story lines, oldest first. */
   notes: { msg: Msg; day: number; minutes: number }[];
   settings: {
@@ -47,6 +52,37 @@ export interface SaveData extends SaveStamp {
 }
 
 const TEXT_SCALES = [1, 1.25, 1.5];
+const MEMORY_KINDS = ['noticed', 'favorite', 'together'];
+const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** A saved memory, field by field; anything malformed drops just that memory. */
+function sanitizeMemory(v: unknown): Memory | null {
+  if (!isObj(v) || typeof v.id !== 'string' || !MEMORY_KINDS.includes(v.kind as string) || !strs(v.who) || !v.who.length) return null;
+  if (typeof v.objectId !== 'string' || typeof v.objectKind !== 'string' || !isObj(v.snapshot)) return null;
+  const s = v.snapshot;
+  if (!finite(s.minutes) || !finite(s.rain) || !(SEASONS as readonly unknown[]).includes(s.season) || !isObj(s.focus)) return null;
+  if (!finite(s.focus.x) || !finite(s.focus.z) || !Array.isArray(s.objects) || !Array.isArray(s.people)) return null;
+  const objects = s.objects.filter(
+    (o): o is { id: string; kind: string; x: number; z: number; ry: number } =>
+      isObj(o) && typeof o.id === 'string' && typeof o.kind === 'string' && finite(o.x) && finite(o.z) && finite(o.ry),
+  );
+  const people = s.people.filter((p): p is { id: string; x: number; z: number } => isObj(p) && typeof p.id === 'string' && finite(p.x) && finite(p.z));
+  return {
+    id: v.id,
+    kind: v.kind as Memory['kind'],
+    who: v.who,
+    objectId: v.objectId,
+    objectKind: v.objectKind,
+    snapshot: {
+      minutes: Math.max(0, s.minutes),
+      season: s.season as Season,
+      rain: Math.min(1, Math.max(0, s.rain)),
+      focus: { x: s.focus.x, z: s.focus.z },
+      objects,
+      people,
+    },
+  };
+}
 const NOTES_MAX = 50;
 
 /** A saved message: a known key and plain params (nested messages allowed, a few levels deep). */
@@ -98,6 +134,12 @@ export function sanitize(d: Record<string, unknown>): SaveData {
   if (isObj(d.memory)) {
     for (const [who, ids] of Object.entries(d.memory)) if (Array.isArray(ids)) memory[who] = ids.filter((x): x is string => typeof x === 'string');
   }
+  const memories: Memory[] = [];
+  if (Array.isArray(d.memories))
+    for (const m of d.memories.slice(-24)) {
+      const ok = sanitizeMemory(m);
+      if (ok) memories.push(ok);
+    }
   const notes: SaveData['notes'] = [];
   if (Array.isArray(d.notes))
     for (const n of d.notes.slice(-NOTES_MAX)) {
@@ -111,6 +153,8 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     ...(typeof d.writer === 'string' ? { writer: d.writer } : {}),
     ...(finite(d.savedAt) ? { savedAt: d.savedAt } : {}),
     minutes: finite(d.minutes) && d.minutes >= 0 ? d.minutes : DEFAULT_MINUTES,
+    // one of the four quarter-turn views (π/4 + kπ/2), whatever was stored
+    ...(finite(d.yaw) ? { yaw: Math.PI / 4 + (((Math.round((d.yaw - Math.PI / 4) / (Math.PI / 2)) % 4) + 4) % 4) * (Math.PI / 2) } : {}),
     season: (SEASONS as readonly unknown[]).includes(d.season) ? (d.season as Season) : 'spring',
     weather: (WEATHER_MODES as readonly unknown[]).includes(d.weather) ? (d.weather as WeatherMode) : 'auto',
     placed: placed.map(({ id, kind, x, z, ry }) => ({ id, kind, x, z, ry: ry % (Math.PI * 2) })),
@@ -118,6 +162,7 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     // a save from before the hints existed belongs to a returning player: they never need them
     tutorial: Array.isArray(d.tutorial) ? d.tutorial.filter((x): x is string => typeof x === 'string') : ['meet', 'place', 'react'],
     notes,
+    memories,
     settings: {
       // an unknown preset would break the canvas layout; fall back to the default look
       pixel: (PIXEL_PRESETS as readonly unknown[]).includes(settings.pixel) ? (settings.pixel as PixelPreset) : DEFAULT_PIXEL,

@@ -314,10 +314,11 @@ button.px.warn {
   animation: in 0.5s ease-out;
 }
 .story .line.old {
-  opacity: 0.5;
+  /* dimmed with a colour, not opacity: it must still pass text contrast */
+  color: var(--muted);
 }
 .story .line {
-  transition: opacity 3s;
+  transition: opacity 0.8s;
 }
 .story .line.fading {
   opacity: 0;
@@ -449,6 +450,89 @@ button.px.warn {
   list-style: none;
   margin: 0 0 8px;
   padding: 0;
+}
+/* Journal: FRAME/12's panel grammar in the game's colours. Its variables are set here, on the
+   journal only, so the rest of the HUD keeps its own look; quiet 1 px rules, amber for the cuts. */
+.notes.open {
+  width: min(560px, calc(100vw - 32px));
+}
+.notes h5 {
+  margin: 10px 0 6px;
+  font-size: calc(12px * var(--ts, 1));
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.journal {
+  --f-sheet: #16141f;
+  --f-panel: #1d1a2a;
+  --f-desk: transparent;
+  --f-ink: var(--cream);
+  --f-ink-2: var(--muted);
+  --f-rule: var(--line);
+  --f-tone: var(--line);
+  --f-marker: var(--amber);
+  --f-marker-ink: var(--ink);
+  --f-stroke: 1px;
+  --f-gutter-scene: 8px;
+  --f-gutter-change: 8px;
+  --f-shadow-sheet: none;
+  --font-f-body: var(--font);
+  --font-f-display: var(--font);
+  --font-f-mono: var(--font);
+}
+.journal .f12-sheet {
+  padding: 14px 4px 4px;
+}
+/* three cuts side by side, like a manga strip, even in a narrow panel (FRAME/12 stacks them below 860 px) */
+.journal .f12-scene.f12-scene-three {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.journal .f12-panel-body {
+  padding: 8px;
+}
+.journal .f12-cut {
+  color: var(--amber);
+  font-size: calc(10px * var(--ts, 1));
+}
+.journal .mem-img img {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: auto;
+}
+.journal .mem-title {
+  font-size: calc(15px * var(--ts, 1));
+  color: var(--amber);
+}
+.journal .mem-title:focus {
+  outline: none;
+}
+.journal .mem-when {
+  font-size: calc(11px * var(--ts, 1));
+  color: var(--muted);
+}
+.journal .mem-caption {
+  margin: 4px 0 6px;
+  line-height: 1.4;
+}
+.journal .mem-older {
+  margin-top: 8px;
+  font-size: calc(11px * var(--ts, 1));
+}
+.journal .mem-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+.journal .mem-list button {
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  font-size: calc(12px * var(--ts, 1));
 }
 .notes-list li {
   padding: 6px 0;
@@ -601,6 +685,26 @@ button.px.warn {
 .modal .hint {
   font-size: calc(12px * var(--ts, 1));
   color: var(--muted);
+}
+
+/* Zoom: three small buttons at the right edge; they fade back with the dock when idle */
+.zoom-box {
+  position: absolute;
+  right: 22px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  transition: opacity 0.4s;
+}
+.zoom-box.idle {
+  opacity: 0.35;
+}
+.photo-bar input[type='range'] {
+  width: 140px;
+  accent-color: var(--amber);
+  align-self: center;
 }
 
 /* Sound captions: bottom centre, above the dock */
@@ -758,6 +862,10 @@ button.px.warn {
   .captions {
     bottom: 76px;
   }
+  .zoom-box {
+    right: 8px;
+    bottom: 64px;
+  }
   .meet-hint {
     bottom: 64px;
   }
@@ -834,6 +942,10 @@ button.px.warn {
   }
   .captions {
     bottom: 64px;
+  }
+  .zoom-box {
+    right: 8px;
+    bottom: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

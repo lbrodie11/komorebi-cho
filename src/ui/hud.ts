@@ -7,7 +7,10 @@ import type { ToolMode } from './build';
 import type { ResidentInfo } from '../sim/residents';
 import { PERSONAS } from '../sim/personas';
 import { PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
-import { fmt, t, type Msg, type MsgKey } from '../i18n';
+import { fmt, msg, t, type Msg, type MsgKey } from '../i18n';
+import type { Memory } from '../sim/memories';
+import { fragment, panel, scene, sheet, unsafeRaw } from '@frame12/static';
+import '@frame12/static/static.css';
 
 export const TEXT_SCALES = [1, 1.25, 1.5] as const;
 export type TextScale = (typeof TEXT_SCALES)[number];
@@ -18,6 +21,29 @@ export interface Note {
   day: number;
   minutes: number;
 }
+/** Where the journal gets its memories, and how it draws a memory's panels (re-rendered from the snapshot). */
+export interface MemorySource {
+  list(): readonly Memory[];
+  /** Render cut 0 (wide), 1 (medium) or 2 (close) of a memory; a PNG data URL, or null if it can't now. */
+  render(m: Memory, cut: 0 | 1 | 2): string | null;
+}
+
+/** The words for a memory: its title and caption, true to the event that made it. */
+export function memoryWords(m: Memory): { title: string; caption: string; when: string } {
+  const who = (id: string | undefined) => msg(`persona.${id ?? ''}.short` as MsgKey);
+  const thing = msg(`noun.${m.objectKind}` as MsgKey);
+  const caption = t(`memory.${m.kind}` as MsgKey, { who: who(m.who[0]), other: who(m.who[1]), thing });
+  const mins = Math.floor(m.snapshot.minutes % 1440);
+  const time = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  const when = t('memory.when', { day: Math.floor(m.snapshot.minutes / 1440) + 1, season: t(`season.${m.snapshot.season}` as MsgKey), time });
+  return { title: t(`memory.title.${m.kind}` as MsgKey), caption, when };
+}
+const CUTS: [MsgKey, string][] = [
+  ['memory.cut.wide', 'C—01'],
+  ['memory.cut.medium', 'C—02'],
+  ['memory.cut.close', 'C—03'],
+];
+
 /** Notes keeps this many lines (a ring buffer, saved). */
 export const NOTES_MAX = 50;
 import type { PauseReason } from '../save/tabs';
@@ -40,9 +66,15 @@ export interface HudActions {
   setDiffusion(s: number): void;
   setCaptions(on: boolean): void;
   setTextScale(s: TextScale): void;
-  /** Open a neighbour's card (from the People list). */
+  /** One zoom step in (1) or out (-1), about the centre. */
+  zoom(dir: 1 | -1): void;
+  /** Fit the whole town. */
+  fit(): void;
+  /** Photo mode's zoom slider: a magnification, 0.8–3. */
+  setZoom(z: number): void;
+  /** Open a neighbor's card (from the People list). */
   meet(id: string): void;
-  /** Bring the camera to a neighbour. */
+  /** Bring the camera to a neighbor. */
   showMe(id: string): void;
   /** The bench hint's sparkle was pressed. */
   hintPressed(): void;
@@ -88,6 +120,14 @@ export class Hud {
   private readonly help = el('div', 'help panel');
   private readonly notes = el('div', 'notes panel');
   private readonly notesList = el('ol', 'notes-list');
+  private readonly memoriesBox = el('div', 'journal');
+  private memorySource: MemorySource | null = null;
+  /** The memory shown open in the journal (by id); the newest when null. */
+  private memoryOpen: string | null = null;
+  /** Rendered panels this session, by `${memory id}:${cut}` (cleared when the look changes). */
+  private readonly memoryImages = new Map<string, string>();
+  /** What the memories box last showed (open memory and count), so a new story line doesn't rebuild it and steal focus. */
+  private memoriesShown = '';
   private readonly people = el('div', 'people panel');
   private readonly peopleList = el('ul', 'people-list');
   private readonly palette = el('div', 'palette panel');
@@ -96,6 +136,8 @@ export class Hud {
   /** Another tab is saving the town (save/tabs.ts): a note above the dock with "Use this tab". */
   private readonly saveNote = el('div', 'save-note panel');
   private readonly photoBar = el('div', 'photo-bar panel');
+  private readonly zoomBox = el('div', 'zoom-box panel');
+  private readonly zoomSlider = el('input');
   private readonly modal = el('div', 'modal');
   private readonly hint = el('div', 'hint-spot');
   private readonly hintLabel = el('span', 'hint-label panel');
@@ -282,7 +324,24 @@ export class Hud {
           if (url) this.showCapture(url);
         }),
     );
+    // zoom: small −/+/Fit controls (the wheel and pinch are the main way); a precise slider only in photo mode
+    this.zoomBox.setAttribute('role', 'group');
+    this.text(() => this.zoomBox.setAttribute('aria-label', t('zoom.label')));
+    this.zoomBox.append(
+      this.btn('zoomIn', null, 'zoom.in', () => this.act.zoom(1)),
+      this.btn('zoomOut', null, 'zoom.out', () => this.act.zoom(-1)),
+      this.btn('fit', null, 'zoom.fit', () => this.act.fit()),
+    );
+    const zs = this.zoomSlider;
+    zs.type = 'range';
+    zs.min = '0.8';
+    zs.max = '3';
+    zs.step = '0.01';
+    zs.value = '1';
+    this.text(() => zs.setAttribute('aria-label', t('zoom.slider')));
+    zs.addEventListener('input', () => this.act.setZoom(Number(zs.value)));
     this.photoBar.append(
+      zs,
       this.captureBtn,
       this.btn(null, 'photo.exit', 'photo.exit', () => this.togglePhoto(false)),
     );
@@ -346,6 +405,7 @@ export class Hud {
       ...this.panels,
       this.captions,
       this.dock,
+      this.zoomBox,
       this.photoBar,
       this.modal,
       this.splash,
@@ -355,7 +415,8 @@ export class Hud {
     // toolbar auto-hide: any input wakes it; a slow timer hides it (cheap, and stops with nothing to do)
     const wake = () => {
       this.lastInput = performance.now();
-      if (this.dock.classList.contains('idle')) this.dock.classList.remove('idle');
+      this.dock.classList.remove('idle');
+      this.zoomBox.classList.remove('idle');
     };
     for (const ev of ['pointermove', 'pointerdown', 'keydown', 'wheel', 'focusin'] as const) window.addEventListener(ev, wake, { passive: true });
     window.setInterval(() => this.idleCheck(), 1000);
@@ -575,7 +636,10 @@ export class Hud {
     for (const q of this.panels) if (q !== p && q.classList.contains('open')) this.setPanel(q, false);
     this.closeCard();
     this.setPanel(p, open);
-    if (open && p === this.notes) this.renderNotes();
+    if (open && p === this.notes) {
+      this.memoriesShown = ''; // opening redraws (the look may have changed since)
+      this.renderNotes();
+    }
     if (open && p === this.people) this.renderPeople();
   }
 
@@ -613,6 +677,8 @@ export class Hud {
     const keys = el('p');
     const touch = el('p');
     const code = el('p', 'muted');
+    const credit = el('p', 'muted');
+    this.text(() => (credit.textContent = t('help.credit')));
     this.text(() => {
       h.textContent = t('help.title');
       intro.textContent = t('help.intro');
@@ -626,22 +692,117 @@ export class Hud {
       keys,
       touch,
       code,
+      credit,
       this.btn(null, 'common.close', null, () => this.toggleHelp()),
     );
   }
 
   private buildNotes(): void {
     const h = el('h4');
-    this.text(() => (h.textContent = t('notes.title')));
+    const hm = el('h5');
+    const hl = el('h5');
+    this.text(() => {
+      h.textContent = t('notes.title');
+      hm.textContent = t('journal.memories');
+      hl.textContent = t('journal.lately');
+    });
     this.notes.append(
       h,
+      hm,
+      this.memoriesBox,
+      hl,
       this.notesList,
       this.btn(null, 'common.close', null, () => this.toggleNotes()),
     );
   }
 
+  setMemorySource(src: MemorySource): void {
+    this.memorySource = src;
+  }
+
+  /** The look changed: memory panels are re-rendered in it next time. */
+  forgetMemoryImages(): void {
+    this.memoryImages.clear();
+    this.memoriesShown = '';
+  }
+
+  /**
+   * Memories: the open one as a FRAME/12 sheet of three cuts (wide, closer, the moment), re-rendered
+   * from its snapshot, and the earlier ones as a list to open. Quiet panels in the game's colors:
+   * the journal is where the town tells its stories, so it may be a little more graphic than the HUD.
+   */
+  private renderMemories(force = false): void {
+    const box = this.memoriesBox;
+    const list = this.memorySource?.list() ?? [];
+    const shown = `${this.memoryOpen ?? ''}|${list.length}|${list[list.length - 1]?.id ?? ''}`;
+    if (!force && shown === this.memoriesShown) return;
+    this.memoriesShown = shown;
+    box.innerHTML = '';
+    if (!list.length) {
+      const p = el('p', 'muted');
+      p.textContent = t('journal.noMemories');
+      box.append(p);
+      return;
+    }
+    const open = list.find((m) => m.id === this.memoryOpen) ?? list[list.length - 1]!;
+    const words = memoryWords(open);
+    const head = el('div', 'mem-head');
+    const title = el('div', 'mem-title');
+    title.tabIndex = -1;
+    title.textContent = words.title;
+    const when = el('div', 'mem-when');
+    when.textContent = words.when;
+    const cap = el('p', 'mem-caption');
+    cap.textContent = words.caption;
+    head.append(title, when, cap);
+    // FRAME/12 markup (escaped by the renderer); the images go in after, from our own canvas
+    const cuts = fragment(
+      ...CUTS.map(([label, cut], i) => panel({ variant: 'quiet', cut, label: t(label), children: unsafeRaw(`<div class="mem-img" data-cut="${i}"></div>`) })),
+    );
+    const board = el('div');
+    board.innerHTML = String(sheet({ children: scene({ layout: 'three', children: cuts }) }));
+    box.append(head, board);
+    for (const slot of board.querySelectorAll<HTMLElement>('.mem-img')) {
+      const i = Number(slot.dataset.cut) as 0 | 1 | 2;
+      const key = `${open.id}:${i}`;
+      let url = this.memoryImages.get(key) ?? null;
+      if (!url) {
+        url = this.memorySource?.render(open, i) ?? null;
+        if (url) this.memoryImages.set(key, url);
+      }
+      if (!url) continue;
+      const img = el('img');
+      img.src = url;
+      img.alt = t('memory.alt', { view: t(CUTS[i]![0]), caption: words.caption });
+      slot.append(img);
+    }
+    const older = list.filter((m) => m !== open);
+    if (older.length) {
+      const h = el('div', 'mem-older muted');
+      h.textContent = t('journal.older');
+      const ul = el('ul', 'mem-list');
+      for (const m of [...older].reverse()) {
+        const w = memoryWords(m);
+        const li = el('li');
+        const b = el('button', 'px');
+        b.type = 'button';
+        b.textContent = `${w.title} · ${w.when}`;
+        b.title = w.caption;
+        b.addEventListener('click', () => {
+          this.memoryOpen = m.id;
+          this.renderMemories(true);
+          box.querySelector<HTMLElement>('.mem-title')?.focus();
+        });
+        li.append(b);
+        ul.append(li);
+      }
+      box.append(h, ul);
+    }
+  }
+
   private renderNotes(): void {
     if (!this.notes.classList.contains('open')) return;
+    this.renderMemories();
     this.notesList.innerHTML = '';
     if (!this.notesData.length) {
       const li = el('li', 'muted');
@@ -701,12 +862,12 @@ export class Hud {
     );
   }
 
-  /** Where the People list gets each neighbour's current activity. */
+  /** Where the People list gets each neighbor's current activity. */
   setPeopleSource(info: (id: string) => ResidentInfo | null): void {
     this.peopleInfo = info;
   }
 
-  /** Refresh what each neighbour is doing (once a second, only while the list is open). */
+  /** Refresh what each neighbor is doing (once a second, only while the list is open). */
   renderPeople(): void {
     if (!this.people.classList.contains('open') || !this.peopleInfo) return;
     for (const [id, span] of this.peopleDoing) {
@@ -919,11 +1080,17 @@ export class Hud {
     this.date.textContent = t('bar.date', { day: day + 1, season: t(`season.${season}` as MsgKey) });
     if (season !== this.season) this.setSeason(season);
   }
+  /** Reflect the zoom in the photo-mode slider. */
+  setZoom(z: number): void {
+    this.zoomSlider.value = String(Math.round(z * 100) / 100);
+    this.zoomSlider.setAttribute('aria-valuetext', `${z.toFixed(1)}×`);
+  }
   setSpeed(speed: number, paused: boolean): void {
     const idx = paused ? 0 : speed > 1 ? 2 : 1;
     this.speedBtns.forEach((b, i) => pressed(b, i === idx));
   }
   setPixel(p: PixelPreset): void {
+    this.forgetMemoryImages();
     for (const [k, b] of this.pixelBtns) pressed(b, k === p); // the chosen look, for screen readers too
   }
   setWeather(m: WeatherMode): void {
@@ -945,7 +1112,10 @@ export class Hud {
   private idleCheck(): void {
     const focusInDock = this.dock.contains(document.activeElement);
     const keep = coarsePointer() || this.tool !== 'view' || this.anyOpen || this.dockHover || focusInDock || this.hintStep === 'bench' || this.photoOn;
-    if (!keep && performance.now() - this.lastInput > DOCK_IDLE_MS) this.dock.classList.add('idle');
+    if (!keep && performance.now() - this.lastInput > DOCK_IDLE_MS) {
+      this.dock.classList.add('idle');
+      this.zoomBox.classList.add('idle');
+    }
   }
 
   // ── Story feed and Notes ───────────────────────────────────────────────
@@ -960,7 +1130,10 @@ export class Hud {
     lines.forEach((l, i) => l.classList.toggle('old', i < lines.length - 2));
     while (this.storyBox.children.length > 4) this.storyBox.firstElementChild?.remove();
     // fade, then go: the feed is a glance; Notes is the record
-    window.setTimeout(() => line.classList.add('fading'), 13000);
+    window.setTimeout(() => {
+      line.classList.add('fading');
+      line.setAttribute('aria-hidden', 'true'); // on its way out (and kept in Notes)
+    }, 15200);
     window.setTimeout(() => line.remove(), 16000);
     if (fleeting) return;
     this.notesData.push({ msg: m, day, minutes });
@@ -1001,7 +1174,7 @@ export class Hud {
     this.card.classList.remove('floating');
     this.card.style.left = this.card.style.top = '';
   }
-  /** The neighbour whose card is open, if any. */
+  /** The neighbor whose card is open, if any. */
   get openCardId(): string | null {
     return this.cardId;
   }
@@ -1024,8 +1197,8 @@ export class Hud {
   }
 
   /**
-   * Keep the card beside its neighbour with a short leader line (wide screens). `p` is the
-   * neighbour's head in HUD pixels, or null when they are indoors or off screen: the card
+   * Keep the card beside its neighbor with a short leader line (wide screens). `p` is the
+   * neighbor's head in HUD pixels, or null when they are indoors or off screen: the card
    * then stays put and the line goes.
    */
   placeCard(p: { x: number; y: number } | null): void {

@@ -316,6 +316,23 @@ export class BuildTool {
     });
   }
 
+  /**
+   * Show a placeable that isn't placed (a memory's snapshot holds an object since removed): display
+   * only, no nav footprint, no smart object, no light. Returns the function that takes it away again.
+   */
+  stage(rec: PlacedRecord): () => void {
+    const def = PLACEABLES[rec.kind];
+    if (!def) return () => {};
+    const {
+      result: { object },
+      owned,
+    } = this.m.own(() => def.build(this.m));
+    object.position.set(rec.x, groundHeight(rec.x, rec.z), rec.z);
+    object.rotation.y = rec.ry;
+    this.root.add(object);
+    return () => dispose(object, owned, this.m);
+  }
+
   records(): PlacedRecord[] {
     return [...this.placed.values()].map(({ id, kind, x, z, ry }) => ({ id, kind, x, z, ry }));
   }

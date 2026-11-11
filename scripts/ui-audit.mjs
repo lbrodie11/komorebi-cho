@@ -644,7 +644,7 @@ await (async () => {
     const z = await K(page, () => {
       const c = document.getElementById('view');
       const k = window.__komorebi;
-      const z0 = k.iso.zoomIndex ?? k.iso.mag ?? JSON.stringify(k.iso.camera.zoom);
+      const z0 = k.iso.zoomGoal;
       const r = c.getBoundingClientRect();
       const cx = r.left + r.width / 2,
         cy = r.top + r.height / 2;
@@ -658,10 +658,10 @@ await (async () => {
       }
       ev('pointerup', 1, cx - 140, cy);
       ev('pointerup', 2, cx + 140, cy);
-      return { z0, z1: k.iso.zoomIndex ?? k.iso.mag ?? JSON.stringify(k.iso.camera.zoom) };
+      return { z0, z1: k.iso.zoomGoal };
     });
     await page.waitForTimeout(300);
-    const z1 = await K(page, () => window.__komorebi.iso.zoomIndex ?? window.__komorebi.iso.camera.zoom);
+    const z1 = await K(page, () => window.__komorebi.iso.zoomGoal);
     check('phone: two-finger pinch zooms in', String(z.z0) !== String(z1), `${z.z0} → ${z1}`);
     check('no page errors during phone run', errors.length === 0, errors.slice(0, 3).join(' | '));
     await ctx.close();

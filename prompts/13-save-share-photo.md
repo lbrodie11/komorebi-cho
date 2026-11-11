@@ -51,6 +51,8 @@ Let people keep, share and show their neighbourhoods with no servers.
 
 5. **Multiple tabs.** Prompt 04 stops a second tab from autosaving over the first. Replace that with a proper lock (`BroadcastChannel` or Web Locks), and let the player choose which tab keeps the town.
 
+6. **Seasonal volumes.** At the end of each season, gather that season's memories into a "volume": a FRAME/12 sheet of its best panels, saved or shared as a PNG. Re-rendered from snapshots (never stored images: `localStorage` is a few megabytes), with text alternatives from the event data.
+
 ## Acceptance criteria
 - Round trips are byte-identical: export → import, and share code → visit → make it mine.
 - A share link for a town with 40 edits is under 2 KB.

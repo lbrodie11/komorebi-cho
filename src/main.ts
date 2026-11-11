@@ -5,9 +5,9 @@ import { IsoCamera } from './render/camera';
 import { canvasLayout, DEFAULT_PIXEL, usesPalette, type PixelPreset } from './render/pixelscale';
 import { PostPass } from './render/post';
 import { PALETTE } from './render/palette';
-import { skyAt } from './render/sky';
+import { skyAt, type SkyState } from './render/sky';
 import { World } from './world/world';
-import { GROUND, OBSTACLES } from './world/layout';
+import { G, GROUND, OBSTACLES, PLINTH, TG } from './world/layout';
 import { groundHeight, isWalkableSurface } from './world/terrain';
 import { NavGrid } from './sim/grid';
 import { SmartRegistry, registerStaticObjects } from './sim/smart';
@@ -16,6 +16,7 @@ import { Animals } from './sim/animals';
 import { BuildTool, type ToolMode } from './ui/build';
 import { Hud, TEXT_SCALES, type TextScale } from './ui/hud';
 import { Tutorial } from './ui/tutorial';
+import { MemoryRecorder, type Memory, type WorldView } from './sim/memories';
 import { DebugOverlay } from './ui/debug';
 import { Sound } from './audio/sound';
 import { load, save, readStamp, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
@@ -160,11 +161,13 @@ function persist(): void {
     writer: guard.id,
     savedAt,
     minutes: clock.minutes,
+    yaw: iso.yaw,
     season: clock.season,
     weather: world.weather.mode,
     placed: build.records(),
     memory: residents.memory(),
     tutorial: tutorial.flags,
+    memories: [...memories.memories],
     notes: hud.noteList,
     settings: {
       pixel: pixelSetting,
@@ -246,6 +249,12 @@ const hud = new Hud(hudRoot, {
     textScale = sc;
     hud.setTextScale(sc);
   },
+  zoom: (dir) => zoomStep(dir),
+  fit: () => fitTown(),
+  setZoom: (z) => {
+    if (iso.continuous) iso.zoomTo(z);
+    else if (Math.abs(z - iso.zoom) > 1e-3) cameraStep(() => iso.zoomTo(z));
+  },
   meet: (id) => meet(id),
   showMe: (id) => {
     const a = residents.agents.find((g) => g.p.id === id);
@@ -303,7 +312,36 @@ hud.setPixel(pixel);
 hud.setDiffusion(diffusion);
 
 bus.on('story', ({ msg: m, fleeting }) => hud.story(m, clock.day, clock.minutes, fleeting));
-bus.on('noticed', () => tutorial.noticed());
+// ── Memories (the journal) ────────────────────────────────────────────────
+const memories = new MemoryRecorder(saved?.memories ?? []);
+function worldView(): WorldView {
+  return {
+    minutes: clock.minutes,
+    season: clock.season,
+    rain: world.weather.rain,
+    objects: build.records(),
+    where: (id) => {
+      const a = residents.agents.find((g) => g.p.id === id);
+      return a && !a.hidden ? { x: a.x, z: a.z } : null;
+    },
+  };
+}
+/** A new memory gets one quiet line in the feed (no badge): the journal is where it lives. */
+function announce(m: Memory | null): void {
+  if (!m) return;
+  const who = (id: string | undefined) => msg(`persona.${id ?? ''}.short` as MsgKey);
+  const caption = msg(`memory.${m.kind}` as MsgKey, { who: who(m.who[0]), other: who(m.who[1]), thing: msg(`noun.${m.objectKind}` as MsgKey) });
+  bus.emit('story', { msg: msg('story.memory', { caption }) });
+}
+bus.on('noticed', ({ who, id }) => {
+  tutorial.noticed();
+  if (!params.scripted) announce(memories.noticed(who, id, worldView()));
+});
+bus.on('used', ({ who, id, with: others }) => {
+  if (!params.scripted) for (const m of memories.used({ who, objectId: id, with: others }, worldView())) announce(m);
+});
+bus.on('objectRemoved', ({ id }) => memories.removed(id));
+hud.setMemorySource({ list: () => memories.memories, render: (m, cut) => renderMemory(m, cut) });
 bus.on('objectPlaced', () => tutorial.placed());
 sound.onCaption = (k) => {
   if (captions) hud.caption(t(`caption.${k}` as MsgKey));
@@ -339,6 +377,12 @@ function resize(): void {
   post.setSize(l.rw, l.rh);
   post.setPalette(usesPalette(pixel));
   iso.setViewport(l.rw, l.rh);
+  // Smooth zooms continuously; the palette looks keep to whole steps (a fractional zoom snaps to the nearest)
+  const continuous = !usesPalette(pixel);
+  if (continuous !== iso.continuous) {
+    iso.continuous = continuous;
+    if (!continuous) iso.zoomTo(iso.zoom);
+  }
   const out = diffusionOutputSize(l.cssW, l.cssH, dpr);
   post.setOutputSize(out.w, out.h);
   const active = post.setDiffusion(renderer, diffusion, out.w / l.rw);
@@ -423,7 +467,21 @@ try {
     { once: true },
   );
 })();
+/** What "the whole town" means for Fit: the plinth (top and bottom corners) and the chimney top. */
+const FIT_POINTS = [GROUND.x0, GROUND.x1].flatMap((x) =>
+  [GROUND.z0, GROUND.z1].flatMap((z) => [new THREE.Vector3(x, G, z), new THREE.Vector3(x, G - PLINTH.h, z)]),
+);
+FIT_POINTS.push(new THREE.Vector3(-14.9, TG + 13.05, -11.9));
+const FIT_CENTRE = new THREE.Vector3(0, 3.9, 0);
+
+iso.bounds = GROUND;
 resize();
+// Return visits keep their rotation only; zoom and pan always start from Fit (an old close-up is disorienting).
+// Scripted runs keep the fixed 1× reference view their screenshots were made with.
+if (!params.scripted) {
+  if (saved?.yaw !== undefined) iso.yaw = saved.yaw;
+  fitTown(false);
+}
 
 // ── Input ─────────────────────────────────────────────────────────────────
 const ray = new THREE.Raycaster();
@@ -446,6 +504,13 @@ let hintSpot: { x: number; z: number } | null = null;
 function downRay(x: number, z: number): THREE.Ray {
   return new THREE.Ray(new THREE.Vector3(x, 40, z), new THREE.Vector3(0, -1, 0));
 }
+/** A screen point as normalised device coordinates of the canvas (-1..1, y up). */
+function ndcOf(e: { clientX: number; clientY: number }): { x: number; y: number } {
+  const r = canvas.getBoundingClientRect();
+  return { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 };
+}
+/** The last mouse or pen position over the canvas, to refresh the build preview when the camera moves under it. */
+let lastPointer: { clientX: number; clientY: number } | null = null;
 function setNdc(e: { clientX: number; clientY: number }): void {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -456,17 +521,18 @@ function twoFingers(): { d: number; a: number; mid: { clientX: number; clientY: 
   if (!p || !q) return null;
   return { d: Math.hypot(q.x - p.x, q.y - p.y), a: Math.atan2(q.y - p.y, q.x - p.x), mid: { clientX: (p.x + q.x) / 2, clientY: (p.y + q.y) / 2 } };
 }
-/** Zoom and rotation are discrete steps, so gestures fire a step each time they pass a threshold. */
+/** Palette looks zoom in discrete steps, so a pinch fires a step each time it passes a threshold (Smooth follows the fingers). */
 const PINCH_STEP = 1.3;
 const TWIST_STEP = 0.5; // radians, about 30°
 function onGesture(): void {
   const g = twoFingers();
   if (!g || !gesture) return;
-  if (g.d > gesture.d * PINCH_STEP || g.d < gesture.d / PINCH_STEP) {
-    setNdc(g.mid);
-    const hit = new THREE.Vector3();
-    const focus = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -1), hit) ? hit : undefined;
-    zoomStep(g.d > gesture.d ? 1 : -1, focus);
+  if (iso.continuous) {
+    // Smooth: the town follows the fingers, anchored between them
+    iso.zoomBy(g.d / gesture.d, ndcOf(g.mid));
+    gesture.d = g.d;
+  } else if (g.d > gesture.d * PINCH_STEP || g.d < gesture.d / PINCH_STEP) {
+    zoomStep(g.d > gesture.d ? 1 : -1, ndcOf(g.mid));
     gesture.d = g.d;
   }
   let da = g.a - gesture.a;
@@ -530,6 +596,7 @@ canvas.addEventListener('pointerdown', (e) => {
 // next hover would keep panning as if the button were still held.
 canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'touch') lastPointer = { clientX: e.clientX, clientY: e.clientY };
   if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (gesture) {
     onGesture();
@@ -573,14 +640,40 @@ canvas.addEventListener('pointerup', (e) => {
   if (a) meet(a.p.id);
   else hud.closeCard();
 });
+/**
+ * Wheel and trackpad zoom. Deltas are normalised (lines and pages to pixels), and the point under
+ * the cursor stays put. A trackpad pinch arrives as a wheel event with ctrlKey set (Chrome,
+ * Firefox, Edge): it zooms the town, with its own finer sensitivity, instead of the page. Browser
+ * zoom stays on Ctrl/Cmd + and −. Palette looks step: scrolling adds up, a step fires past a
+ * threshold, at most one per 0.25 s (the dissolve), and the total resets after 0.2 s of quiet, so a
+ * trackpad burst or macOS momentum scrolling can't race through every level.
+ */
+const WHEEL_STEP_PX = 60;
+const WHEEL_COOLDOWN_MS = 250;
+const WHEEL_IDLE_MS = 200;
+let wheelSum = 0;
+let wheelLast = 0;
+let wheelStepAt = 0;
 canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1);
-    const hit = new THREE.Vector3();
-    ray.ray.intersectPlane(plane, hit);
-    zoomStep(e.deltaY < 0 ? 1 : -1, hit);
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1;
+    const dy = e.deltaY * unit;
+    const anchor = ndcOf(e);
+    lastPointer = { clientX: e.clientX, clientY: e.clientY };
+    if (iso.continuous) {
+      iso.zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), anchor);
+      return;
+    }
+    const now = performance.now();
+    if (now - wheelLast > WHEEL_IDLE_MS) wheelSum = 0;
+    wheelLast = now;
+    wheelSum += e.ctrlKey ? dy * 6 : dy;
+    if (Math.abs(wheelSum) < WHEEL_STEP_PX || now - wheelStepAt < WHEEL_COOLDOWN_MS) return;
+    zoomStep(wheelSum < 0 ? 1 : -1, anchor);
+    wheelSum = 0;
+    wheelStepAt = now;
   },
   { passive: false },
 );
@@ -591,8 +684,17 @@ function cameraStep(change: () => void): void {
   if (!contextLost && !reducedMotion) post.beginDissolve(renderer); // reduced motion: a plain cut, no dissolve
   change();
 }
-function zoomStep(dir: 1 | -1, focus?: THREE.Vector3): void {
-  if (iso.canZoom(dir)) cameraStep(() => iso.zoom(dir, focus));
+/** One zoom step in or out, anchored at a screen point (default the centre). Smooth eases; palette looks step and dissolve. */
+function zoomStep(dir: 1 | -1, anchor?: { x: number; y: number }): void {
+  if (iso.continuous) iso.zoomBy(dir > 0 ? 1.25 : 1 / 1.25, anchor);
+  else if (iso.canStep(dir)) cameraStep(() => iso.step(dir, anchor));
+  hud.setZoom(iso.zoomGoal);
+}
+/** Fit Town (F, Home, or the button): centre the town and zoom to show all of it, or as much as the screen allows. */
+function fitTown(dissolve = true): void {
+  if (dissolve) cameraStep(() => iso.fit(FIT_POINTS, FIT_CENTRE));
+  else iso.fit(FIT_POINTS, FIT_CENTRE);
+  hud.setZoom(iso.zoomGoal);
 }
 
 function pickAgent(): Agent | null {
@@ -675,6 +777,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'e') cameraStep(() => iso.rotate(1));
   else if (k === '=' || k === '+' || k === 'z') zoomStep(1);
   else if (k === '-' || k === 'c') zoomStep(-1);
+  else if (k === 'f' || k === 'home') fitTown();
   else if (k === 'w' || k === 'arrowup') iso.panScreen(0, pan, canvas.clientHeight);
   else if (k === 's' || k === 'arrowdown') iso.panScreen(0, -pan, canvas.clientHeight);
   else if (k === 'a' || k === 'arrowleft') iso.panScreen(pan, 0, canvas.clientHeight);
@@ -736,6 +839,15 @@ function renderFrame(dt: number): void {
   post.render(renderer, world.scene, iso.camera, time, world.weather.wind, dt);
 }
 
+const lastCam = new THREE.Vector3();
+let lastHalfH = 0;
+function cameraMoved(): boolean {
+  const moved = !lastCam.equals(iso.camera.position) || lastHalfH !== iso.halfH;
+  lastCam.copy(iso.camera.position);
+  lastHalfH = iso.halfH;
+  return moved;
+}
+
 // ── First-minutes hints and the card's leader line ──────────────────────
 /** Open grass near the pond where a first bench looks at home; the first that is free gets the sparkle. */
 const HINT_SPOTS: [number, number][] = [
@@ -775,6 +887,99 @@ function placeOverlays(): void {
     const a = residents.agents.find((g) => g.p.id === id);
     hud.placeCard(a && !a.hidden ? toScreen(a.x, a.root.position.y + 2.05, a.z) : null);
   }
+}
+
+/** The post pass's sky and atmosphere for a sky state (every frame, and for a memory's hour). */
+function applySky(sky: SkyState, rain: number): void {
+  post.set({
+    bgTop: sky.top,
+    bgBottom: sky.bottom,
+    mistColor: sky.bottom,
+    stars: sky.stars,
+    moon: sky.isNight ? 1 - rain : 0,
+    exposure: sky.exposure,
+    cloudShadow: (0.3 + rain * 0.4) * Math.min(1, sky.sunI * 1.2),
+    bgClouds: sky.clouds,
+    mist: rain,
+    glow: 0.6 + sky.lamp * 0.9,
+  });
+}
+
+/** Memory panels: 3:2, small (the journal shows three side by side). */
+const MEMORY_W = 360,
+  MEMORY_H = 240;
+/** Wide, closer, the moment: magnification, look-at height, and a quarter turn for the close-up. */
+const MEMORY_CUTS = [
+  { mag: 1, y: 3.9, turn: 0 },
+  { mag: 2, y: 2, turn: 0 },
+  { mag: 3, y: 1, turn: 1 },
+] as const;
+
+/**
+ * Render one cut of a memory from its snapshot: the world is put into the memory's hour, weather
+ * and season, with the objects that were there and only the residents involved, where they stood;
+ * rendered offscreen; then put back, all inside this call, so no frame of it is ever shown (nobody
+ * visible moves). The panel matches the player's current look and Film Diffusion.
+ */
+function renderMemory(m: Memory, cut: 0 | 1 | 2): string | null {
+  if (contextLost) return null;
+  const snap = m.snapshot;
+  const c = MEMORY_CUTS[cut];
+  const cam = { yaw: iso.yaw, zoom: iso.zoom, goal: iso.zoomGoal, t: iso.target.clone(), tg: iso.targetGoal.clone(), bounds: iso.bounds };
+  const weather = { rain: world.weather.rain, wet: world.weather.wetness, lamp: world.lampLevel };
+  const people = residents.agents.map((a) => ({ a, visible: a.root.visible, pos: a.root.position.clone() }));
+  const hidden: THREE.Object3D[] = [];
+  const unstage: (() => void)[] = [];
+  let url: string | null;
+  try {
+    build.clearPreview();
+    const ids = new Set(snap.objects.map((o) => o.id));
+    for (const p of build.placed.values())
+      if (!ids.has(p.id) && p.object.visible) {
+        p.object.visible = false; // placed after the memory: it wasn't there
+        hidden.push(p.object);
+      }
+    for (const o of snap.objects) if (!build.placed.has(o.id) && o.kind in PLACEABLES) unstage.push(build.stage({ ...o, kind: o.kind as PlaceableKind }));
+    for (const { a } of people) a.root.visible = false;
+    for (const p of snap.people) {
+      const a = residents.agents.find((g) => g.p.id === p.id);
+      if (!a) continue;
+      a.root.visible = true;
+      a.root.position.set(p.x, groundHeight(p.x, p.z), p.z);
+    }
+    const then = new WorldClock(0);
+    then.minutes = snap.minutes;
+    then.season = snap.season;
+    world.weather.rain = world.weather.wetness = snap.rain;
+    const sky = skyAt(then.hour, snap.rain, snap.season);
+    world.lampLevel = sky.lamp;
+    world.update(0, time, then, sky, 0);
+    applySky(sky, snap.rain);
+    iso.bounds = null;
+    for (let i = 0; i < c.turn; i++) iso.rotate(1);
+    iso.setZoomNow(c.mag);
+    iso.target.set(snap.focus.x, c.y, snap.focus.z);
+    iso.targetGoal.copy(iso.target);
+    url = captureFrame(MEMORY_W, MEMORY_H);
+  } finally {
+    for (const o of hidden) o.visible = true;
+    for (const f of unstage) f();
+    for (const { a, visible, pos } of people) {
+      a.root.visible = visible;
+      a.root.position.copy(pos);
+    }
+    world.weather.rain = weather.rain;
+    world.weather.wetness = weather.wet;
+    world.lampLevel = weather.lamp;
+    iso.yaw = cam.yaw;
+    iso.bounds = cam.bounds;
+    iso.setZoomNow(cam.zoom);
+    iso.zoomGoal = cam.goal;
+    iso.target.copy(cam.t);
+    iso.targetGoal.copy(cam.tg);
+    resize(); // the screen's layout again; the next frame puts back the real hour, sky and season
+  }
+  return url;
 }
 
 // ── Context loss ──────────────────────────────────────────────────────────
@@ -821,18 +1026,7 @@ function frame(now: number): void {
   }
   let simMs = performance.now() - s0;
 
-  post.set({
-    bgTop: sky.top,
-    bgBottom: sky.bottom,
-    mistColor: sky.bottom,
-    stars: sky.stars,
-    moon: sky.isNight ? 1 - rain : 0,
-    exposure: sky.exposure,
-    cloudShadow: (0.3 + rain * 0.4) * Math.min(1, sky.sunI * 1.2),
-    bgClouds: sky.clouds,
-    mist: rain,
-    glow: 0.6 + sky.lamp * 0.9,
-  });
+  applySky(sky, rain);
 
   // once-a-second systems
   slow += realDt;
@@ -845,6 +1039,7 @@ function frame(now: number): void {
     hud.setClock(clock.label(), clock.day, clock.season);
     hud.refreshCard();
     hud.renderPeople();
+    if (photo) hud.setZoom(iso.zoomGoal); // the photo slider follows wheel and pinch zoom too
     const raining = rain > 0.3;
     if (raining !== wasRaining) {
       wasRaining = raining;
@@ -867,6 +1062,11 @@ function frame(now: number): void {
   }
   if (!frozen) updateHints(realDt);
   renderFrame(realDt);
+  // the camera moved under a still mouse (a smooth zoom, a pan settling): keep the build preview under the cursor
+  if (build.mode !== 'view' && lastPointer && !kbCursor && !photo && cameraMoved()) {
+    setNdc(lastPointer);
+    build.pointer(ray.ray);
+  }
   placeOverlays();
   frames++;
   debug?.endFrame(now, performance.now() - t0, simMs, iso.camera, residents.agents);
@@ -895,8 +1095,10 @@ interface FreezeSpec {
   time?: number;
   /** Camera look-at point, world units. */
   target?: [number, number, number];
-  /** Magnification index: 0 = 1×, 1 = 2×, 2 = 3×. */
+  /** Legacy magnification index: 0 = 1×, 1 = 2×, 2 = 3×. */
   zoom?: number;
+  /** Magnification, 0.8–3 (any value; the palette looks normally use ZOOM_STEPS). */
+  mag?: number;
   /** Camera yaw, radians (π/4 is the default view). */
   yaw?: number;
 }
@@ -921,6 +1123,7 @@ function freeze(o: FreezeSpec = {}): void {
   if (o.time !== undefined) time = o.time;
   if (o.yaw !== undefined) iso.yaw = o.yaw;
   if (o.zoom !== undefined) iso.setZoomIndex(o.zoom);
+  if (o.mag !== undefined) iso.setZoomNow(o.mag);
   if (o.target) {
     iso.target.set(...o.target);
     iso.targetGoal.set(...o.target);
@@ -944,6 +1147,8 @@ Object.assign(window, {
     build,
     sound,
     tutorial,
+    memories,
+    bus,
     iso,
     grid,
     renderer,

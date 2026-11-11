@@ -48,6 +48,8 @@ Confidence to change anything without fear.
 8. **Keep the UI audit.** `scripts/ui-audit.mjs` (from the 2026-11-11 button audit) clicks every control and checks the real game state. Run it in CI against `vite preview`, and extend it whenever a control is added.
 9. **Real-device pass**, recorded in `docs/QA.md`: iPhone Safari, Android Chrome, an Intel/AMD integrated-GPU Windows laptop, a 4K monitor, macOS Safari. On each: pinch, twist, tap-twice placement, the More fold, Sound on then lock and unlock the phone, and frame rate at the default zoom at 21:00 in rain.
 
+10. **Camera checks.** Screenshots at 0.8×, 1×, 1.5×, 2× and 3×, same rotation, at noon and at night in rain, in all four looks: look for shimmer while panning (Chunky at 0.8× is the riskiest), edge quality and silhouettes. Also test: a Mac trackpad pinch (arrives as a ctrl+wheel event in Chrome and Firefox; Safari uses its own gesture events), momentum scrolling, a high-refresh display, an ultrawide and a portrait phone (Fit gives 0.8× centred, by design), and zooming while a placement preview is up.
+
 ## Acceptance criteria
 - CI runs unit, visual, replay and fuzz suites in under 15 minutes, and all are green.
 - A known bug injected into nav, AI or post is caught by at least one suite (show this).

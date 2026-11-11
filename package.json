@@ -16,6 +16,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@frame12/static": "0.2.0",
     "three": "0.187.0"
   },
   "devDependencies": {

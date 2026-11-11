@@ -6,7 +6,8 @@ Checked against the npm registry on **2026-11-10**.
 
 | Package | Pinned | Latest on npm | Notes |
 |---|---|---|---|
-| `three` | 0.187.0 | 0.187.0 | r187. The only runtime dependency. |
+| `three` | 0.187.0 | 0.187.0 | r187. |
+| `@frame12/static` | 0.2.0 | 0.2.0 | FRAME/12's framework-free renderers (MIT, no runtime dependencies beyond `@frame12/tokens`). Used only by the Journal: sheet, scene and quiet panels, with escaping built in. Only its stylesheet is imported (26 KB, all `f12-` classes; its `:where(html/body)` rules have zero specificity, so the game's own rules win). Themed with the game's colours on `.journal`. |
 | `@types/three` | 0.187.0 | 0.187.0 | Must match `three`'s minor exactly. |
 | `typescript` | 6.0.3 | 7.0.2 | **Held at 6.0.** `typescript-eslint@8.72.2` declares `typescript >=4.8.4 <6.1.0`, and typed lint rules need its TS API. Move to 7 once typescript-eslint supports it. |
 | `vite` | 8.3.7 | 8.3.7 | |

@@ -63,6 +63,13 @@ Residents who feel like *people with lives*, and whose adaptation to the player'
    - A cat prefers sitting within 2 m of Mitsuko while she's there.
    - Unit tests for each stage. Accessories such as a bag of cat treats are animation work (prompt 09), not this slice.
 
+10. **Follow a resident** (the "observe" button in task 7). Explicitly chosen from the card, cancelled by any pan, zoom or Esc. The camera reframes gently, only when the resident nears the edge of the view. In the palette looks the camera snaps to whole render pixels, so constant following judders by 3–4 screen pixels: offer Follow only in Smooth until the post pass can shift the final image by the leftover sub-pixel fraction.
+
+11. **Journal memories, next steps** (the first version shipped with prompt 04: `src/sim/memories.ts`, three rules, snapshot-rendered FRAME/12 panels in the Journal).
+    - More rules, each measurable: "a rainy-day regular" (used in rain on 3 days), "a new routine" (a resident's schedule changed because of an edit, from task 7's highlight data), "the cat's spot" (a cat chose a placed object 3 times).
+    - Poses in snapshots: store the pose (sitting, crouching) and re-render it, not just the position.
+    - **The neighborhood clipboard.** Real Japanese neighborhoods pass a clipboard notice from house to house. Here a resident physically carries it door to door once an in-game week; when it passes through the player's view, it holds that week's panels (at most four). No badges or notifications: you find it by watching the town. Accessory and walk work belongs to prompt 09.
+
 ## Acceptance criteria
 - Place a vending machine near the school route. Within one in-game afternoon, Kenta changes his route to pass it, and his diary mentions it.
 - Remove Mitsuko's favourite bench. She looks for it the next day (`?` bubble), then adopts another one, and her diary says so.

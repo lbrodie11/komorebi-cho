@@ -55,6 +55,8 @@ The last 10% that people remember.
 6. **Performance last pass** on the lowest-spec target device.
 7. **Credits screen** listing everyone and every inspiration.
 
+8. **An optional guided tour** of three or four places (Sunday Café, the park, Sunbeam Bathhouse, the lantern-lit shopping street), each a composed view with a moment of stillness. Always skippable, never automatic, and a set of cuts (no glides) under reduced motion.
+
 ## Acceptance criteria
 - 3 of 3 strangers say "oh!" at the first resident reaction, without prompting.
 - Median session in the playtest is over 20 minutes.

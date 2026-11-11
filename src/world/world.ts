@@ -40,7 +40,8 @@ export class World {
   private readonly buildings: BuildingsOut;
   private readonly props: PropsOut;
   private season: Season | null = null;
-  private lampLevel = 0;
+  /** Eased lamp brightness (0..1). Public so a memory render can set it for its hour, then put it back. */
+  lampLevel = 0;
   private readonly pools: LightPools;
   /** Pools that follow the street-lamp level (lamps, vending machines). */
   private readonly lampPoolIds: number[] = [];

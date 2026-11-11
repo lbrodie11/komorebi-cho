@@ -37,15 +37,16 @@ src/world     layout (THE DATA), terrain (heights/regions), kit (geometry helper
               weathering (pure per-vertex maths), lighting (window schedules, spill, brightness hierarchy),
               lightpools (ground pool decals), buildings, nature, props (+ placeables), crowd (light sharing),
               weather, world (assembly + time-driven updates)
-src/sim       grid (nav + A*), smart (affordances/reservations), personas (the neighbours), residents (schedule → needs → utility → action),
+src/sim       grid (nav + A*), smart (affordances/reservations), personas (the neighbours), residents (schedule → needs → utility → action), memories (true-to-sim journal events + scene snapshots),
               animals, bubbles, warmup (fixed-step warm-up for seeded runs)
 src/audio     engine (graph), theory (pure), music (generative piano), ambience (soundscape), sound (facade + sfx)
 src/ui        hud (DOM), build (placement tool), debug (?debug overlay), wordmark (bitmap font), style.css
 src/save      storage (versioned localStorage + migrations + validation), tabs (one saving tab at a time)
 tests/        vitest: core, sim, audio, render maths (lut, shadow, pixel scale), art (glyphs, weathering, leaves, sky keys)
 prompts/      the roadmap: numbered work orders, done in order
-docs/         ARCHITECTURE, COLOR, CONTRIBUTING, VERSIONS
-scripts/      diffusion-shots.mjs (reproducible reference screenshots), ui-audit.mjs (every control, touch, two tabs); Playwright installed --no-save
+docs/         ARCHITECTURE, COLOR, CONTRIBUTING, VERSIONS, PLAYTEST (the people-and-phones script)
+scripts/      diffusion-shots.mjs (reproducible reference screenshots), ui-audit.mjs (every control, touch, two tabs), a11y-scan.mjs (axe over every HUD state),
+              subset-fonts.sh; Playwright and axe-core installed --no-save, in one command (a second --no-save install prunes the first)
 ```
 
 ## Commands

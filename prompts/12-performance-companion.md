@@ -45,6 +45,8 @@ Working method:
 
 7. **Audio idle cost.** With sound off or the tab hidden, the audio context is suspended and no audio timers run (prompt 04 task 8 did the first version; measure it here). Count live audio nodes over a 30-minute session: flat.
 
+8. **Living Postcard mode** (from the 2026-11-11 camera review). At the widest zoom (0.8×), after a while without input, the HUD fades and a small label reads "Spring · Evening in Komorebi-chō". Weather, season and sound carry on. No automatic camera rotation. Any key, click or touch brings the HUD back, and it never hides something that has keyboard focus. A natural default for the desktop companion.
+
 ## Acceptance criteria
 - Under 250 draw calls and under 8 ms GPU on the reference laptop at the default view, at night with rain.
 - Idle at noon: under 3% CPU in Chrome's task manager.
