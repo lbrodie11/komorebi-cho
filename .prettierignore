@@ -1,0 +1,6 @@
+dist/
+coverage/
+node_modules/
+package-lock.json
+# Prose is hand-wrapped; don't let the formatter reflow it.
+*.md

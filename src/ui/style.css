@@ -1,0 +1,424 @@
+:root {
+  --ink: #0b0a12;
+  --panel: rgba(11, 10, 18, 0.78);
+  --panel-solid: #16141f;
+  --line: #3f3a58;
+  --cream: #f6efe0;
+  --muted: #adb2b8;
+  --amber: #ffd37a;
+  --vermilion: #d0402a;
+  --font: 'Pixelify Sans', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--ink);
+  color: var(--cream);
+  font-family: var(--font);
+  overflow: hidden;
+}
+#app {
+  position: fixed;
+  inset: 0;
+}
+#view {
+  /* left/top/width/height are set by resize(): an exact integer upscale of the render target */
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: grab;
+  touch-action: none;
+}
+#view.dragging {
+  cursor: grabbing;
+}
+#view.pointing {
+  cursor: pointer;
+}
+#view.building {
+  cursor: crosshair;
+}
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#hud > * {
+  pointer-events: auto;
+}
+#hud.hidden > *:not(.photo-bar):not(.modal) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.panel {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  box-shadow:
+    0 0 0 2px var(--ink),
+    4px 4px 0 0 rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+button.px {
+  font: inherit;
+  font-size: 14px;
+  color: var(--cream);
+  background: transparent;
+  border: 2px solid transparent;
+  padding: 6px 10px;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+button.px:hover {
+  border-color: var(--line);
+  background: rgba(246, 239, 224, 0.06);
+}
+button.px:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+button.px.on {
+  background: var(--cream);
+  color: var(--ink);
+}
+button.px.primary {
+  border-color: var(--cream);
+}
+
+.brand {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: opacity 0.4s;
+}
+.brand canvas {
+  image-rendering: pixelated;
+  width: 300px;
+  height: auto;
+}
+.brand .tag {
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.top-right {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  display: flex;
+  gap: 6px;
+  transition: opacity 0.4s;
+}
+
+.toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100vw - 24px);
+  transition: opacity 0.4s;
+}
+.toolbar .sep {
+  width: 2px;
+  height: 22px;
+  background: var(--line);
+  margin: 0 6px;
+}
+.clock {
+  font-size: 18px;
+  padding: 0 10px;
+  min-width: 64px;
+  text-align: center;
+  color: var(--amber);
+}
+.date {
+  font-size: 12px;
+  color: var(--muted);
+  padding-right: 8px;
+}
+
+.palette {
+  position: absolute;
+  left: 50%;
+  bottom: 76px;
+  transform: translateX(-50%);
+  display: none;
+  gap: 4px;
+  padding: 6px;
+}
+.palette.open {
+  display: flex;
+}
+.palette button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 76px;
+  padding: 8px 6px;
+}
+.palette .sw {
+  width: 22px;
+  height: 22px;
+  image-rendering: pixelated;
+}
+.palette .hint {
+  font-size: 11px;
+  color: var(--muted);
+  align-self: center;
+  padding: 0 8px;
+  max-width: 160px;
+}
+
+.story {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: min(380px, 40vw);
+  transition: opacity 0.4s;
+}
+.story .line {
+  font-size: 13px;
+  padding: 5px 9px;
+  color: var(--cream);
+  animation: in 0.5s ease-out;
+}
+.story .line.old {
+  opacity: 0.5;
+}
+@keyframes in {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.card {
+  position: absolute;
+  right: 22px;
+  top: 70px;
+  width: 270px;
+  padding: 12px 14px;
+  display: none;
+}
+.card.open {
+  display: block;
+  animation: in 0.3s ease-out;
+}
+.card h3 {
+  margin: 0 0 2px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--amber);
+}
+.card .role {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.card p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.card .doing {
+  font-size: 13px;
+  color: var(--cream);
+  border-top: 2px solid var(--line);
+  padding-top: 8px;
+}
+.card .x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.settings {
+  position: absolute;
+  right: 22px;
+  top: 70px;
+  width: 270px;
+  padding: 12px 14px;
+  display: none;
+  font-size: 13px;
+}
+.settings.open {
+  display: block;
+}
+.settings label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.settings input[type='range'] {
+  width: 120px;
+  accent-color: var(--amber);
+}
+.settings h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--amber);
+}
+.settings .row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.help {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, 92vw);
+  padding: 18px 20px;
+  display: none;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.help.open {
+  display: block;
+}
+.help h3 {
+  margin: 0 0 6px;
+  color: var(--amber);
+  font-weight: 500;
+}
+.help kbd {
+  font-family: inherit;
+  border: 2px solid var(--line);
+  padding: 0 5px;
+  font-size: 12px;
+}
+
+.photo-bar {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: 4px;
+  padding: 4px;
+}
+.photo-bar.open {
+  display: flex;
+}
+.modal {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 10, 18, 0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.modal.open {
+  display: flex;
+}
+.modal .inner {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  max-width: 90vw;
+}
+.modal img {
+  max-width: 80vw;
+  max-height: 70vh;
+  image-rendering: pixelated;
+  border: 2px solid var(--line);
+}
+.modal .hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.splash {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 96px;
+  pointer-events: none;
+}
+.splash .panel {
+  padding: 10px 16px;
+  font-size: 14px;
+  pointer-events: auto;
+  animation: in 0.6s ease-out;
+}
+
+@media (max-width: 720px) {
+  .brand canvas {
+    width: 200px;
+  }
+  .story {
+    display: none;
+  }
+  .toolbar {
+    bottom: 8px;
+  }
+  .palette {
+    bottom: 110px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 94vw;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.debug-overlay {
+  position: absolute;
+  /* The post pass draws the moon at 20% from the top (radius 4.5% of height); sit just below it, clear of the toolbar. */
+  top: 28%;
+  right: 22px;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--cream);
+  font:
+    12px/1.35 ui-monospace,
+    'SFMono-Regular',
+    Menlo,
+    monospace;
+  white-space: pre;
+  pointer-events: none;
+  z-index: 50;
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="A tiny Tokyo backstreet that lives in your browser. Build a little, watch the neighborhood notice." />
+    <meta name="theme-color" content="#0b0a12" />
+    <title>Komorebi-chō</title>
+    <!-- No icon file until generated icons land (prompt 14); an empty data URI stops the /favicon.ico 404. -->
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Pixelify Sans is SIL OFL 1.1. Production: self-host it (see prompts/04). -->
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./src/ui/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="view" aria-label="Komorebi-chō, a living miniature Tokyo neighborhood"></canvas>
+      <div id="hud"></div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

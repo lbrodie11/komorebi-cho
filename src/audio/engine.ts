@@ -1,0 +1,144 @@
+/**
+ * Audio graph. Everything you hear is synthesised at runtime: no audio files.
+ *
+ *   music  -> lofi (lowpass + gentle saturation) -+-> reverb -+
+ *   ambience ------------------------------------+           +-> compressor -> master -> out
+ *   sfx --------------------------------------------------- -+
+ */
+export class AudioEngine {
+  readonly ctx: AudioContext;
+  readonly master: GainNode;
+  readonly music: GainNode;
+  readonly ambience: GainNode;
+  readonly sfx: GainNode;
+  readonly reverbSend: GainNode;
+  readonly lofi: BiquadFilterNode;
+  private readonly noiseBuf: AudioBuffer;
+  private readonly pinkBuf: AudioBuffer;
+
+  constructor() {
+    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    this.ctx = new AC({ latencyHint: 'playback' });
+    const c = this.ctx;
+    this.master = c.createGain();
+    this.master.gain.value = 0;
+    const comp = c.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.ratio.value = 3;
+    comp.attack.value = 0.01;
+    comp.release.value = 0.3;
+    comp.connect(this.master);
+    this.master.connect(c.destination);
+
+    const reverb = c.createConvolver();
+    reverb.buffer = this.impulse(3.2, 2.6);
+    const wet = c.createGain();
+    wet.gain.value = 0.55;
+    reverb.connect(wet).connect(comp);
+    this.reverbSend = c.createGain();
+    this.reverbSend.connect(reverb);
+
+    this.lofi = c.createBiquadFilter();
+    this.lofi.type = 'lowpass';
+    this.lofi.frequency.value = 3800;
+    this.lofi.Q.value = 0.4;
+    const sat = c.createWaveShaper();
+    sat.curve = softClip(0.9);
+    this.lofi.connect(sat);
+    this.music = c.createGain();
+    this.music.gain.value = 0.55;
+    this.music.connect(this.lofi);
+    sat.connect(comp);
+    sat.connect(this.reverbSend);
+
+    this.ambience = c.createGain();
+    this.ambience.gain.value = 0.6;
+    this.ambience.connect(comp);
+    this.sfx = c.createGain();
+    this.sfx.gain.value = 0.6;
+    this.sfx.connect(comp);
+    this.sfx.connect(this.reverbSend);
+
+    this.noiseBuf = this.makeNoise(false);
+    this.pinkBuf = this.makeNoise(true);
+  }
+
+  get now(): number {
+    return this.ctx.currentTime;
+  }
+
+  async resume(): Promise<void> {
+    if (this.ctx.state !== 'running') await this.ctx.resume();
+    this.master.gain.cancelScheduledValues(this.now);
+    this.master.gain.setTargetAtTime(0.9, this.now, 0.8);
+  }
+  suspend(): void {
+    this.master.gain.setTargetAtTime(0, this.now, 0.25);
+  }
+
+  noise(pink = false, loop = true): AudioBufferSourceNode {
+    const s = this.ctx.createBufferSource();
+    s.buffer = pink ? this.pinkBuf : this.noiseBuf;
+    s.loop = loop;
+    return s;
+  }
+
+  /** Stereo exponential-decay noise impulse: a soft, roomy hall. */
+  private impulse(seconds: number, decay: number): AudioBuffer {
+    const rate = this.ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = this.ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        const t = i / len;
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay) * (i < rate * 0.01 ? i / (rate * 0.01) : 1);
+      }
+    }
+    return buf;
+  }
+
+  private makeNoise(pink: boolean): AudioBuffer {
+    const rate = this.ctx.sampleRate;
+    const len = rate * 4;
+    const buf = this.ctx.createBuffer(1, len, rate);
+    const d = buf.getChannelData(0);
+    let b0 = 0,
+      b1 = 0,
+      b2 = 0,
+      b3 = 0,
+      b4 = 0,
+      b5 = 0,
+      b6 = 0;
+    for (let i = 0; i < len; i++) {
+      const w = Math.random() * 2 - 1;
+      if (!pink) {
+        d[i] = w * 0.5;
+        continue;
+      }
+      // Paul Kellet's refined pink noise filter
+      b0 = 0.99886 * b0 + w * 0.0555179;
+      b1 = 0.99332 * b1 + w * 0.0750759;
+      b2 = 0.969 * b2 + w * 0.153852;
+      b3 = 0.8665 * b3 + w * 0.3104856;
+      b4 = 0.55 * b4 + w * 0.5329522;
+      b5 = -0.7616 * b5 - w * 0.016898;
+      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+      b6 = w * 0.115926;
+    }
+    return buf;
+  }
+}
+
+function softClip(amount: number) {
+  const n = 1024;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    curve[i] = Math.tanh(x * (1 + amount)) / Math.tanh(1 + amount);
+  }
+  return curve;
+}
+
+/** MIDI note -> Hz */
+export const mtof = (m: number): number => 440 * Math.pow(2, (m - 69) / 12);
