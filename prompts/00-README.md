@@ -22,7 +22,7 @@ These prompts take the scaffold in `komorebi-cho/` to a polished, free, web rele
 | 08 | Resident AI v2 | Response curves, social life, memory, visible adaptation, diaries |
 | 09 | Animation & feel | Procedural walk cycles, sit/stand contracts, doors, glances/nods/waves, material-and-surface placement sounds, juice |
 | 09b | The Noticing Engine | A place field, triangulators, a bond ladder from co-presence, but-for credit for the edit that made a friendship possible |
-| 09c | Birds | Species with a place and a season (sparrows, white-eyes, wagtails, crows, swallows), perches as data, sound from the birds themselves |
+| 09c | Birds and the other animals | Cats and koi with shapes of their own, one dog; Species with a place and a season (sparrows, white-eyes, wagtails, crows, swallows), perches as data, sound from the birds themselves |
 | 10 | Time, weather & seasons v2 | Weather states, snow cover, festivals, wind and chimes, desire paths and moss, a 72-microseason almanac, real-date option |
 | 10b | Light and sky | Four times of day you can tell apart: noon komorebi contrast, clouds in the game's own pixels, a grounded plinth, night light in three tiers, the bathhouse's hours |
 | 11 | Music & sound v2 | Bigger composer, spatial emitters, mix targets, captions |

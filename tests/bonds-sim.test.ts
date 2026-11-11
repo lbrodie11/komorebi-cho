@@ -124,3 +124,40 @@ describe('bonds in the town (prompt 09b)', () => {
     expect(residents.bonds.rung('rin', 'sora')).toBe('friends');
   });
 });
+
+describe('shared attention (prompt 09b: triangulators)', () => {
+  it('a wind chime ringing makes the two people near it look up, and that is a moment credited to the chime', async () => {
+    const { residents } = await buildSim(7);
+    const smart = (residents as unknown as { smart: SmartRegistry }).smart;
+    for (const x of residents.agents) x.hidden = true;
+    const [a, b, far, busy] = ['nana', 'genzo', 'emi', 'yuki'].map((id) => residents.agents.find((x) => x.p.id === id)!);
+    const chime = smart.add({ id: 'p-chime', kind: 'admire', label: 'windChime', x: 0, z: -4.9, placed: true, slots: [] });
+    for (const [p, x, kind] of [
+      [a!, -1, 'wander'],
+      [b!, 1.2, 'wander'],
+      [far!, 12, 'wander'],
+      [busy!, 0.5, 'work'],
+    ] as const) {
+      p.hidden = false;
+      p.placeAt(x, -4.9);
+      p.task = { kind, label: { key: 'task.stroll' }, goal: [x, -4.9], dwell: 1e9, pose: 'stand', interruptible: false };
+      p.arrived = true;
+      p.dwellLeft = 1e9;
+    }
+    residents.bonds.seed('nana', 'genzo', 'nod');
+    const before = residents.bonds.get('nana', 'genzo')!.moments;
+    const yukiBefore = residents.bonds.get('nana', 'yuki')!.moments; // (they already greet each other)
+    expect(residents.attention(0, -4.9, 4.5, 'chime', chime)).toBe(2); // not the one far off, not the one at work
+    expect(a!.gesture?.kind).toBe('glance');
+    expect(far!.gesture).toBeNull();
+    const bond = residents.bonds.get('nana', 'genzo')!;
+    expect(bond.moments).toBeGreaterThan(before);
+    expect(bond.credit['p-chime']).toBeGreaterThan(0);
+    // the same chime again today is the same moment, not another
+    const m = bond.moments;
+    residents.attention(0, -4.9, 4.5, 'chime', chime);
+    expect(residents.bonds.get('nana', 'genzo')!.moments).toBe(m);
+    // someone at work nearby wasn't part of it
+    expect(residents.bonds.get('nana', 'yuki')!.moments).toBe(yukiBefore);
+  });
+});

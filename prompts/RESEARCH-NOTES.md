@@ -123,3 +123,23 @@ Two outside reports on the times of day, clouds, water and atmosphere. Neither c
 - The sunset view from Yanaka's "Sunset Steps".
 - Perez, Alexander & Bailey (2013, *BMC Psychiatry*): a meta-analysis that found no consistent effect of air ions on mood or relaxation.
 
+## Animal review (2026-11-11), checked against the code
+Two reports. The first had read the repository and was accurate. The second describes a 2D sprite generator, which isn't how this game draws anything.
+
+**True, and fixed:**
+- Koi were plain boxes on fixed elliptical loops, hidden near the islet and gone all winter.
+- Cats were boxes with one ear bar and one sleeping pose (a squash).
+
+**Taken into prompt 09c:**
+- one companion dog;
+- cat and koi habits that respond to what the player places;
+- a creature sheet for visual regression;
+- cats re-planning after edits.
+
+**Set aside:**
+- **Squirrels as street animals.** They're uncommon in central Tokyo; at most a rare one in the temple tree.
+- **Flocking (boids) for six koi.** Individual goals with a look-ahead for the bank are enough, and they're testable.
+- **The whole 2D pipeline of the second report:** cellular masks, SDF rasterizers, Bresenham clean-up, outline dilation, RotSprite, PICO-8 limits. Our animals are small 3D rigs drawn through the same pixel pass as the town, which is what keeps them consistent as the camera turns. Its useful general points we already follow: silhouette first, a few broad patches not speckle, held frames, one palette, per-creature random streams.
+
+**A bug this surfaced:** `new Rng(700 + i)` for neighboring `i` gives streams that start out alike, so the six koi set off as a shoal. Per-creature randomness now comes from named streams (`stream('animals/koi/<i>/<seed>')`). Prefer named streams for anything new.
+

@@ -88,6 +88,11 @@ registerStaticObjects(smart);
 const residents = new Residents(world.scene, grid, smart, bus, world.mats, params.seed);
 residents.bike = world.bike;
 const animals = new Animals(world.scene, world.mats, grid, smart, bus, world.chimneyTop, params.seed);
+// a cat settling down near people is something to look at together (more so by a bowl the player put out)
+animals.onCatSettles = (x, z) => {
+  const bowl = [...smart.objects.values()].find((o) => o.kind === 'catbowl' && o.placed && Math.hypot(o.x - x, o.z - z) < 3.5);
+  residents.attention(x, z, 3.5, 'cat', bowl);
+};
 const build = new BuildTool(world.scene, world.mats, grid, smart, residents, bus, () => clock.hour, world.lightPool);
 build.shops = {
   row: () => world.shopStreet.specs.map(({ id, z0, z1 }) => ({ id, z0, z1 })),
@@ -1384,12 +1389,14 @@ function frame(now: number): void {
     hud.refreshCard();
     hud.renderPeople();
     // wind chimes ring now and then, more often in rain and wind (a named stream: deterministic)
-    if (sound.playing && chimeRng.chance(0.04 + world.weather.rain * 0.06)) {
+    // (the ring is the town's, heard or not: whoever is near looks up, and two who do have shared a moment)
+    if (!frozen && chimeRng.chance(0.04 + world.weather.rain * 0.06)) {
       const chimes = build.records().filter((r) => PLACEABLES[r.kind].chime);
       if (chimes.length) {
         const c = chimes[Math.floor(chimeRng.next() * chimes.length)]!;
+        residents.attention(c.x, c.z, 4.5, 'chime', smart.objects.get(c.id));
         bus.emit('sfx', { name: 'chime', x: c.x, z: c.z });
-        if (captions) hud.caption(t('caption.chime'));
+        if (captions && sound.playing) hud.caption(t('caption.chime'));
       }
     }
     const raining = rain > 0.3;
@@ -1403,6 +1410,7 @@ function frame(now: number): void {
   for (const h of [6, 18]) {
     if (prevHour < h && hour >= h && hour - prevHour < 1) {
       sound.bell();
+      residents.attention(9.5, -9.4, 80, 'bell'); // everyone out of doors hears it; two standing together heard it together
       bus.emit('story', { msg: msg(h === 6 ? 'story.bellMorning' : 'story.bellEvening') });
     }
   }

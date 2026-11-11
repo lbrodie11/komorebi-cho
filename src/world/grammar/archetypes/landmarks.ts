@@ -329,15 +329,16 @@ export function planCafe(s: CafeSpec): Part[] {
     [14.1, 0.9],
   ] as const)
     parts.push({ op: 'pot', x, z, y: top + 0.34, r: 0.26 });
-  parts.push(...roofTerrace(s, top + 0.34));
   return parts;
 }
 
 /**
  * The café's roof terrace: a steel railing round the edge, a string of small bulbs on poles above
  * it, a stair head with a door (how anyone gets up here), and a deck chair looking over the park.
+ * Planned apart from the building so it can be merged into a handful of meshes (it is about 75 small boxes).
  */
-function roofTerrace(s: CafeSpec, y: number): Part[] {
+export function planCafeTerrace(s: CafeSpec): Part[] {
+  const y = s.y + s.h1 + s.h2 + 0.34;
   const parts: Part[] = [];
   const steel: MatRef = { solid: '#686d78' };
   // the railing follows the roof's edge, a little in from it

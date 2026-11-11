@@ -3,7 +3,7 @@ import type { Kit } from './kit';
 import { APATO, ARCH, CAFE, MICRO_HOME, SENTO, SHOPS, TEMPLE, TOOL_SHED } from './layout';
 import { evaluate } from './grammar/evaluate';
 import { ShopStreet } from './shopstreet';
-import { planApato, planArch, planCafe, planMicroHome, planSento, planTemple, planToolShed } from './grammar/archetypes/landmarks';
+import { planApato, planArch, planCafe, planCafeTerrace, planMicroHome, planSento, planTemple, planToolShed } from './grammar/archetypes/landmarks';
 
 /** A roller shutter that rolls up at opening time. */
 export interface Shutter {
@@ -62,6 +62,8 @@ export function buildBuildings(k: Kit): BuildingsOut {
   street.buildInitial(k);
   evaluate(k, planArch(ARCH), hooks);
   evaluate(k, planCafe(CAFE), hooks);
+  // the roof terrace is many small parts (rails, posts, bulbs): merged by material, a few draw calls
+  k.merged(() => evaluate(k, planCafeTerrace(CAFE), hooks));
   evaluate(k, planToolShed(TOOL_SHED), hooks);
 
   // Seams between neighbouring shop-houses (downpipes in tight gaps, an alley in wider ones).

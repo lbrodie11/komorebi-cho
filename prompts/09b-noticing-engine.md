@@ -159,9 +159,15 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
   - **Attribution groundwork:** each part names the placed things behind it (a planted sakura, a lantern, a bowl), ready for the but-for check.
   - **Wired in:** benches use it in `freeTime`.
   - **Not yet:** it reads features directly instead of a cached grid (cheap enough at this size; measure before changing), and people-attract-people is still the separate crowd and company terms.
+- **Task 3, a first set of triangulators (2026-11-11, fourth step):** `Residents.attention(x, z, r, what, madeBy)`. Everyone out and free nearby glances over, and each pair standing together shares a moment, once a day per kind.
+  - **Wired to:**
+    - a placed wind chime ringing (credited to the chime);
+    - a cat settling down near people (credited to a placed cat bowl nearby);
+    - the temple bell.
+  - **Sound independence:** chimes now ring whether or not sound is on. The simulation must not depend on audio.
 - **Still to do:**
   - Task 1, the scoring split and the "Why?" view.
-  - Task 3, real triangulators with attention profiles (wind chimes, cats, festivals). Today's three moments are a start.
+  - Task 3, the rest: attention profiles as catalogue data, so every admire-only item has one, and festivals (prompt 10).
   - Task 5, the real but-for check. Credit is currently given to the bench or object the moment happened at, which is right for those cases but is not yet the masked re-evaluation.
   - The three-panel bond sheet and the "while you were away" line.
   - The acceptance run: the hook test, the metamorphic tests and the soak.

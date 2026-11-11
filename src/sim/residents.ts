@@ -626,6 +626,33 @@ export class Residents {
     const commuting = p.commute && hourInRange(hour, p.commute[0], p.commute[1]) && !(p.kid && rain > 0.9);
     const working = p.work && hourInRange(hour, p.work.hours[0], p.work.hours[1]);
 
+    // a break on the roof terrace (the café's own), on dry afternoons and evenings. Decided before
+    // anyone steps outside: from inside the café it is straight up the stairs, never out of the door and back in
+    const roofDoor = p.roofBreak ? DOORS[p.roofBreak] : undefined;
+    if (
+      roofDoor &&
+      !asleep &&
+      !commuting &&
+      hour > 14.5 &&
+      hour < 21.5 &&
+      rain < 0.15 &&
+      this.minutes - (a.lastDid.get('roof') ?? -Infinity) > 180 &&
+      a.rng.chance(0.3)
+    ) {
+      a.lastDid.set('roof', this.minutes);
+      const inside = a.hidden && !!a.hiddenAt && Math.hypot(a.hiddenAt[0] - roofDoor.x, a.hiddenAt[1] - roofDoor.z) < 0.5;
+      if (a.hidden && !inside) this.emerge(a); // at home: out of that door first, and walk over
+      return this.assign(a, {
+        kind: 'roof',
+        label: msg('task.toRoof'),
+        goal: [roofDoor.x, roofDoor.z],
+        dwell: a.rng.range(12, 28),
+        pose: 'stand',
+        hide: true,
+        interruptible: false,
+      });
+    }
+
     if (a.hidden && !asleep && !commuting) this.emerge(a);
 
     if (asleep)
@@ -641,30 +668,6 @@ export class Residents {
         hide: true,
         interruptible: true,
       });
-    }
-    // a break on the roof terrace: the café's own, on dry afternoons and evenings
-    if (
-      p.roofBreak &&
-      (working || !asleep) &&
-      hour > 14.5 &&
-      hour < 21.5 &&
-      rain < 0.15 &&
-      this.minutes - (a.lastDid.get('roof') ?? -Infinity) > 180 &&
-      a.rng.chance(0.3)
-    ) {
-      const d = DOORS[p.roofBreak];
-      if (d) {
-        a.lastDid.set('roof', this.minutes);
-        return this.assign(a, {
-          kind: 'roof',
-          label: msg('task.toRoof'),
-          goal: [d.x, d.z],
-          dwell: a.rng.range(12, 28),
-          pose: 'stand',
-          hide: true,
-          interruptible: false,
-        });
-      }
     }
     if (working) {
       const w = p.work!;
@@ -1231,12 +1234,34 @@ export class Residents {
     this.promoted(this.bonds.moment(a.p.id, b.p.id, dayF, madeBy?.placed ? { [madeBy.id]: 1 } : {}));
   }
 
+  /**
+   * Something drew attention at (x, z): a wind chime rang, a cat settled, the evening bell. Everyone
+   * out and free within `r` glances that way, and each pair of them standing near each other has
+   * shared a moment (Whyte's triangulation: a third thing that gives two strangers something in
+   * common). `madeBy` is the placed thing behind it, if any. Returns how many looked up.
+   */
+  attention(x: number, z: number, r: number, what: string, madeBy?: SmartObject): number {
+    const looking = this.agents.filter(
+      (a) => !a.hidden && !a.shuffle && a.riding === null && a.task?.kind !== 'work' && a.task?.kind !== 'jog' && Math.hypot(a.x - x, a.z - z) < r,
+    );
+    for (const a of looking) if (Math.hypot(a.x - x, a.z - z) > 0.5) a.gestureTo('glance', Math.atan2(x - a.x, z - a.z));
+    for (let i = 0; i < looking.length; i++)
+      for (let j = i + 1; j < looking.length; j++) {
+        const a = looking[i]!,
+          b = looking[j]!;
+        if (Math.hypot(a.x - b.x, a.z - b.z) < TOGETHER_RADIUS) this.sharedMoment(a, b, what, madeBy);
+      }
+    return looking.length;
+  }
+
   /** A pair climbed a rung: a line in the feed (naming the thing the player placed, if it was behind it), and an event. */
   private promoted(p: Promotion | null): void {
     if (!p) return;
     const made = p.credited.map((id) => this.smart.objects.get(id)).find((o) => o);
     const key = `story.bond.${p.to}${made ? '.because' : ''}` as MsgKey;
-    if (p.to !== 'familiar') this.story(msg(key, { a: who(p.a), b: who(p.b), ...(made ? { thing: thing(made.label) } : {}) }), p.a);
+    // told from greeting terms up, and a first nod only when something the player placed was behind
+    // it: fourteen neighbours becoming nodding acquaintances would otherwise fill the feed
+    if (p.to !== 'familiar' && (p.to !== 'nod' || made)) this.story(msg(key, { a: who(p.a), b: who(p.b), ...(made ? { thing: thing(made.label) } : {}) }), p.a);
     this.bus.emit('bond', { a: p.a, b: p.b, to: p.to, credited: p.credited });
   }
 
