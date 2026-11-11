@@ -8,6 +8,7 @@
 // Pixels are read INSIDE a requestAnimationFrame, after the game's own frame has rendered: read
 // from an ordinary task, the WebGL drawing buffer is already cleared and every frame compares as
 // blank (that mistake once hid a real regression). A frame with almost no lit pixels is reported.
+/* global requestAnimationFrame */
 import { chromium } from 'playwright';
 
 const [baseUrl, newUrl, look = 'classic', hoursArg = '12,19.25'] = process.argv.slice(2);
