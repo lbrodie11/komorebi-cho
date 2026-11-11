@@ -10,6 +10,7 @@ import { PERSONAS } from '../sim/personas';
 import { PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
 import { MIN_ZOOM } from '../render/camera';
 import { fmt, msg, t, type Msg, type MsgKey } from '../i18n';
+import type { Density } from '../audio/soundscape';
 import type { Memory } from '../sim/memories';
 import { fragment, panel, scene, sheet, unsafeRaw } from '@frame12/static';
 import '@frame12/static/static.css';
@@ -68,6 +69,8 @@ export interface HudActions {
   setDiffusion(s: number): void;
   setCaptions(on: boolean): void;
   setTextScale(s: TextScale): void;
+  /** How busy the neighbourhood's own sounds get. */
+  setDensity(d: Density): void;
   undo(): void;
   redo(): void;
   /** The carried shop: narrower (-1) or wider (+1). */
@@ -169,6 +172,7 @@ export class Hud {
   private readonly weatherBtns = new Map<WeatherMode, HTMLButtonElement>();
   private readonly pixelBtns = new Map<PixelPreset, HTMLButtonElement>();
   private readonly scaleBtns = new Map<TextScale, HTMLButtonElement>();
+  private readonly densityBtns = new Map<Density, HTMLButtonElement>();
   private readonly seasonBtn: HTMLButtonElement;
   private readonly soundBtn: HTMLButtonElement;
   private readonly buildBtn: HTMLButtonElement;
@@ -618,6 +622,10 @@ export class Hud {
     for (const [k, b] of this.scaleBtns) pressed(b, k === s);
   }
 
+  setDensity(d: Density): void {
+    for (const [k, b] of this.densityBtns) pressed(b, k === d);
+  }
+
   /** Whether this browser will store the town at all (shown in Settings when it won't). */
   setSaveStatus(s: 'ok' | 'notSaving'): void {
     this.storageNote.hidden = s === 'ok';
@@ -1043,6 +1051,16 @@ export class Hud {
       wrap.append(n, row);
       s.append(wrap);
     };
+    choice<Density>(
+      'settings.density',
+      [
+        ['quiet', 'settings.density.quiet'],
+        ['balanced', 'settings.density.balanced'],
+        ['lively', 'settings.density.lively'],
+      ],
+      this.densityBtns,
+      (k) => this.act.setDensity(k),
+    );
     choice<TextScale>(
       'settings.textSize',
       [

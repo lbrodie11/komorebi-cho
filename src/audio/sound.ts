@@ -1,6 +1,8 @@
 import { AudioEngine } from './engine';
 import { Music } from './music';
-import { Ambience, type CaptionKind } from './ambience';
+import { Ambience, type CaptionKind, type LifeEvent } from './ambience';
+import { place, type Listener } from './spatial';
+import type { Density } from './soundscape';
 import { AudioLifecycle } from './lifecycle';
 import type { Season } from '../core/clock';
 
@@ -24,7 +26,15 @@ export class Sound {
   effectsVolume = 0.6;
   /** Shown in caption mode: each sound worth naming, as it plays. */
   onCaption: ((kind: CaptionKind) => void) | null = null;
-  private state: { hour: number; rain: number; season: Season; activity: number } = { hour: 16.6, rain: 0, season: 'spring', activity: 0.5 };
+  private state: { hour: number; rain: number; wet: number; season: Season; activity: number } = {
+    hour: 16.6,
+    rain: 0,
+    wet: 0,
+    season: 'spring',
+    activity: 0.5,
+  };
+  private listener: Listener = { x: 0, z: 0, yaw: Math.PI / 4, zoom: 1 };
+  private density: Density = 'balanced';
 
   constructor() {
     this.life = new AudioLifecycle({
@@ -35,6 +45,8 @@ export class Sound {
         this.applyVolumes();
         this.music!.setState(this.state);
         this.ambience!.setState(this.state);
+        this.ambience!.setListener(this.listener);
+        this.ambience!.setDensity(this.density);
         e.fadeIn();
         this.music!.start();
         this.ambience!.start();
@@ -104,26 +116,48 @@ export class Sound {
     this.engine.sfx.gain.setTargetAtTime(this.effectsVolume, t, 0.2);
   }
 
-  /** The world's mood for the score and the soundscape; `activity` is how busy the street is (0..1). */
-  update(hour: number, rain: number, season: Season, activity = 0.5): void {
-    this.state = { hour, rain, season, activity };
+  /** The world's mood for the score and the soundscape; `activity` is how busy the street is (0..1), `wet` how wet the street still is. */
+  update(hour: number, rain: number, season: Season, activity = 0.5, wet = rain): void {
+    this.state = { hour, rain, wet, season, activity };
     if (!this.playing) return;
     this.music?.setState(this.state);
     this.ambience?.setState(this.state);
+  }
+
+  /** Where the camera is looking (the listener sits at its focus). */
+  setListener(l: Listener): void {
+    this.listener = l;
+    if (this.playing) this.ambience?.setListener(l);
+  }
+
+  /** How busy the neighbourhood's own sounds may get (Settings: Quiet / Balanced / Lively). */
+  setDensity(d: Density): void {
+    this.density = d;
+    this.ambience?.setDensity(d);
+  }
+
+  /** Something in the neighbourhood made a sound at (x, z) (a shutter, a cup, a bench, a footstep). */
+  event(kind: LifeEvent, x: number, z: number): void {
+    if (this.playing) this.ambience?.event(kind, x, z);
   }
 
   bell(): void {
     if (this.playing) this.ambience?.bell();
   }
 
-  sfx(name: SfxName, pan = 0): void {
+  /** A one-shot from (x, z) on the ground (or from the middle, for the UI's own sounds). */
+  sfx(name: SfxName, at?: { x: number; z: number }): void {
     const e = this.engine;
     if (!e || !this.playing || !e.claim(0.7)) return; // off, or the one-shot budget is full
     const c = e.ctx;
     const t = e.now + 0.01;
+    const where = at ? place(this.listener, at.x, at.z) : { pan: 0, gain: 1 };
     const p = c.createStereoPanner();
-    p.pan.value = Math.max(-0.9, Math.min(0.9, pan));
-    p.connect(e.sfx);
+    p.pan.value = where.pan;
+    const near = c.createGain();
+    near.gain.value = 0.35 + 0.65 * where.gain; // effects stay audible: you made them
+    p.connect(near).connect(e.sfx);
+    e.duck(t);
     const tone = (f0: number, f1: number, dur: number, vol: number, type: OscillatorType = 'sine', at = t) => {
       const o = c.createOscillator();
       o.type = type;

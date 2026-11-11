@@ -100,6 +100,8 @@ export class World {
   shadowFit: ShadowFit | null = null;
   /** The static town's silhouette as points (plinth corners, rooftops): what the camera's pan bounds keep in reach. */
   readonly outline: THREE.Vector3[];
+  /** A shutter starts to roll (opening or closing time), at (x, z): for the soundscape. */
+  onShutter: ((x: number, z: number) => void) | null = null;
   /** Accessibility: stills swaying lanterns, flags and swings. */
   reducedMotion = false;
 
@@ -283,9 +285,10 @@ export class World {
       if (w.mesh.material !== mat) w.mesh.material = mat;
       if (w.pool !== undefined) this.pools.set(w.pool, level);
     }
-    // shutters roll up at opening time
+    // shutters roll up at opening time (and say so: the soundscape hears them)
     for (const s of this.buildings.shutters) {
       const goal = hourInRange(hour, s.hours[0], s.hours[1]) ? 1 : 0;
+      if (!s.fresh && dt > 0 && s.open !== goal && (s.open === 0 || s.open === 1)) this.onShutter?.(s.mesh.position.x, s.mesh.position.z);
       s.open = s.fresh ? goal : clamp(s.open + Math.sign(goal - s.open) * dt * 0.6, 0, 1);
       s.fresh = false;
       s.mesh.scale.y = Math.max(0.02, 1 - s.open);

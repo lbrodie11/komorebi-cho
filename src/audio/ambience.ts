@@ -1,55 +1,105 @@
 import type { AudioEngine } from './engine';
-import { Rng } from '../core/rng';
+import { stream } from '../core/rng';
 import type { Season } from '../core/clock';
+import { place, type Listener } from './spatial';
+import { EventBudget, scapeLevels, type Density, type ScapeLevels } from './soundscape';
+import { DOORS, SENTO, STREAM, TREES, VENDING } from '../world/layout';
 
-/** What a caption names (shown in caption mode; the HUD words it). */
-export type CaptionKind = 'bell' | 'rain' | 'rainStops' | 'snowWind' | 'cicadas' | 'uguisu' | 'sparrows' | 'higurashi' | 'crickets' | 'crow' | 'bikeBell';
+/** What a caption names (shown in caption mode; the HUD words it as `caption.<kind>`). */
+export type CaptionKind =
+  | 'bell'
+  | 'rain'
+  | 'rainStops'
+  | 'snowWind'
+  | 'cicadas'
+  | 'uguisu'
+  | 'sparrows'
+  | 'higurashi'
+  | 'crickets'
+  | 'crow'
+  | 'bikeBell'
+  | 'chime'
+  | 'train'
+  | 'waterfall'
+  | 'bath'
+  | 'radio'
+  | 'kitchen'
+  | 'vending'
+  | 'shutter'
+  | 'cup'
+  | 'creak'
+  | 'footsteps'
+  | 'drips';
 
 export interface AmbienceState {
   hour: number;
   rain: number;
+  /** How wet the street is (drips go on after the rain). */
+  wet?: number;
   season: Season;
 }
 
-/**
- * Soundscape as weather: six layers that come and go, never all at once.
- * Japan's "100 Soundscapes" list (Environment Agency, 1996) is the reference
- * for treating everyday sound as part of a place: temple bells, cicadas,
- * insects, water. All synthesised here.
- */
+/** Neighbourhood sounds the simulation causes. */
+export type LifeEvent = 'shutter' | 'cup' | 'creak' | 'footstep';
+
 /** The same kind of sound is captioned at most once in this many seconds. */
 const CAPTION_GAP = 30;
 
+/** Where the town's own sources are (world x, z). */
+const WATERFALL = { x: STREAM.x, z: STREAM.z0 + 0.4 };
+const BATH = { x: SENTO.x, z: SENTO.z };
+const CHIMNEY = { x: SENTO.chimney.x, z: SENTO.chimney.z };
+
+/** What each emitter is called in captions. */
+const EMITTER_CAPTION = {
+  waterfall: 'waterfall',
+  pond: 'waterfall',
+  bath: 'bath',
+  radio: 'radio',
+  kitchen: 'kitchen',
+  vending: 'vending',
+} as const satisfies Record<string, CaptionKind>;
+
+interface Emitter {
+  x: number;
+  z: number;
+  /** Its level before distance (0..1, set by the moment). */
+  level: number;
+  gain: GainNode;
+  lp: BiquadFilterNode;
+  pan: StereoPannerNode;
+}
+
+/**
+ * The soundscape (prompt 11): sound as part of the place, positioned. A listener sits at the camera's
+ * focus; every source pans and fades from where it really is (spatial.ts). Fixed emitters (the
+ * waterfall and pond, the bathhouse's water, the kissaten's radio, the ramen kitchen, a vending
+ * machine's hum) are always there, louder the closer you look. Rain comes in layers (scapeLevels).
+ * Creatures and the neighbourhood's own sounds are one-shots from where they happen, through a
+ * density budget. A distant commuter train passes, rarely, behind the buildings. Japan's
+ * "100 Soundscapes" list is the reference for treating everyday sound as part of a place; the
+ * clichés (constant shamisen, frequent temple bells, market chatter) stay out.
+ */
 export class Ambience {
-  private readonly rng = new Rng(808);
-  private readonly rainGain: GainNode;
-  private readonly hissGain: GainNode;
-  private readonly windGain: GainNode;
-  private readonly waterGain: GainNode;
-  private readonly cicadaGain: GainNode;
+  private readonly rng = stream('audio/ambience');
   private state: AmbienceState = { hour: 9, rain: 0, season: 'spring' };
+  private levels: ScapeLevels = scapeLevels({ hour: 9, rain: 0, wet: 0, season: 'spring' });
+  private listener: Listener = { x: 0, z: 0, yaw: Math.PI / 4, zoom: 1 };
   private timer: number | null = null;
   /** Called with each sound worth captioning, at most once per CAPTION_GAP seconds per kind. */
   onCaption: ((kind: CaptionKind) => void) | null = null;
-  private lastCaption = new Map<CaptionKind, number>();
+  private readonly lastCaption = new Map<CaptionKind, number>();
+  private readonly budget = new EventBudget();
+  private readonly beds: Record<'rainfall' | 'roofs' | 'leaves' | 'wetGround' | 'wind' | 'cicadas', GainNode>;
+  private readonly emitters: Record<'waterfall' | 'pond' | 'bath' | 'radio' | 'kitchen' | 'vending', Emitter>;
   private wasRaining = false;
+  /** Which emitters were loud enough to name last time (a caption when one comes within earshot). */
+  private readonly heard = new Set<string>();
   private wasCicadas = false;
-  private nextBird = 0;
-  private nextInsect = 0;
-  private nextCrow = 0;
-  private nextBike = 0;
-  private nextDrip = 0;
+  private next = { bird: 0, insect: 0, crow: 0, bike: 0, drip: 0, train: 0, closeDrop: 0 };
 
   constructor(private readonly a: AudioEngine) {
     const c = a.ctx;
-    const mk = (pink: boolean, setup: (src: AudioBufferSourceNode) => AudioNode, level = 0) => {
-      const src = a.noise(pink);
-      const g = c.createGain();
-      g.gain.value = level;
-      setup(src).connect(g).connect(a.ambience);
-      src.start();
-      return g;
-    };
     const filt = (type: BiquadFilterType, f: number, q = 0.7) => {
       const b = c.createBiquadFilter();
       b.type = type;
@@ -57,36 +107,107 @@ export class Ambience {
       b.Q.value = q;
       return b;
     };
-    this.rainGain = mk(true, (s) => s.connect(filt('highpass', 280)).connect(filt('lowpass', 1400)));
-    this.hissGain = mk(false, (s) => s.connect(filt('bandpass', 3800, 0.6)));
-    this.windGain = mk(true, (s) => s.connect(filt('lowpass', 420)));
-    this.waterGain = mk(false, (s) => s.connect(filt('bandpass', 950, 0.5)), 0.035);
-    // cicadas: band-limited noise amplitude-modulated at ~38 Hz
-    const cic = a.noise(false);
-    const bp = filt('bandpass', 5600, 5);
+    const bed = (pink: boolean, ...chain: AudioNode[]) => {
+      const src = a.noise(pink);
+      const g = c.createGain();
+      g.gain.value = 0;
+      let n: AudioNode = src;
+      for (const x of chain) n = n.connect(x);
+      n.connect(g).connect(a.ambience);
+      src.start(0, a.noiseOffset());
+      return g;
+    };
+    // rain as layers: broad rainfall, a brighter patter on the roofs, the leaves, wet ground
+    this.beds = {
+      rainfall: bed(true, filt('highpass', 280), filt('lowpass', 1400)),
+      roofs: bed(false, filt('bandpass', 4200, 0.8)),
+      leaves: bed(true, filt('bandpass', 2200, 0.9)),
+      wetGround: bed(true, filt('bandpass', 600, 0.6)),
+      wind: bed(true, filt('lowpass', 420)),
+      cicadas: this.cicadaBed(),
+    };
+    // the fixed emitters, each a loop with its own filter, gain and pan
+    const emitter = (x: number, z: number, src: AudioNode, out: AudioNode = a.ambience): Emitter => {
+      const lp = filt('lowpass', 8000);
+      const gain = c.createGain();
+      gain.gain.value = 0;
+      const pan = c.createStereoPanner();
+      src.connect(lp).connect(gain).connect(pan).connect(out);
+      return { x, z, level: 0, gain, lp, pan };
+    };
+    const loop = (pink: boolean, ...chain: AudioNode[]) => {
+      const s = a.noise(pink);
+      let n: AudioNode = s;
+      for (const x of chain) n = n.connect(x);
+      s.start(0, a.noiseOffset());
+      return n;
+    };
+    // the radio in the kissaten: the score itself, small and boxy, bleeding from the door
+    const radio = c.createGain();
+    radio.gain.value = 0.5;
+    a.lofi.connect(radio);
+    const radioBox = filt('bandpass', 1300, 1.1);
+    radio.connect(radioBox);
+    // a vending machine's hum: a low tone and a faint whine
+    const hum = c.createGain();
+    for (const [f, g] of [
+      [100, 0.6],
+      [6200, 0.05],
+    ] as const) {
+      const o = c.createOscillator();
+      o.frequency.value = f;
+      const og = c.createGain();
+      og.gain.value = g;
+      o.connect(og).connect(hum);
+      o.start();
+    }
+    this.emitters = {
+      waterfall: emitter(WATERFALL.x, WATERFALL.z, loop(false, filt('bandpass', 1100, 0.5))),
+      pond: emitter(3, 2, loop(true, filt('bandpass', 700, 1.4))),
+      bath: emitter(BATH.x, BATH.z, loop(false, filt('bandpass', 1800, 0.9))),
+      radio: emitter(DOORS.kissaten!.x, DOORS.kissaten!.z, radioBox, a.room),
+      kitchen: emitter(DOORS.ramen!.x, DOORS.ramen!.z, loop(false, filt('bandpass', 5200, 2))), // the hiss of the stock pot
+      vending: emitter(VENDING[0]!.x, VENDING[0]!.z, hum),
+    };
+  }
+
+  private cicadaBed(): GainNode {
+    const c = this.a.ctx;
+    // band-limited noise amplitude-modulated at ~38 Hz
+    const src = this.a.noise(false);
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 5600;
+    bp.Q.value = 5;
     const am = c.createGain();
     am.gain.value = 0.5;
     const lfo = c.createOscillator();
     lfo.frequency.value = 38;
-    const lfoDepth = c.createGain();
-    lfoDepth.gain.value = 0.5;
-    lfo.connect(lfoDepth).connect(am.gain);
+    const depth = c.createGain();
+    depth.gain.value = 0.5;
+    lfo.connect(depth).connect(am.gain);
     lfo.start();
-    this.cicadaGain = c.createGain();
-    this.cicadaGain.gain.value = 0;
-    cic.connect(bp).connect(am).connect(this.cicadaGain).connect(a.ambience);
-    cic.start();
+    const g = c.createGain();
+    g.gain.value = 0;
+    src.connect(bp).connect(am).connect(g).connect(this.a.ambience);
+    src.start();
+    return g;
   }
 
-  /** Begin the little creatures (birds, insects, bells). Idempotent. */
+  /** Begin the creatures and the town's comings and goings. Idempotent. */
   start(): void {
     if (this.timer === null) this.timer = window.setInterval(() => this.tick(), 120);
   }
 
-  /** Stop scheduling creatures: nothing runs while sound is off or the tab is hidden. */
+  /** Stop scheduling: nothing runs while sound is off or the tab is hidden. */
   stop(): void {
     if (this.timer !== null) window.clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** How busy the neighbourhood's sounds may get (Quiet / Balanced / Lively). */
+  setDensity(d: Density): void {
+    this.budget.density = d;
   }
 
   private caption(kind: CaptionKind): void {
@@ -96,72 +217,160 @@ export class Ambience {
     this.onCaption?.(kind);
   }
 
+  /** Where the camera is looking: every positioned source follows. */
+  setListener(l: Listener): void {
+    this.listener = l;
+    this.placeEmitters();
+  }
+
   setState(s: AmbienceState): void {
     this.state = s;
     const t = this.a.now;
-    const r = s.rain;
-    const winter = s.season === 'winter';
-    this.rainGain.gain.setTargetAtTime(winter ? r * 0.05 : r * 0.55, t, 1.5);
-    this.hissGain.gain.setTargetAtTime(winter ? 0 : r * 0.1, t, 1.5);
-    this.windGain.gain.setTargetAtTime(0.05 + (winter ? 0.18 : 0) + r * 0.12, t, 2);
-    const day = s.hour > 8 && s.hour < 17.5;
-    const cicadas = s.season === 'summer' && day && r < 0.3;
-    this.cicadaGain.gain.setTargetAtTime(cicadas ? 0.06 + Math.sin(t * 0.05) * 0.03 : 0, t, 3);
+    const L = (this.levels = scapeLevels({ hour: s.hour, rain: s.rain, wet: s.wet ?? s.rain, season: s.season }));
+    for (const k of Object.keys(this.beds) as (keyof typeof this.beds)[]) this.beds[k].gain.setTargetAtTime(L[k], t, k === 'rainfall' ? 1.2 : 2.5);
+    const night = s.hour >= 21 || s.hour < 6;
+    const em = this.emitters;
+    em.waterfall.level = 0.09;
+    em.pond.level = 0.03;
+    em.bath.level = s.hour > 14 && s.hour < 23 ? 0.05 : 0.015; // the sento opens in the afternoon
+    em.radio.level = s.hour > 7 && s.hour < 21 ? 0.35 : 0;
+    em.kitchen.level = s.hour > 11 && s.hour < 23 ? 0.03 : 0;
+    em.vending.level = night ? 0.03 : 0.012; // you hear it at night
+    this.placeEmitters();
+    const cicadas = L.cicadas > 0;
     if (cicadas && !this.wasCicadas) this.caption('cicadas');
     this.wasCicadas = cicadas;
-    const raining = r > 0.3;
-    if (raining !== this.wasRaining) this.caption(raining ? (winter ? 'snowWind' : 'rain') : 'rainStops');
+    const raining = s.rain > 0.3;
+    if (raining !== this.wasRaining) this.caption(raining ? (s.season === 'winter' ? 'snowWind' : 'rain') : 'rainStops');
     this.wasRaining = raining;
+  }
+
+  private placeEmitters(): void {
+    const t = this.a.now;
+    for (const [name, e] of Object.entries(this.emitters)) {
+      const p = place(this.listener, e.x, e.z);
+      e.gain.gain.setTargetAtTime(e.level * p.gain, t, 0.4);
+      e.pan.pan.setTargetAtTime(p.pan, t, 0.4);
+      e.lp.frequency.setTargetAtTime(p.cutoff, t, 0.4);
+      // within earshot now: name it (once in a while)
+      const loud = e.level > 0 && p.gain > 0.45;
+      if (loud && !this.heard.has(name)) this.caption(EMITTER_CAPTION[name as keyof typeof EMITTER_CAPTION]);
+      if (loud) this.heard.add(name);
+      else this.heard.delete(name);
+    }
+  }
+
+  /** Something in the neighbourhood made a sound, at (x, z): through the density budget, from where it happened. */
+  event(kind: LifeEvent, x: number, z: number): void {
+    const importance = kind === 'shutter' ? 0.8 : kind === 'footstep' ? 0.2 : 0.5;
+    const t = this.a.now + 0.02;
+    if (!this.budget.allow(t, importance)) return;
+    const at = place(this.listener, x, z);
+    if (at.gain < 0.05) return; // too far to hear
+    switch (kind) {
+      case 'shutter':
+        this.noiseHit(t, 2600, 0.6, 0.9, 0.08 * at.gain, at.pan, true);
+        this.caption('shutter');
+        break;
+      case 'cup':
+        this.ping(t, 3100, 0.18, 0.05 * at.gain, at.pan, this.a.room);
+        this.ping(t + 0.07, 3900, 0.12, 0.03 * at.gain, at.pan, this.a.room);
+        this.caption('cup');
+        break;
+      case 'creak':
+        this.creak(t, 0.05 * at.gain, at.pan);
+        this.caption('creak');
+        break;
+      case 'footstep':
+        this.noiseHit(t, (this.state.wet ?? 0) > 0.3 ? 900 : 1600, 1.2, 0.08, 0.05 * at.gain, at.pan, false);
+        if ((this.state.wet ?? 0) > 0.3) this.caption('footsteps');
+        break;
+    }
   }
 
   private tick(): void {
     const now = this.a.now;
     const { hour, rain, season } = this.state;
     const day = hour > 5.6 && hour < 18;
-    // birds: sparrows most of the year; the bush warbler (uguisu) on spring mornings
-    if (now > this.nextBird) {
-      this.nextBird = now + this.rng.range(1.6, 6);
+    const n = this.next;
+    // birds, from the trees
+    if (now > n.bird) {
+      n.bird = now + this.rng.range(1.6, 6);
       if (day && rain < 0.3 && season !== 'winter') {
+        const tree = this.rng.pick(TREES);
+        const at = place(this.listener, tree.x, tree.z);
         if (season === 'spring' && hour < 10.5 && this.rng.chance(0.25)) {
-          this.uguisu(now);
+          this.uguisu(now, at.pan, at.gain);
           this.caption('uguisu');
-        } else this.sparrows(now);
+        } else {
+          this.sparrows(now, at.pan, at.gain);
+          if (this.rng.chance(0.2)) this.caption('sparrows');
+        }
       }
     }
-    if (now > this.nextInsect) {
-      this.nextInsect = now + this.rng.range(2.5, 7);
+    if (now > n.insect) {
+      n.insect = now + this.rng.range(2.5, 7);
+      const at = place(this.listener, this.rng.range(-7, 7), this.rng.range(-3, 8));
       if (season === 'summer' && hour > 17.4 && hour < 19.6) {
-        this.higurashi(now);
+        this.higurashi(now, at.pan, at.gain);
         this.caption('higurashi');
       }
       if ((season === 'autumn' || season === 'summer') && (hour > 19.5 || hour < 4) && rain < 0.3) {
-        this.suzumushi(now);
+        this.suzumushi(now, at.pan, at.gain);
         this.caption('crickets');
       }
     }
-    if (now > this.nextCrow) {
-      this.nextCrow = now + this.rng.range(14, 40);
+    // crows over the bathhouse chimney at dusk
+    if (now > n.crow) {
+      n.crow = now + this.rng.range(14, 40);
       if (hour > 16.5 && hour < 18.8 && rain < 0.4) {
-        this.crow(now);
+        const at = place(this.listener, CHIMNEY.x, CHIMNEY.z);
+        this.crow(now, at.pan, Math.max(0.35, at.gain));
         this.caption('crow');
       }
     }
-    if (now > this.nextBike) {
-      this.nextBike = now + this.rng.range(20, 60);
+    // a bicycle bell somewhere along the lane
+    if (now > n.bike) {
+      n.bike = now + this.rng.range(20, 60);
       if (hour > 7 && hour < 20 && rain < 0.3) {
-        this.bikeBell(now);
+        const at = place(this.listener, -9.25, this.rng.range(-4, 11));
+        this.bikeBell(now, at.pan, at.gain);
         this.caption('bikeBell');
       }
     }
-    if (rain > 0.2 && season !== 'winter' && now > this.nextDrip) {
-      this.nextDrip = now + this.rng.range(0.08, 0.5) / rain;
-      this.drip(now + this.rng.range(0, 0.1));
+    // drips from the eaves and gutters: while it's wet, after the rain too
+    if (this.levels.drips > 0.05 && now > n.drip) {
+      n.drip = now + this.rng.range(0.4, 1.6) / this.levels.drips;
+      const at = place(this.listener, this.rng.pick([-10.2, -9, 11, 2]), this.rng.range(-8, 9));
+      this.drip(now + this.rng.range(0, 0.1), at.pan, at.gain);
+      if (this.state.rain < 0.2) this.caption('drips');
+    }
+    // the odd close drop: on the camera's own patch of street
+    if (this.state.rain > 0.4 && season !== 'winter' && now > n.closeDrop) {
+      n.closeDrop = now + this.rng.range(3, 9);
+      this.drip(now, this.rng.range(-0.4, 0.4), 1.6);
+    }
+    // a commuter train, rare, low and far, passing behind the buildings
+    if (n.train === 0) n.train = now + this.rng.range(240, 600);
+    if (now > n.train) {
+      n.train = now + this.rng.range(420, 900);
+      if (hour > 5.5 && hour < 24) {
+        this.train(now);
+        this.caption('train');
+      }
     }
   }
 
-  // ── Little synthesised creatures ─────────────────────────────────────────
+  // ── Synthesised sources ─────────────────────────────────────────────────
+  private out(pan: number, to: AudioNode = this.a.ambience): StereoPannerNode {
+    const p = this.a.ctx.createStereoPanner();
+    p.pan.value = pan;
+    p.connect(to);
+    return p;
+  }
+
   private chirp(t: number, f0: number, f1: number, dur: number, vol: number, pan: number): void {
-    if (!this.a.claim(t - this.a.now + dur)) return; // over the voice budget: this chirp is skipped
+    if (vol < 0.0008 || !this.a.claim(t - this.a.now + dur)) return; // inaudible, or over the voice budget
     const c = this.a.ctx;
     const o = c.createOscillator();
     o.frequency.setValueAtTime(f0, t);
@@ -170,56 +379,107 @@ export class Ambience {
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(vol, t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    const p = c.createStereoPanner();
-    p.pan.value = pan;
-    o.connect(g).connect(p).connect(this.a.ambience);
+    o.connect(g).connect(this.out(pan));
     o.start(t);
     o.stop(t + dur + 0.02);
   }
 
-  private sparrows(t: number): void {
-    const pan = this.rng.range(-0.8, 0.8);
+  private ping(t: number, f: number, dur: number, vol: number, pan: number, to: AudioNode): void {
+    if (!this.a.claim(dur)) return;
+    const c = this.a.ctx;
+    const o = c.createOscillator();
+    o.frequency.value = f;
+    const g = c.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(this.out(pan, to));
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  private noiseHit(t: number, f: number, q: number, dur: number, vol: number, pan: number, rolling: boolean): void {
+    if (!this.a.claim(dur)) return;
+    const c = this.a.ctx;
+    const n = this.a.noise(false, false);
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = f;
+    bp.Q.value = q;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + (rolling ? 0.15 : 0.005));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(bp).connect(g).connect(this.out(pan));
+    n.start(t, this.a.noiseOffset(), dur + 0.05);
+    if (rolling) {
+      // a shutter's slats: a rattle riding the roll
+      const lfo = c.createOscillator();
+      lfo.frequency.value = 22;
+      const d = c.createGain();
+      d.gain.value = vol * 0.6;
+      lfo.connect(d).connect(g.gain);
+      lfo.start(t);
+      lfo.stop(t + dur);
+    }
+    this.a.duck(t);
+  }
+
+  private creak(t: number, vol: number, pan: number): void {
+    if (!this.a.claim(0.4)) return;
+    const c = this.a.ctx;
+    const o = c.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.linearRampToValueAtTime(190, t + 0.3);
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 900;
+    bp.Q.value = 6;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.connect(bp).connect(g).connect(this.out(pan));
+    o.start(t);
+    o.stop(t + 0.4);
+  }
+
+  private sparrows(t: number, pan: number, gain: number): void {
     const n = this.rng.int(2, 5);
-    for (let i = 0; i < n; i++) this.chirp(t + i * this.rng.range(0.09, 0.16), this.rng.range(3900, 4600), this.rng.range(2900, 3400), 0.06, 0.035, pan);
+    for (let i = 0; i < n; i++) this.chirp(t + i * this.rng.range(0.09, 0.16), this.rng.range(3900, 4600), this.rng.range(2900, 3400), 0.06, 0.035 * gain, pan);
   }
 
   /** "Hoo... hokekyo": a long rising whistle then a quick falling flourish. */
-  private uguisu(t: number): void {
+  private uguisu(t: number, pan: number, gain: number): void {
     const c = this.a.ctx;
-    const pan = this.rng.range(-0.6, 0.6);
     const o = c.createOscillator();
     const g = c.createGain();
     o.frequency.setValueAtTime(1250, t);
     o.frequency.linearRampToValueAtTime(1500, t + 0.9);
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.03, t + 0.25);
+    g.gain.linearRampToValueAtTime(0.03 * gain, t + 0.25);
     g.gain.linearRampToValueAtTime(0.0001, t + 1.0);
-    const p = c.createStereoPanner();
-    p.pan.value = pan;
-    o.connect(g).connect(p).connect(this.a.ambience);
+    o.connect(g).connect(this.out(pan));
     o.start(t);
     o.stop(t + 1.05);
     const s = t + 1.15;
-    this.chirp(s, 2300, 2000, 0.12, 0.03, pan);
-    this.chirp(s + 0.16, 2600, 2100, 0.1, 0.03, pan);
-    this.chirp(s + 0.3, 2200, 1700, 0.35, 0.03, pan);
+    this.chirp(s, 2300, 2000, 0.12, 0.03 * gain, pan);
+    this.chirp(s + 0.16, 2600, 2100, 0.1, 0.03 * gain, pan);
+    this.chirp(s + 0.3, 2200, 1700, 0.35, 0.03 * gain, pan);
   }
 
   /** Evening cicada "kana-kana-kana": fast pulses, falling in pitch. */
-  private higurashi(t: number): void {
-    const pan = this.rng.range(-0.7, 0.7);
-    for (let i = 0; i < 14; i++) this.chirp(t + i * 0.085, 4700 - i * 40, 4400 - i * 40, 0.06, 0.014 * (1 - i / 18), pan);
+  private higurashi(t: number, pan: number, gain: number): void {
+    for (let i = 0; i < 14; i++) this.chirp(t + i * 0.085, 4700 - i * 40, 4400 - i * 40, 0.06, 0.014 * (1 - i / 18) * gain, pan);
   }
 
   /** Bell cricket "riiin". */
-  private suzumushi(t: number): void {
-    const pan = this.rng.range(-0.8, 0.8);
-    for (let i = 0; i < 18; i++) this.chirp(t + i * 0.028, 4200, 4150, 0.022, 0.012, pan);
+  private suzumushi(t: number, pan: number, gain: number): void {
+    for (let i = 0; i < 18; i++) this.chirp(t + i * 0.028, 4200, 4150, 0.022, 0.012 * gain, pan);
   }
 
-  private crow(t: number): void {
+  private crow(t: number, pan: number, gain: number): void {
     const c = this.a.ctx;
-    const pan = this.rng.range(-0.5, 0.5);
     const calls = this.rng.int(2, 3);
     for (let i = 0; i < calls; i++) {
       const s = t + i * 0.55;
@@ -233,26 +493,56 @@ export class Ambience {
       bp.Q.value = 2.5;
       const g = c.createGain();
       g.gain.setValueAtTime(0, s);
-      g.gain.linearRampToValueAtTime(0.03, s + 0.04);
+      g.gain.linearRampToValueAtTime(0.03 * gain, s + 0.04);
       g.gain.exponentialRampToValueAtTime(0.0001, s + 0.38);
-      const p = c.createStereoPanner();
-      p.pan.value = pan;
-      o.connect(bp).connect(g).connect(p).connect(this.a.ambience);
+      o.connect(bp).connect(g).connect(this.out(pan));
       o.start(s);
       o.stop(s + 0.4);
     }
   }
 
-  private bikeBell(t: number): void {
-    const pan = this.rng.range(-0.9, 0.9);
+  private bikeBell(t: number, pan: number, gain: number): void {
     for (const k of [0, 0.11]) {
-      this.chirp(t + k, 2650, 2640, 0.5, 0.012, pan);
-      this.chirp(t + k, 3950, 3940, 0.35, 0.006, pan);
+      this.chirp(t + k, 2650, 2640, 0.5, 0.012 * gain, pan);
+      this.chirp(t + k, 3950, 3940, 0.35, 0.006 * gain, pan);
     }
   }
 
-  private drip(t: number): void {
-    this.chirp(t, this.rng.range(1400, 2600), this.rng.range(700, 1200), 0.05, 0.015 * this.state.rain, this.rng.range(-0.9, 0.9));
+  private drip(t: number, pan: number, gain: number): void {
+    this.chirp(t, this.rng.range(1400, 2600), this.rng.range(700, 1200), 0.05, 0.015 * gain, pan);
+  }
+
+  /**
+   * A commuter train far off behind the buildings: a low, muffled rumble with the wheels' rhythm,
+   * moving across from one side to the other over half a minute. No horn, no announcement.
+   */
+  private train(t: number): void {
+    const c = this.a.ctx;
+    const dur = 28;
+    const n = this.a.noise(true, true);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 220;
+    const clack = c.createGain();
+    clack.gain.value = 0.6;
+    const lfo = c.createOscillator();
+    lfo.frequency.value = 2.3; // the joints in the rails
+    const depth = c.createGain();
+    depth.gain.value = 0.4;
+    lfo.connect(depth).connect(clack.gain);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.06, t + dur * 0.45);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    const p = c.createStereoPanner();
+    const dir = this.rng.chance(0.5) ? 1 : -1;
+    p.pan.setValueAtTime(-0.7 * dir, t);
+    p.pan.linearRampToValueAtTime(0.7 * dir, t + dur);
+    n.connect(lp).connect(clack).connect(g).connect(p).connect(this.a.ambience);
+    n.start(t, this.a.noiseOffset());
+    n.stop(t + dur);
+    lfo.start(t);
+    lfo.stop(t + dur);
   }
 
   /** Temple bell (bonshō): inharmonic partials, beating, very long decay. */

@@ -56,6 +56,8 @@ export interface SaveData extends SaveStamp {
     captions: boolean;
     /** HUD text scale: 1, 1.25 or 1.5. */
     textScale: number;
+    /** How busy the neighbourhood's sounds get. Optional on disk. */
+    density?: 'quiet' | 'balanced' | 'lively';
   };
 }
 
@@ -213,6 +215,7 @@ export function sanitize(d: Record<string, unknown>): SaveData {
       effects: unit(settings.effects, 0.6),
       captions: settings.captions === true,
       textScale: TEXT_SCALES.includes(settings.textScale as number) ? (settings.textScale as number) : 1,
+      density: settings.density === 'quiet' || settings.density === 'lively' ? settings.density : 'balanced',
     },
   };
 }

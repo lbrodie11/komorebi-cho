@@ -97,9 +97,18 @@ export class Music {
     return { hour: this.state.hour, rain: this.state.rain, season: this.state.season, activity: this.state.activity ?? 0.5 };
   }
 
+  /**
+   * Render the score offline (the soundtrack export): every bar up to `seconds`, scheduled at once on
+   * an OfflineAudioContext. The same bars, the same instruments, the same named streams.
+   */
+  renderAhead(seconds: number): void {
+    if (this.nextBar === 0) this.nextBar = 0.1;
+    this.schedule(seconds);
+  }
+
   /** Schedule whole bars ahead of the audio clock. */
-  private schedule(): void {
-    while (this.nextBar < this.a.now + LOOKAHEAD) {
+  private schedule(until = this.a.now + LOOKAHEAD): void {
+    while (this.nextBar < until) {
       const at = this.nextBar;
       const bar = this.director.nextBar(at, this.mood);
       this.setLayers(bar.layers, at);

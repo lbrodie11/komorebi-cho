@@ -3,12 +3,14 @@ import { Rng, stream } from '../core/rng';
 /**
  * Audio graph. Everything you hear is synthesised at runtime: no audio files.
  *
- *   music  -> lofi (lowpass + gentle saturation) -> musicVerb -+-> reverb -+
- *   ambience -----------------------------------------------------+-> fxVerb +-> compressor -> master -> out
- *   sfx ----------------------------------------------------------+
+ *   music -> duck -> lofi (lowpass + gentle saturation) -> musicVerb -+-> hall -+
+ *   ambience -> highpass (no rumble pile-up) ----------------------------+-> fxVerb +-> compressor -> master -> out
+ *   sfx -----------------------------------------------------------------+
+ *   room (the kissaten's own small reverb) -------------------------------------------+
  *
- * Music and effects have separate reverb sends, so the music's seasonal reverb never
- * changes how a placed bench or the temple bell sounds.
+ * Music and effects have separate reverb sends, so the music's seasonal reverb never changes how a
+ * placed bench or the temple bell sounds; the kissaten's sounds go through a small room instead of
+ * the open-air hall (reverb by place, no global wash). One-shots duck the music 2–3 dB.
  */
 export class AudioEngine {
   readonly ctx: AudioContext;
@@ -21,6 +23,10 @@ export class AudioEngine {
   /** Reverb send for effects and ambience one-shots (fixed). */
   readonly fxVerb: GainNode;
   readonly lofi: BiquadFilterNode;
+  /** The music ducks under one-shots (see `duck`). */
+  private readonly ducker: GainNode;
+  /** A small, enclosed room (the kissaten): send sounds that happen indoors here. */
+  readonly room: GainNode;
   private readonly noiseBuf: AudioBuffer;
   private readonly pinkBuf: AudioBuffer;
   /** End times of the one-shot voices still sounding (see claim()). */
@@ -28,9 +34,11 @@ export class AudioEngine {
   /** Noise and impulse buffers come from a named stream, so the audio is reproducible. */
   private readonly rng: Rng = stream('audio/engine');
 
-  constructor() {
-    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new AC({ latencyHint: 'playback' });
+  /** A live context by default; an OfflineAudioContext renders the soundtrack export. */
+  constructor(ctx?: BaseAudioContext) {
+    const AC =
+      typeof window === 'undefined' ? null : (window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+    this.ctx = (ctx ?? new AC!({ latencyHint: 'playback' })) as AudioContext;
     const c = this.ctx;
     this.master = c.createGain();
     this.master.gain.value = 0;
@@ -62,13 +70,26 @@ export class AudioEngine {
     this.lofi.connect(sat);
     this.music = c.createGain();
     this.music.gain.value = 0.55;
-    this.music.connect(this.lofi);
+    this.ducker = c.createGain();
+    this.music.connect(this.ducker).connect(this.lofi);
     sat.connect(comp);
     sat.connect(this.musicVerb);
 
     this.ambience = c.createGain();
     this.ambience.gain.value = 0.6;
-    this.ambience.connect(comp);
+    // the waterfall, the wind and the bass pile up low: the soundscape keeps out of the bass's way
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 70;
+    this.ambience.connect(hp).connect(comp);
+    // the kissaten: a short, close room
+    this.room = c.createGain();
+    const room = c.createConvolver();
+    room.buffer = this.impulse(0.6, 4);
+    const roomWet = c.createGain();
+    roomWet.gain.value = 0.5;
+    this.room.connect(room).connect(roomWet).connect(comp);
+    this.room.connect(this.ambience);
     this.sfx = c.createGain();
     this.sfx.gain.value = 0.6;
     this.sfx.connect(comp);
@@ -103,7 +124,7 @@ export class AudioEngine {
     const g = this.master.gain;
     g.cancelScheduledValues(this.now);
     g.setValueAtTime(g.value, this.now);
-    g.setTargetAtTime(0.9, this.now, 0.8);
+    g.setTargetAtTime(MASTER, this.now, 0.8);
   }
 
   /** Fade the master out; resolves once it is effectively silent, so a suspend after it never clicks. */
@@ -125,6 +146,14 @@ export class AudioEngine {
     if (this.voices.length >= VOICE_BUDGET) return false;
     this.voices.push(now + seconds);
     return true;
+  }
+
+  /** Duck the music under a one-shot: down 2.5 dB at once, back over half a second. */
+  duck(at = this.now): void {
+    const g = this.ducker.gain;
+    g.cancelScheduledValues(at);
+    g.setTargetAtTime(DUCK, at, 0.02);
+    g.setTargetAtTime(1, at + 0.25, 0.25);
   }
 
   /** A random start offset into the 4-second noise buffers. */
@@ -186,6 +215,10 @@ export class AudioEngine {
   }
 }
 
+/** The master level: set so the full mix measures about −23 LUFS integrated (src/dev/soundtrack.ts measures it). */
+export const MASTER = 0.4;
+/** The music's level under a one-shot (−2.5 dB). */
+export const DUCK = Math.pow(10, -2.5 / 20);
 /** Seconds the master takes to fade to silence before the context is suspended. */
 export const FADE_OUT = 0.6;
 /** Most one-shot voices (sfx and ambient creatures) sounding at once. Music voices are not counted. */

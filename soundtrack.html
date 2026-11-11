@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Soundtrack export</title>
+    <style>
+      body {
+        font:
+          15px system-ui,
+          sans-serif;
+        background: #211e30;
+        color: #f6efe0;
+        padding: 24px;
+      }
+      label {
+        display: block;
+        margin: 8px 0;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Soundtrack export (dev)</h1>
+    <p>Renders the score offline, measures it, and offers a WAV. Not part of the game.</p>
+    <label>Minutes <input id="minutes" type="number" value="2" min="1" max="60" /></label>
+    <label>Hour <input id="hour" type="number" value="14" min="0" max="23.9" step="0.5" /></label>
+    <label>Rain <input id="rain" type="number" value="0" min="0" max="1" step="0.1" /></label>
+    <label
+      >Season
+      <select id="season">
+        <option>spring</option>
+        <option>summer</option>
+        <option>autumn</option>
+        <option>winter</option>
+      </select></label
+    >
+    <button id="go" type="button">Render</button>
+    <p id="status" aria-live="polite"></p>
+    <a id="download" hidden>Download WAV</a>
+    <script type="module" src="/src/dev/soundtrack.ts"></script>
+  </body>
+</html>

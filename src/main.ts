@@ -15,6 +15,7 @@ import { Residents, type Agent } from './sim/residents';
 import { Animals } from './sim/animals';
 import { BuildTool, type ToolMode } from './ui/build';
 import { Hud, TEXT_SCALES, type TextScale } from './ui/hud';
+import type { Density } from './audio/soundscape';
 import { Tutorial } from './ui/tutorial';
 import { History } from './edit/history';
 import { applyShopEdit, type ShopEditContext } from './edit/shopedit';
@@ -109,6 +110,8 @@ let photo = false;
 // ── Persistence ───────────────────────────────────────────────────────────
 let captions = false;
 let textScale: TextScale = 1;
+/** How busy the neighbourhood's sounds get (Settings). */
+let density: Density = 'balanced';
 const tutorial = new Tutorial(params.scripted ? ['place', 'react', 'meet'] : (saved?.tutorial ?? []));
 if (saved) {
   clock.minutes = saved.minutes;
@@ -130,6 +133,7 @@ if (saved) {
   sound.effectsVolume = saved.settings.effects;
   captions = saved.settings.captions;
   textScale = (TEXT_SCALES as readonly number[]).includes(saved.settings.textScale) ? (saved.settings.textScale as TextScale) : 1;
+  density = saved.settings.density ?? 'balanced';
   world.reducedMotion = saved.settings.reducedMotion;
   residents.reducedMotion = saved.settings.reducedMotion;
   diffusionSetting = saved.settings.diffusion;
@@ -196,6 +200,7 @@ function persist(): void {
       diffusion: diffusionSetting,
       captions,
       textScale,
+      density,
     },
   });
   hud.setSaveStatus(ok ? 'ok' : 'notSaving');
@@ -298,6 +303,11 @@ const hud = new Hud(hudRoot, {
     textScale = sc;
     hud.setTextScale(sc);
   },
+  setDensity: (d) => {
+    density = d;
+    sound.setDensity(d);
+    hud.setDensity(d);
+  },
   zoom: (dir) => zoomStep(dir),
   fit: () => fitTown(),
   setZoom: (z) => {
@@ -355,6 +365,8 @@ hud.setSpeed(clock.speed, clock.paused);
 hud.setVolumes(sound.musicVolume, sound.ambienceVolume, sound.effectsVolume);
 hud.setCaptions(captions);
 hud.setTextScale(textScale);
+hud.setDensity(density);
+sound.setDensity(density);
 if (saved) hud.restoreNotes(saved.notes);
 hud.setPeopleSource((id) => {
   const a = residents.agents.find((g) => g.p.id === id);
@@ -414,7 +426,14 @@ function meet(id: string): void {
   tutorial.met();
   bus.emit('sfx', { name: 'click' });
 }
-bus.on('sfx', ({ name, x }) => sound.sfx(name, x !== undefined ? x / 18 : 0));
+bus.on('sfx', ({ name, x, z }) => sound.sfx(name, x !== undefined && z !== undefined ? { x, z } : undefined));
+world.onShutter = (x, z) => sound.event('shutter', x, z);
+// the neighbourhood's own sounds, from where they happen: a bench taking someone's weight, a cup set down
+bus.on('used', ({ id }) => {
+  const o = smart.objects.get(id);
+  if (o?.kind === 'bench') sound.event('creak', o.x, o.z);
+  else if (o?.kind === 'cafe' || o?.kind === 'vending') sound.event('cup', o.x, o.z);
+});
 
 // ── Sizing ────────────────────────────────────────────────────────────────
 const app = document.getElementById('app') as HTMLElement;
@@ -1256,6 +1275,8 @@ function schedule(): void {
   if (!rafId) rafId = requestAnimationFrame(frame);
 }
 
+/** Seconds since the soundscape's listener last moved to the camera's focus. */
+let listenT = 0;
 function frame(now: number): void {
   rafId = 0;
   if (contextLost) return; // the restore handler restarts the loop
@@ -1272,6 +1293,12 @@ function frame(now: number): void {
   world.update(dt, time, clock, sky, gm);
   build.showIslands();
   followFrame();
+  // the soundscape's listener: at the camera's focus (four times a second is plenty)
+  listenT += realDt;
+  if (listenT > 0.25) {
+    listenT = 0;
+    sound.setListener({ x: iso.target.x, z: iso.target.z, yaw: iso.yaw, zoom: iso.zoom });
+  }
   const s0 = performance.now();
   if (!frozen) {
     residents.minutes = clock.minutes; // place memory fades on the world's clock
@@ -1290,7 +1317,15 @@ function frame(now: number): void {
     const n0 = performance.now();
     if (!frozen) residents.noticePass(build.placedSmart(), hour);
     simMs += performance.now() - n0;
-    sound.update(hour, rain, clock.season, residents.agents.filter((a) => !a.hidden).length / residents.agents.length);
+    sound.update(hour, rain, clock.season, residents.agents.filter((a) => !a.hidden).length / residents.agents.length, world.weather.wetness);
+    if (sound.playing) {
+      // cups at the kissaten while it has customers; footsteps on wet ground near where you're looking
+      const cafe = residents.agents.find((a) => !a.hidden && a.arrived && a.task?.obj?.kind === 'cafe');
+      if (cafe && chimeRng.chance(0.25)) sound.event('cup', cafe.x, cafe.z);
+      if (world.weather.wetness > 0.3)
+        for (const a of residents.agents)
+          if (!a.hidden && !a.arrived && a.path.length && Math.hypot(a.x - iso.target.x, a.z - iso.target.z) < 6) sound.event('footstep', a.x, a.z);
+    }
     hud.setClock(clock.label(), clock.day, clock.season);
     hud.refreshCard();
     hud.renderPeople();

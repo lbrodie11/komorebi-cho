@@ -34,6 +34,20 @@ The direction (from the 2026-11-11 audio review): **algorithmically arranged, in
 
 Prompt 04 task 8 already did phase 1 (lifecycle, buses, deterministic RNG, voice budget). Check it still holds before starting.
 
+Done (first pass):
+- **The score is composed** (`themes.ts`): four authored pieces (The Last Train Home 70 BPM in D♭, Morning Light, Afternoon on the Backstreet, Rain After Midnight), each an 8-bar progression (maj7, maj9, m7, m9, 6/9, sus, the borrowed minor iv) and a melody written note by note, all opening with one Komorebi-chō motif; written variations (an altered note, a displaced opening, a sequence up a step) re-fitted to the harmony. The fixed melody scale is gone: every note is checked against its chord (a test over every piece and variation).
+- **Theory** (`theory.ts`): voice leading with least movement (never over an octave), groove templates per instrument (snare 10–25 ms late, kick near the grid, hats varied), seeded bounded humanisation and phrase velocity curves.
+- **Five instruments:** FM electric piano (envelope-shaped index, brighter when harder, soft tremolo), felt piano, a rounded gently saturated bass, dry drums (kick, laid-back snare, rim, textured hats, brushes), a Karplus–Strong pluck (palm-muted in the afternoon piece), a rain/winter pad; crackle sparser and quieter.
+- **The Music Director** (`director.ts`): its own clock (bars at computed times, no drift; fast-forward and time jumps never change tempo or cut a phrase), changes only on 4/8/16-bar boundaries after a 16-bar dwell, once per boundary however the mood flips; vertical layering on 4-bar lines; a minute or two of only the soundscape after each piece, then a theme returns.
+- **Spatial soundscape:** a listener at the camera's focus; pan from screen position (checked against the real camera at all four turns), gain and low-pass from distance and zoom; emitters (waterfall and pond, bathhouse water, the kissaten's radio as a filtered copy of the score in a small room, the ramen kitchen, a vending machine's hum); creatures placed (birds in the trees, crows over the chimney, crickets in the grass, bike bells on the lane).
+- **Rain in layers** (rainfall, roofs, leaves, wet ground, eave drips, the odd close drop): the rain fades first, drips go on while the street is wet.
+- **Neighbourhood life from the sim:** shutters at opening and closing, cups at the café, bench creaks, footsteps on wet stone near the focus, through a density budget (Settings: Quiet / Balanced / Lively). A distant train, rare and low, crossing behind the buildings.
+- **Mix:** one-shots duck the music 2.5 dB; the soundscape is high-passed; the kissaten has its own small room. Measured loudness of the full mix: −22.1 to −24.4 LUFS across five moods, true peak −10.6 dBTP or lower (`loudness.ts`, BS.1770, tested against a reference sine; 2-minute renders).
+- **Captions** for every emitter (when it comes within earshot) and event.
+- **Soundtrack export:** `soundtrack.html` (dev only) renders the score offline for a mood, measures it and offers a WAV.
+
+Not verified (needs people): the listening acceptance criteria (the theme on its own, the 60-minute session on headphones, laptop speakers and a phone), and audio CPU on the reference laptop. Offline, 2 minutes of score rendered in 11–20 s on a heavily loaded machine. Still to do: HRTF for a few sources (if it sounds better), the shrine bell rope when someone prays, placed wind chimes through the spatial path (they still use the effects bus), 30-minute loudness renders including the one-shots.
+
 ## Tasks (in phases; review and listen after each)
 1. **One exceptional theme first: "The Last Train Home"** (68–74 BPM, nostalgic). Evaluate it as music on its own before making anything adaptive.
    - An authored 8-bar melody in `src/audio/themes.ts` (data, not random steps), plus 2–3 written variations: an altered note, rhythmic displacement, sequence up a step.
