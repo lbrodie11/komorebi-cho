@@ -320,32 +320,6 @@ await (async () => {
     await byLabel(page, 'Pause time (Space)').click();
     const placedKinds = [];
     for (const kind of ['bench', 'sakura', 'lantern', 'vending', 'planter', 'catbowl']) {
-      const spot = await K(
-        page,
-        (kind) => {
-          const k = window.__komorebi;
-          const c = document.getElementById('view');
-          const r = c.getBoundingClientRect();
-          const THREE_V = k.iso.camera.position.constructor;
-          for (let x = -14; x <= 14; x += 0.25)
-            for (let z = -10; z <= 10; z += 0.25) {
-              if (!k.build.canPlace(kind, x, z)) continue;
-              const v = new THREE_V(x, 0.42, z).project(k.iso.camera);
-              const sx = r.left + ((v.x + 1) / 2) * r.width,
-                sy = r.top + ((1 - v.y) / 2) * r.height;
-              if (sx > 340 && sx < r.right - 340 && sy > 160 && sy < r.bottom - 160) {
-                // the click rounds to a 0.25 grid from the y=G+0.1 plane, so confirm the round-trip
-                return { sx, sy, x, z };
-              }
-            }
-          return null;
-        },
-        kind,
-      );
-      if (!spot) {
-        check(`place ${kind}`, false, 'no free on-screen spot');
-        continue;
-      }
       const itemLabel = await K(
         page,
         (k) => document.querySelector(`.palette button[aria-label$="${k}"]`)?.getAttribute('aria-label'),
@@ -353,14 +327,46 @@ await (async () => {
       );
       await openTab(itemLabel);
       await byLabel(page, itemLabel).click();
-      const n0 = await K(page, () => window.__komorebi.build.placed.size);
-      await page.mouse.move(spot.sx, spot.sy);
-      await page.mouse.move(spot.sx + 1, spot.sy);
-      await page.mouse.click(spot.sx + 1, spot.sy);
-      await page.waitForTimeout(150);
-      const n1 = await K(page, () => window.__komorebi.build.placed.size);
-      check(`place ${kind} by clicking the diorama`, n1 === n0 + 1, `${n0} → ${n1}`);
-      if (n1 === n0 + 1) placedKinds.push(spot);
+      // residents keep walking while time is paused: one can step onto the spot between finding it and
+      // clicking it ("Someone is standing here"), so try up to three spots, each from a different start
+      let placed = null,
+        why = 'no free on-screen spot',
+        n0 = 0,
+        n1 = 0;
+      for (let attempt = 0; attempt < 3 && !placed; attempt++) {
+        const spot = await K(
+          page,
+          ([kind, attempt]) => {
+            const k = window.__komorebi;
+            const c = document.getElementById('view');
+            const r = c.getBoundingClientRect();
+            const THREE_V = k.iso.camera.position.constructor;
+            for (let i = 0; i <= 112; i++) {
+              const x = -14 + ((i + attempt * 37) % 113) * 0.25;
+              for (let z = -10; z <= 10; z += 0.25) {
+                if (!k.build.canPlace(kind, x, z)) continue;
+                const v = new THREE_V(x, 0.42, z).project(k.iso.camera);
+                const sx = r.left + ((v.x + 1) / 2) * r.width,
+                  sy = r.top + ((1 - v.y) / 2) * r.height;
+                if (sx > 340 && sx < r.right - 340 && sy > 160 && sy < r.bottom - 160) return { sx, sy, x, z };
+              }
+            }
+            return null;
+          },
+          [kind, attempt],
+        );
+        if (!spot) break;
+        n0 = await K(page, () => window.__komorebi.build.placed.size);
+        await page.mouse.move(spot.sx, spot.sy);
+        await page.mouse.move(spot.sx + 1, spot.sy);
+        await page.mouse.click(spot.sx + 1, spot.sy);
+        await page.waitForTimeout(150);
+        n1 = await K(page, () => window.__komorebi.build.placed.size);
+        if (n1 === n0 + 1) placed = spot;
+        else why = `${n0} → ${n1}, reason: ${await K(page, () => window.__komorebi.build.reason)}`;
+      }
+      check(`place ${kind} by clicking the diorama`, !!placed, placed ? `${n0} → ${n1}` : why);
+      if (placed) placedKinds.push(placed);
     }
     await page.keyboard.press('r');
     check('R rotates the item', await K(page, () => window.__komorebi.build.ry > 0));
