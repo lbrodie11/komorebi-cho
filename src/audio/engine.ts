@@ -3,10 +3,13 @@ import { Rng, stream } from '../core/rng';
 /**
  * Audio graph. Everything you hear is synthesised at runtime: no audio files.
  *
- *   music -> duck -> lofi (lowpass + gentle saturation) -> musicVerb -+-> hall -+
- *   ambience -> highpass (no rumble pile-up) ----------------------------+-> fxVerb +-> compressor -> master -> out
- *   sfx -----------------------------------------------------------------+
- *   room (the kissaten's own small reverb) -------------------------------------------+
+ *   music -> duck -> lofi (lowpass + gentle saturation) -> musicVerb -> hall --+
+ *   sfx --------------------------------------------------------> fxVerb -> hall -+-> compressor -> master -> out
+ *   ambience -> highpass (no rumble pile-up) -----------------------------------+
+ *   room (the kissaten's own small reverb) -> ambience, and its wet tail -------+
+ *
+ * The ambience beds stay dry (they are the open air); its one-shots that should ring (the temple
+ * bell) send to fxVerb themselves.
  *
  * Music and effects have separate reverb sends, so the music's seasonal reverb never changes how a
  * placed bench or the temple bell sounds; the kissaten's sounds go through a small room instead of

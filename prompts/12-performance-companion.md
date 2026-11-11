@@ -47,7 +47,14 @@ Working method:
 
 8. **Living Postcard mode** (from the 2026-11-11 camera review). At the widest zoom (0.8×), after a while without input, the HUD fades and a small label reads "Spring · Evening in Komorebi-chō". Weather, season and sound carry on. No automatic camera rotation. Any key, click or touch brings the HUD back, and it never hides something that has keyboard focus. A natural default for the desktop companion.
 
+9. **A snapshot of the simulation.** The residents', animals' and bonds' state serializes to a plain snapshot and restores exactly. Hot per-agent state may move to typed arrays, but a full structure-of-arrays rewrite isn't needed at 14 residents. The Worker below, the replays in prompt 15 and prompt 09b's optional badge all need it.
+10. **The simulation in a Worker.** Pass per-frame state (positions, poses, bubbles) as transferable `ArrayBuffer`s.
+    - **No `SharedArrayBuffer`:** it needs COOP/COEP headers, which GitHub Pages can't send, and the coi-serviceworker workaround forces a reload on first visit.
+    - **`OffscreenCanvas` rendering in a worker is optional.** Safari only added the WebGL context in workers in 17.0 (16.4–16.6 broke feature detection), so feature-detect inside the worker and keep the main-thread renderer as the fallback.
+    - Measure headless fast-forward (game minutes per real second) and record it in `docs/PERF.md`.
+
 ## Acceptance criteria
 - Under 250 draw calls and under 8 ms GPU on the reference laptop at the default view, at night with rain.
 - Idle at noon: under 3% CPU in Chrome's task manager.
 - Memory flat across 200 edits.
+- Snapshot, restore and run gives the same world and bond hashes as an uninterrupted run.

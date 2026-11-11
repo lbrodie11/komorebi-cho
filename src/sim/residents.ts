@@ -353,6 +353,8 @@ export class Residents {
   season: Season = 'spring';
   /** When the current shower started (game minutes), for "sudden rain"; -Infinity while dry. */
   private showerFrom = -Infinity;
+  /** Has the weather been looked at yet? Rain already falling when the town loads isn't a sudden shower. */
+  private rainSeen = false;
   /** Footprints in the snow: a ring of small marks that shrink away. */
   private readonly prints: THREE.InstancedMesh;
   private readonly printAge: Float32Array;
@@ -751,6 +753,11 @@ export class Residents {
    * Snow (winter's rain) slows everyone a little and leaves footprints that fade.
    */
   private weatherPass(rain: number): void {
+    if (!this.rainSeen) {
+      this.rainSeen = true;
+      // it was raining before we looked (a load, a seeded rainy run): nobody is caught out by it
+      if (rain > SHOWER) this.showerFrom = this.minutes - 30;
+    }
     if (rain > SHOWER && this.showerFrom === -Infinity) {
       this.showerFrom = this.minutes;
       for (const a of this.agents) {
@@ -850,7 +857,7 @@ export class Residents {
         a.diary.close(this.diaryOn, r);
       }
     this.diaryOn = day;
-    for (const a of this.agents) a.diary.weather(day, rain, !a.hidden);
+    for (const a of this.agents) a.diary.weather(day, rain, !a.hidden, this.snowing(rain));
   }
 
   /** Having just done something, wanting it again recovers over an hour (no drink after drink after drink). */
@@ -978,10 +985,12 @@ export class Residents {
   /** In line: step up to a free counter, or move up a place. */
   private queueStep(a: Agent, t: Task): void {
     const o = t.obj!;
-    if (o.slots.some((s) => !s.takenBy) && this.smart.isOpen(o, this.hourNow)) {
-      this.smart.release(a.p.id);
+    // a counter they can actually stand at (not one something placed has covered): only then give up their place in line
+    if (o.slots.some((s) => !s.takenBy && this.smart.usable(o, s)) && this.smart.isOpen(o, this.hourNow)) {
+      t.slot!.takenBy = null;
       const use = this.useTask(a, o, t.next!.label, t.next!.dwell, t.next!.bubble);
       if (use) return this.assign(a, use);
+      t.slot!.takenBy = a.p.id;
     }
     const q = o.queue ?? [];
     const mine = q.indexOf(t.slot!);
@@ -1494,7 +1503,14 @@ export class Residents {
   }
   restorePlaces(d: Record<string, unknown>): void {
     for (const a of this.agents) {
-      if (!(a.p.id in d)) continue;
+      if (!(a.p.id in d)) {
+        // a save from before place memory: their haunts are theirs as of now, not faded since day one
+        for (const id of a.p.haunts ?? []) {
+          const o = this.smart.objects.get(id);
+          if (o) a.places.haunt(id, o.x, o.z, this.minutes);
+        }
+        continue;
+      }
       a.places = PlaceMemory.from(d[a.p.id]);
       for (const kind of ['bench', 'cafe', 'view', 'catbowl', 'admire', 'vending'] as const) {
         const f = this.favouriteOf(a, kind);

@@ -37,7 +37,7 @@ Let people keep, share and show their neighbourhoods with no servers.
    - Call `navigator.storage.persist()` when available.
    - Export and import a `.komorebi` file (JSON plus a deflate of the command log).
 2. **Share codes.**
-   - The world is `seed + command log`: compress with deflate, then base64url, then put it in `#town-<code>`.
+   - The world is `seed + command log`: compress with the browser's own `CompressionStream('deflate-raw')` (Baseline 2023: Chrome and Edge 103, Firefox 113, Safari 16.4), then base64url, then put it in `#town-<code>`. Add a small inflater only if a target browser needs it.
    - Opening a link loads that town in a read-only "visit" mode, with a "make it mine" button.
    - Keep codes under about 2 KB for typical towns, and show the size.
 3. **Photo mode v2.**
@@ -53,7 +53,12 @@ Let people keep, share and show their neighbourhoods with no servers.
 
 6. **Seasonal volumes.** At the end of each season, gather that season's memories into a "volume": a FRAME/12 sheet of its best panels, saved or shared as a PNG. Re-rendered from snapshots (never stored images: `localStorage` is a few megabytes), with text alternatives from the event data.
 
+7. **Story postcards: share a story, not just a town.** A postcard link carries the town code plus one Journal memory: its snapshot and event data, including prompt 09b's credits.
+   - Opening it shows the memory's panels first ("Because of the wind chime by the bathhouse…"), then the live town in visit mode.
+   - It keeps the same size budget as a share code, with a text alternative built from the event data.
+
 ## Acceptance criteria
 - Round trips are byte-identical: export → import, and share code → visit → make it mine.
 - A share link for a town with 40 edits is under 2 KB.
 - Photo export works in Chrome, Firefox and Safari. The time-lapse is under 10 MB.
+- A postcard for a bond memory shows the same three panels in another browser.

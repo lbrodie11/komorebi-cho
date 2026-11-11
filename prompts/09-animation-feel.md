@@ -52,7 +52,17 @@ Make the tiny people and objects *feel* good at 10 pixels tall. Juice without no
    - Panning has gentle inertia (disabled with reduced motion).
    - Rotation uses the crossfade from prompt 02.
 
+7. **Gestures for the bond ladder** (prompt 09b needs them):
+   - a glance (the head turns toward someone or something);
+   - a nod (a two-frame head dip);
+   - a wave (one arm);
+   - a standing chat (two people face each other and trade small gestures in turns).
+8. **Placement sounds by material and surface.** Unpacking's audio is a matrix of object × surface × speed (Witch Beam rendered over 14,000 foley files). We synthesize the same idea. Each placeable declares a material: wood, stone, ceramic, metal, paper or plant. The ground under it is known: paving, gravel, earth, a wooden deck or grass. The place sound is the material's body times the surface's contact, plus a small per-item sweetener, from one synthesis table. Picking up and moving use a lighter version. Unit-test that the table covers every pair.
+9. **Experiment: poses on twos.** In Classic and Chunky, step the residents' pose updates at 12 fps while the camera and input stay at 60 fps. Compare 5-second clips against smooth poses, and adopt it only if it reads better. Smooth keeps smooth poses.
+
 ## Acceptance criteria
 - At the default zoom, a viewer can tell walking, sitting, sweeping, praying and gardening apart in a 5-second clip.
 - There are no pops: every appearance and disappearance is motivated (a door, an exit, a dither).
 - The juice audit: list every motion in the game, then cut anything that draws the eye without meaning.
+- A viewer can tell a glance, a nod and a wave apart at the default zoom.
+- The same lantern placed on stone and on grass sounds different; in a blind test, three materials on one surface can be told apart.

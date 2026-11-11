@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryRecorder, MEMORIES_MAX, MEMORIES_PER_DAY, type WorldView } from '../src/sim/memories';
+import { MemoryRecorder, MEMORIES_MAX, MEMORIES_PER_DAY, sanitizeStats, type WorldView } from '../src/sim/memories';
 
 const view = (minutes: number, objects = [{ id: 'b1', kind: 'bench', x: 1, z: 2, ry: 0 }]): WorldView => ({
   minutes,
@@ -88,5 +88,30 @@ describe('neighborhood memories', () => {
   it('ignores facts about objects it cannot see (already removed)', () => {
     const r = new MemoryRecorder();
     expect(r.noticed('haru', 'gone', view(600))).toBeNull();
+  });
+
+  it('carries what builds toward a memory across a reload (two rainy days today, the third next time)', () => {
+    const wet = (m: number): WorldView => ({ ...view(m), rain: 0.8 });
+    const a = new MemoryRecorder();
+    a.used({ who: 'nana', objectId: 'b1', with: [] }, wet(600));
+    a.used({ who: 'nana', objectId: 'b1', with: [] }, wet(DAY + 600));
+    // through the save (JSON and the sanitizer), into a fresh recorder
+    const stats = sanitizeStats(JSON.parse(JSON.stringify(a.stats())));
+    const b = new MemoryRecorder(a.memories, stats);
+    const out = b.used({ who: 'nana', objectId: 'b1', with: [] }, wet(2 * DAY + 600)).map((m) => m.kind);
+    expect(out).toContain('rainy');
+    expect(out).toContain('favorite'); // 3 uses on 3 days, also counted across the reload
+    // removing the thing forgets the rainy days too
+    b.removed('b1');
+    expect(b.stats()).toEqual({ uses: {}, rainy: {} });
+  });
+
+  it('drops malformed saved stats field by field', () => {
+    const s = sanitizeStats({
+      uses: { 'nana|b1': { n: 2, days: [1, 'x', -1, 2.5, 3] }, bad: { n: 1, days: [] }, 'a|b': { n: -1, days: [] } },
+      rainy: { 'nana|b1': [4, null] },
+    });
+    expect(s).toEqual({ uses: { 'nana|b1': { n: 2, days: [1, 3] } }, rainy: { 'nana|b1': [4] } });
+    expect(sanitizeStats(null)).toEqual({ uses: {}, rainy: {} });
   });
 });

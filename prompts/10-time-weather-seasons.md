@@ -47,7 +47,12 @@ Weather and seasons that change **affordances**, not just colours, plus small fe
    - summer: tanabata bamboo with paper strips, wind chimes, and an evening festival with a lantern string and taiko loop
    - autumn: moon-viewing dango on the kissaten terrace, and leaves piling where the caretaker sweeps
    - winter: the New Year kadomatsu by the temple, and steam thicker from the sento chimney
-5. **Calendar.** An optional "follow the real date" mode: the season comes from the device date and the time of day can follow the real clock (desktop-companion use). Show the day number and a tiny almanac line in the HUD ("Shōman · sakura falling").
+5. **Calendar.** An optional "follow the real date" mode: the season comes from the device date and the time of day can follow the real clock (desktop-companion use). Show the day number and a tiny almanac line in the HUD.
+   - **The almanac is the 72 microseasons:** the year's 24 solar terms of about 15 days, each split into three of about 5 days.
+   - Write all 72 lines ourselves, in short American English ("First peach blossoms", "Warm winds blow"). No Japanese script and no romanized term names in the UI.
+   - The line changes every five in-game days, or with the real date in follow-the-date mode.
+   - A few microseasons gate small details, so coming back is rewarded without any pressure: fireflies at the stream, the first frost on a bench, the swallows' nest under the arch.
+   - Boku no Natsuyasumi's daily diary is the precedent: each day felt like a day.
 6. **Moon phases** in the post-pass sky, computed from the date.
 
 7. **Lighting gaps left by prompt 03** (each with screenshots at 19:15 clear and in rain):
@@ -65,8 +70,24 @@ Weather and seasons that change **affordances**, not just colours, plus small fe
    - **OKLab experiment:** rebuild the palette LUT with OKLab distance and compare side by side; adopt it only if it visibly helps (watch warm dusk walls snapping to grey).
    - **The benchmark scene:** Sunday Café at blue hour in the rain. New players start at 16:36, so make sure golden hour into blue hour lands in the first minutes too.
 
+9. **Wind as data.** A coarse wind field (one value every few meters) with gusts as events, from a named stream and the weather state. Layered value noise is enough; curl noise is optional. It drives leaves, laundry, noren, lantern sway (prompt 09) and the wind chimes.
+   - **Wind chimes ring only on a gust over a threshold.** Silence is most of their sound.
+   - Synthesize them as modal bells: a few inharmonic, decaying partials, precomputed per strike. Use plain nodes or a buffer, not an AudioWorklet unless measurements say so.
+   - Two kinds: an **iron chime** (a long, pure ring) and a **glass chime** (bright and short, with a paper strip catching the wind). Today's `chime` sfx becomes the glass one.
+   - A ringing chime opens a shared-attention window (prompt 09b).
+10. **Desire paths and moss.** Footsteps wear the ground; Helbing et al., *Nature* 388 (1997), modeled how trails form this way.
+    - **Wear:** each grass or earth cell keeps a wear value that rises with every footstep (Δ = k·(1 − wear)) and heals slowly, faster when wet. Past a threshold the cell shows a worn path in palette colors. Paved streets never wear.
+    - **Paths reinforce, gently:** a worn cell costs 1 to walk and unworn grass a little more. A cost never drops below 1, so A* with the octile heuristic stays admissible. (If costs move into a `Float32Array`, round every tentative cost with `Math.fround` so the stale-node check compares like with like.)
+    - **Moss** grows on damp, shaded, untrodden stone edges (wetness × shade × (1 − wear)) and fades where people walk.
+    - The wear map is deterministic and saved compactly. Nobody ever cuts through a placed object or a planting bed.
+    - The point: a bench set somewhere new grows a visible path to it over a few days, which is a consequence the player can see from across the map.
+11. **Festivals are triangulators** (prompt 09b): each festival in task 4 gets an attention profile, so the evening lantern string and the moon-viewing dango bring neighbors together, not just decorate.
+
 **Seen while working on prompt 11 (check first):** at dusk in the rain, the lit shop windows show as large flat yellow blocks: the glass reads as a flat, saturated rectangle rather than a window, and the effect is strongest on the florist and the ramen shop. Main does the same (compared on the same frame, 16:48 in rain, before and after prompt 08's changes), so it predates this work. Likely suspects: the rain/wetness boost on window emission or the wet-glass reflection, pushing the glass to the top of the palette with no variation; or the wet-street mirror reflecting the windows back over the facades. The fix should keep the windows warm and readable as windows (frames, a little variation behind the glass) and keep the hierarchy check (the kissaten still the brightest thing at 19:15).
 
 ## Acceptance criteria
 - A 30-minute fast-forward through a year shows all four seasons, at least five weather states and every festival, with no visual glitches.
 - Residents measurably change behaviour in rain (path heat-map comparison in the PR).
+- Over three in-game days, a newly placed bench gets a visible worn path to it; removed, the path heals in about a week.
+- The almanac line changes every five in-game days and never shows Japanese script.
+- In ten minutes of wind, chimes ring only on gusts (count them in the PR), louder when the camera is near.

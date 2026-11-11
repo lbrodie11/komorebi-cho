@@ -45,6 +45,16 @@ A calm, confident launch that finds the cozy and pixel-art audiences.
 5. **Feedback loop.** An in-game "send feedback" link (a mailto or a form you control), an issue template, and a public roadmap.
 6. **Open source decision.** Decide whether to open the repo. The scaffold is MIT and fits your open-source developer-tools profile; the decision is yours. Document it in `docs/LAUNCH.md`.
 
+**Festivals and awards (checked 2026-11-11; confirm before planning around them):**
+- **IGF 2027** entries closed Sept 13, 2026 (finalists in January 2027, ceremony March 3, 2027). Plan for the next cycle, which is expected to open around August 2027; that date isn't announced yet.
+- **IndieCade** lists April 30, 2027; confirm whether that's the deadline.
+- **BAFTA:** check the 2027 categories before targeting one. A "Game Innovation" category couldn't be confirmed in the 2026 winners.
+- **What wins:** recent winners (Titanium Court, Blue Prince) have one idea a juror can explain in a sentence and see working within minutes. Lead with ours: *the neighborhood remembers which thing you built made a friendship possible.* Show it in the trailer's first 30 seconds: the edit, the shared moment, the Journal panel.
+- **Numbers in pitch material must be sourced:**
+  - Tiny Glade's median playtime of about 1 h 4 min (GameDiscoverCo);
+  - Minami Lane's sales from Doot's own posts;
+  - wishlist conversion rates as estimates only.
+
 ## Acceptance criteria
 - The landing page loads in under 2 s on 4G and plays on mobile.
 - The trailer conveys the hook with the sound off, via captions.

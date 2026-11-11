@@ -201,6 +201,7 @@ export const en = {
   'diary.fine': 'Sunny',
   'diary.drizzle': 'A little drizzle',
   'diary.rain': 'Rain',
+  'diary.snow': 'Snow',
   'diary.detail.pigeons': '{n} pigeons',
   'diary.detail.cats': '{n} cats',
   'diary.detail.crows': '{n} crows on the wire',

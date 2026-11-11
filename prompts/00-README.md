@@ -20,18 +20,21 @@ These prompts take the scaffold in `komorebi-cho/` to a polished, free, web rele
 | 06 | Builder v2 | Move/resize buildings, transactions, undo/redo, 30+ placeables, wire rerouting |
 | 07 | Navigation v2 | Worker sim, narrow-alley arbitration, crowding, stuck-agent fuzzing |
 | 08 | Resident AI v2 | Response curves, social life, memory, visible adaptation, diaries |
-| 09 | Animation & feel | Procedural walk cycles, sit/stand contracts, doors, juice |
-| 10 | Time, weather & seasons v2 | Weather states, snow cover, festivals, real-date option |
+| 09 | Animation & feel | Procedural walk cycles, sit/stand contracts, doors, glances/nods/waves, material-and-surface placement sounds, juice |
+| 09b | The Noticing Engine | A place field, triangulators, a bond ladder from co-presence, but-for credit for the edit that made a friendship possible |
+| 10 | Time, weather & seasons v2 | Weather states, snow cover, festivals, wind and chimes, desire paths and moss, a 72-microseason almanac, real-date option |
 | 11 | Music & sound v2 | Bigger composer, spatial emitters, mix targets, captions |
-| 12 | Performance & companion mode | Batching, cached shadows, idle rendering, desktop strip mode |
-| 13 | Save, share & photo | Export/import, share codes in URL hash, photo mode v2 |
+| 12 | Performance & companion mode | Sim snapshots, a Worker sim, batching, cached shadows, idle rendering, desktop strip mode |
+| 13 | Save, share & photo | Story postcards, export/import, share codes in URL hash, photo mode v2 |
 | 14 | PWA & distribution | Offline install, itch.io, optional Tauri companion |
 | 15 | QA & testing | Visual regression, determinism replays, fuzzers, cross-browser matrix |
-| 16 | Authenticity & IP review | Cultural pass, invented brands, Japanese text QA |
+| 16 | Authenticity & IP review | Cultural pass, invented brands, English-only text QA, sourced claims |
 | 17 | Launch | Landing page, press kit, trailer capture, devlog plan |
 | 18 | Award polish | First-90-seconds script, juice audit, consistency audit, bug bash |
 
 **Recommended order after 04** (from the 2026-11-11 review, `docs/REVIEW-2026-11-11.md`): do task 9 of prompt 08 (favourites for Mitsuko, Haru and Rin) and task 7 of prompt 10 (lighting gaps) before 05–07. Prompts 05–07 grow the world; those two grow attachment, which is the weakest link today. Then playtest with people who haven't seen it before going wider.
+
+**Added from the 2026-11-11 research review** (`RESEARCH-NOTES.md`, "The Noticing Engine"): prompt 09b runs between 09 and 10. It is the award hook: bonds that grow from co-presence, credited to the edit that made them possible. Later prompts carry its pieces: wind, chimes, desire paths and the almanac (10), sim snapshots and a Worker (12), story postcards (13), its QA (15), claims and credits (16), the festival calendar (17) and the playtest measures (18).
 
 `_PREAMBLE.md` holds the shared context and is already embedded at the top of every prompt. `RESEARCH-NOTES.md` lists the verified facts behind the design decisions.
 

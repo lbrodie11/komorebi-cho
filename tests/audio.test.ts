@@ -151,3 +151,35 @@ describe('the music director (prompt 11)', () => {
     expect(t).toBeCloseTo(10 + ((70 * 10) / 4 - 1) * (240 / 70), 9);
   });
 });
+
+describe('the pluck (prompt 11)', () => {
+  /** The loop's period by autocorrelation, interpolated between samples. */
+  const period = (x: Float32Array, guess: number): number => {
+    const ac = (lag: number) => {
+      let s = 0;
+      for (let i = 400; i < 400 + 4000; i++) s += x[i]! * x[i + lag]!;
+      return s;
+    };
+    let best = 0,
+      bv = -Infinity;
+    for (let lag = Math.floor(guess * 0.9); lag <= Math.ceil(guess * 1.1); lag++) {
+      const v = ac(lag);
+      if (v > bv) [best, bv] = [lag, v];
+    }
+    const [a, b, c] = [ac(best - 1), bv, ac(best + 1)];
+    return best + (0.5 * (a - c)) / (a - 2 * b + c);
+  };
+
+  it('is in tune (within a few cents) from the middle of the keyboard up, at either sample rate', async () => {
+    const { karplus } = await import('../src/audio/music');
+    for (const rate of [44100, 48000])
+      for (const midi of [60, 67, 72, 79, 84]) {
+        const f = 440 * 2 ** ((midi - 69) / 12);
+        const data = new Float32Array(Math.floor(rate * 0.5));
+        const ctx = { sampleRate: rate, createBuffer: () => ({ getChannelData: () => data }) as unknown as AudioBuffer };
+        karplus(ctx, f, 0.5, 0.5);
+        const heard = rate / period(data, rate / f);
+        expect(Math.abs(1200 * Math.log2(heard / f))).toBeLessThan(4);
+      }
+  });
+});

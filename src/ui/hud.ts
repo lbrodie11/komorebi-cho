@@ -181,6 +181,7 @@ export class Hud {
   private readonly undoBtn: HTMLButtonElement;
   /** Follow (the camera keeps the neighbour in view), on the card; Smooth only. */
   private readonly followBtn: HTMLButtonElement;
+  private following: string | null = null;
   /** Narrower / Wider, shown while a shop is carried (the on-screen [ and ], for touch). */
   private readonly shopSize: HTMLElement;
   private readonly redoBtn: HTMLButtonElement;
@@ -1198,10 +1199,10 @@ export class Hud {
     for (const b of this.paletteBtns.values()) b.hidden = b.dataset.category !== c;
   }
 
-  /** Undo and redo are only offered when there is something to undo or redo. */
-  /** Following someone, or not (the Follow button shows it). */
-  setFollowing(on: boolean): void {
-    this.followBtn.setAttribute('aria-pressed', String(on));
+  /** Who the camera is following, if anyone (the Follow button is pressed on their card only). */
+  setFollowing(id: string | null): void {
+    this.following = id;
+    this.followBtn.setAttribute('aria-pressed', String(!!id && id === this.cardId));
   }
 
   /** Show Narrower / Wider while a shop is being carried. */
@@ -1210,6 +1211,7 @@ export class Hud {
     this.shopSize.hidden = !on;
   }
 
+  /** Undo and redo are only offered when there is something to undo or redo. */
   setHistory(canUndo: boolean, canRedo: boolean): void {
     this.undoBtn.disabled = !canUndo;
     this.redoBtn.disabled = !canRedo;
@@ -1294,6 +1296,7 @@ export class Hud {
   openCard(id: string, get: () => ResidentInfo | null): void {
     this.cardFor = get;
     this.cardId = id;
+    this.followBtn.setAttribute('aria-pressed', String(this.following === id));
     for (const q of this.panels) this.setPanel(q, false);
     this.card.classList.add('open');
     this.refreshCard();

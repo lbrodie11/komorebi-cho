@@ -99,3 +99,10 @@ Not verified (needs people): the listening acceptance criteria (the theme on its
 - Mono fold-down keeps every essential instrument and cue audible.
 - CPU for audio is under 5% on the reference laptop; one-shot voices stay under the budget.
 - Measured loudness within the target above.
+
+**Review pass (2026-11-11), fixed with tests:**
+- **Sounds too far to hear no longer spend the density budget,** and footsteps never take the last token, so a street of walkers can't silence the cups and creaks.
+- **Only a shutter's roll ducks the music.** Before, every footstep ducked it.
+- **The Karplus–Strong pluck is in tune.** An allpass makes up the fractional period; it had been up to about 20 cents flat in the upper octave.
+
+Wind chimes as modal bells that ring only on gusts move to prompt 10, task 9.

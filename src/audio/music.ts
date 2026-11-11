@@ -504,27 +504,39 @@ function saturate(amount: number): Float32Array<ArrayBuffer> {
 }
 
 /**
- * Karplus–Strong, rendered to a buffer: a burst of noise round a delay line the length of one
- * period, averaged each pass (the string losing its brightness). `damp` < 0.5 is a palm-muted string.
+ * Karplus–Strong, rendered to a buffer: a burst of noise round a delay line one period long,
+ * averaged each pass (the string losing its brightness). `damp` < 0.5 is a palm-muted string.
+ * The averaging adds half a sample to the loop and a whole-sample delay line can't hit most
+ * pitches, so a first-order allpass makes up the fraction: the pluck is in tune with the Rhodes
+ * (a plain rounded loop is up to ~20 cents flat this high up).
  */
-export function karplus(c: BaseAudioContext, f: number, seconds: number, damp: number): AudioBuffer {
+export function karplus(c: Pick<BaseAudioContext, 'sampleRate' | 'createBuffer'>, f: number, seconds: number, damp: number): AudioBuffer {
   const rate = c.sampleRate;
   const len = Math.floor(rate * seconds);
-  const period = Math.max(2, Math.round(rate / f));
+  const P = rate / f; // the loop's whole length, in samples
+  const N = Math.max(2, Math.floor(P - 0.6));
+  const d = P - 0.5 - N; // what the allpass adds: 0.1..1.1 samples (stable, nearly flat)
+  const C = (1 - d) / (1 + d);
   const buf = c.createBuffer(1, len, rate);
   const out = buf.getChannelData(0);
-  const ring = new Float32Array(period);
+  const ring = new Float32Array(N);
   const r = stream(`audio/pluck/${Math.round(f)}`);
-  for (let i = 0; i < period; i++) ring[i] = r.next() * 2 - 1;
-  let prev = 0;
+  for (let i = 0; i < N; i++) ring[i] = r.next() * 2 - 1;
+  let prev = 0,
+    apIn = 0,
+    apOut = 0;
   for (let i = 0; i < len; i++) {
-    const k = i % period;
+    const k = i % N;
     const y = ring[k]!;
-    // average with the previous sample: a lowpass each round trip; `damp` sets how fast it fades
-    const next = (y + prev) * damp * 0.996;
-    prev = y;
-    ring[k] = next;
     out[i] = y * 0.6 * Math.min(1, i / 40);
+    // average with the previous sample: a lowpass each round trip; `damp` sets how fast it fades
+    const lp = (y + prev) * damp * 0.996;
+    prev = y;
+    // the fractional part of the period
+    const ap = C * lp + apIn - C * apOut;
+    apIn = lp;
+    apOut = ap;
+    ring[k] = ap;
   }
   return buf;
 }

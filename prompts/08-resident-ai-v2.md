@@ -93,3 +93,14 @@ Still to do: more needs (hunger, comfort), pointing (the residents have no arms 
 - Place a vending machine near the school route. Within one in-game afternoon, Kenta changes his route to pass it, and his diary mentions it.
 - Remove Mitsuko's favourite bench. She looks for it the next day (`?` bubble), then adopts another one, and her diary says so.
 - 20 minutes of fast-forward shows no oscillation, no idle-forever residents and no repeated identical diary lines.
+
+**Review pass (2026-11-11), fixed with tests:**
+- Hysteresis no longer favors a kind with only one option. A stroll chosen once used to keep a 15% edge forever.
+- People waiting in a shop's line keep their place when the free counter is covered by something placed. Before, they gave it up and failed to take the counter, every tick.
+- Rain that is already falling when the town loads isn't a "sudden shower".
+- Winter diaries say "Snow", not "Rain".
+- Haunts in saves from before place memory start fresh instead of having faded since day one.
+- The Journal's progress toward a favorite or a rainy-day regular survives a reload, and is forgotten with the object.
+- Follow shows pressed only on the card of the person being followed, and stops when you leave Smooth.
+
+Static friendships give way to the bond ladder in prompt 09b.

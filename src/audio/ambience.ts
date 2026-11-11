@@ -265,9 +265,9 @@ export class Ambience {
   event(kind: LifeEvent, x: number, z: number): void {
     const importance = kind === 'shutter' || kind === 'suzu' ? 0.8 : kind === 'footstep' ? 0.2 : 0.5;
     const t = this.a.now + 0.02;
-    if (!this.budget.allow(t, importance)) return;
+    // too far to hear: it costs nothing (the budget is for what you'd actually hear)
     const at = place(this.listener, x, z);
-    if (at.gain < 0.05) return; // too far to hear
+    if (at.gain < 0.05 || !this.budget.allow(t, importance)) return;
     switch (kind) {
       case 'shutter':
         this.noiseHit(t, 2600, 0.6, 0.9, 0.08 * at.gain, at.pan, true);
@@ -418,7 +418,9 @@ export class Ambience {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     n.connect(bp).connect(g).connect(this.out(pan));
     n.start(t, this.a.noiseOffset(), dur + 0.05);
+    // only the shutter's roll ducks the music: a footstep a second would make it pump
     if (rolling) {
+      this.a.duck(t);
       // a shutter's slats: a rattle riding the roll
       const lfo = c.createOscillator();
       lfo.frequency.value = 22;
@@ -428,7 +430,6 @@ export class Ambience {
       lfo.start(t);
       lfo.stop(t + dur);
     }
-    this.a.duck(t);
   }
 
   private creak(t: number, vol: number, pan: number): void {

@@ -36,10 +36,10 @@ Specific without being appropriative or infringing. The place should feel like T
    - **Behaviour:** residents bow and clap appropriately, nobody sits on or climbs shrines, and cats may sit *near* them. Removing the islet shrine or the temple requires a deliberate confirm and is framed respectfully, or isn't allowed at all (decide and document).
    - **Sento:** noren colours and the chimney.
    - **Mail and rubbish:** pillar-box red for post, and garbage nets, which are a real and charming shitamachi detail.
-2. **Japanese text.**
-   - All signage uses invented shop names and crests.
-   - Have a native speaker review the kana and kanji glyphs and names, and record their sign-off.
-   - Avoid nonsense kanji.
+2. **Text is English only** (the rule since 2026-11; see `CLAUDE.md`).
+   - There is no Japanese script anywhere a player looks. That includes signs, crests, the almanac and festival names. Add a check that fails the build if kana or kanji appear in `en.ts` or in any sign or glyph table.
+   - All signage uses invented English shop names and short painted words.
+   - Have a native speaker review the residents' names, the places and the cultural details (not glyphs), and record their sign-off.
 3. **IP sweep:**
    - no JR or other rail liveries (we removed the train)
    - no real beverage or konbini brands on vending machines
@@ -48,6 +48,14 @@ Specific without being appropriative or infringing. The place should feel like T
    - the "Quack-like" look is a technique, so don't copy their island composition or UI
 4. **Fonts and licenses.** Ship the OFL licenses. Credits list tools and inspirations (Yanaka, Sudo-kōen as a public park; the "100 Soundscapes of Japan" as an idea).
 5. **Sensitivity reader.** Find a Japanese reader to review personas, blurbs and diaries for stereotypes, and apply their notes.
+
+**Claims and credits (from the 2026-11-11 research fact-check):**
+- **"First" claims:** any claim that we're the first game to do something (crediting an emergent story to the edit that caused it, tested counterfactually) needs a final literature check first. Search the AIIDE, FDG and ICIDS 2025–26 proceedings before it goes in a press kit. Closest prior art: Viv records causal links between actions, and Felt and Winnow sift for story patterns, but neither tests counterfactually.
+- **Credit the right source:**
+  - The "safety, abundance, softness" view of coziness comes from Project Horseshoe's 2017 report (Short, Cook, Howe et al.), not from Rachel Kowert.
+  - Unpacking's audio was "over 14,000 foley wav files" (renders across object, surface and speed), not 14,000 recordings.
+  - Radiance Cascades GI is Sannikov's 2023 paper. Osborne & Sannikov (2024) applies it to astrophysics, not games.
+- **Names in the UI are English:** microseasons, wind-chime kinds, festivals.
 
 ## Acceptance criteria
 - Every checklist item is resolved, with the reviewer's notes linked.

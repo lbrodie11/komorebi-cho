@@ -50,6 +50,16 @@ Confidence to change anything without fear.
 
 10. **Camera checks.** Screenshots at 0.8×, 1×, 1.5×, 2× and 3×, same rotation, at noon and at night in rain, in all four looks: look for shimmer while panning (Chunky at 0.8× is the riskiest), edge quality and silhouettes. Also test: a Mac trackpad pinch (arrives as a ctrl+wheel event in Chrome and Firefox; Safari uses its own gesture events), momentum scrolling, a high-refresh display, an ultrawide and a portrait phone (Fit gives 0.8× centred, by design), and zooming while a placement preview is up.
 
+11. **Noticing Engine checks** (prompt 09b), in CI:
+    - the attribution and metamorphic tests;
+    - the resident-diversity index (1 − Σp²) over a 10-day soak with random edits;
+    - the optional verified badge's divergence rate, logged.
+12. **Browser tools pinned in CI.** Install Playwright and axe-core at exact versions in the CI job, in one `npm i --no-save` step as locally, so the UI audit and the axe scan can't quietly skip.
+13. **WCAG 2.2, beyond what axe sees:**
+    - every drag has a non-drag alternative (2.5.7 Dragging Movements: moving a shop or a bench by buttons or keys);
+    - targets are at least 24×24 CSS px (2.5.8);
+    - nothing is told by color alone (the routine ring, and the bond rungs on the card, also have a shape or words).
+
 ## Acceptance criteria
 - CI runs unit, visual, replay and fuzz suites in under 15 minutes, and all are green.
 - A known bug injected into nav, AI or post is caught by at least one suite (show this).

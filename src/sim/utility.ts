@@ -46,17 +46,21 @@ export interface Scored {
  * Pick the best option. `noise(kind)` gives a little personality: drawn once per kind of activity, so
  * the mood varies what someone does (bench or stroll) without making them dither between two benches.
  * `last` maps a kind to the key chosen last time for it, which keeps its place unless a rival of the
- * same kind beats it by HYSTERESIS: no flip-flopping between near-equal options.
+ * same kind beats it by HYSTERESIS: no flip-flopping between near-equal options. A kind with only
+ * one option has no rival to flip-flop with, so it gets no margin (otherwise anything chosen once,
+ * a stroll, going home, would carry a permanent edge over kinds not yet tried).
  */
 export function pick<T extends Scored>(options: readonly T[], noise: (kind: string) => number, last: ReadonlyMap<string, string>): T | null {
   const mood = new Map<string, number>();
+  const count = new Map<string, number>();
+  for (const o of options) count.set(o.kind, (count.get(o.kind) ?? 0) + 1);
   let best: T | null = null,
     bestScore = -Infinity;
   for (const o of options) {
     let m = mood.get(o.kind);
     if (m === undefined) mood.set(o.kind, (m = noise(o.kind)));
     let s = o.score * m;
-    if (last.get(o.kind) === o.key) s *= HYSTERESIS;
+    if (count.get(o.kind)! > 1 && last.get(o.kind) === o.key) s *= HYSTERESIS;
     if (s > bestScore) [best, bestScore] = [o, s];
   }
   return best;

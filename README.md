@@ -89,7 +89,7 @@ Example: `/?seed=1&hour=19.25&season=autumn&weather=rain&freeze=1`
 
 ## Stack
 
-TypeScript (strict), Vite, three.js `WebGLRenderer` (r187), Web Audio, Vitest. The only runtime dependency is three.js. The simulation is DOM-free so it can move to a Worker later.
+TypeScript (strict), Vite, three.js `WebGLRenderer` (r187), Web Audio, Vitest. The runtime dependencies are three.js and `@frame12/static` (the HUD's panels and the journal's comic sheets). The simulation is DOM-free so it can move to a Worker later.
 
 ## License
 

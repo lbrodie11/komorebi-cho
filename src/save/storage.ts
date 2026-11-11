@@ -4,7 +4,7 @@ import type { PlaceableKind } from '../world/props';
 import { DEFAULT_PIXEL, PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
 import { LEGACY_DIFFUSION_DEFAULT, sanitizeDiffusion } from '../render/diffusion';
 import { isKey, type Msg, type Params } from '../i18n';
-import type { Memory } from '../sim/memories';
+import { sanitizeStats, type Memory, type MemoryStats } from '../sim/memories';
 import { sanitizeShops } from '../edit/shops';
 import { SHOPS } from '../world/layout';
 import type { SaveStamp } from './tabs';
@@ -39,6 +39,8 @@ export interface SaveData extends SaveStamp {
   tutorial: string[];
   /** Journal memories (sim/memories.ts), oldest first. Optional on disk. */
   memories: Memory[];
+  /** What's building toward a memory (use counts, rainy days), so it carries across sittings. Optional on disk. */
+  memoryStats?: MemoryStats;
   /** The Notes panel: the last story lines, oldest first. */
   notes: { msg: Msg; day: number; minutes: number }[];
   settings: {
@@ -205,6 +207,7 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     tutorial: Array.isArray(d.tutorial) ? d.tutorial.filter((x): x is string => typeof x === 'string') : ['meet', 'place', 'react'],
     notes,
     memories,
+    memoryStats: sanitizeStats(d.memoryStats),
     settings: {
       // an unknown preset would break the canvas layout; fall back to the default look
       pixel: (PIXEL_PRESETS as readonly unknown[]).includes(settings.pixel) ? (settings.pixel as PixelPreset) : DEFAULT_PIXEL,

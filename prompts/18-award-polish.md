@@ -64,7 +64,15 @@ The last 10% that people remember.
 
 12. **An optional guided tour** of three or four places (Sunday Café, the park, Sunbeam Bathhouse, the lantern-lit shopping street), each a composed view with a moment of stillness. Always skippable, never automatic, and a set of cuts (no glides) under reduced motion.
 
+13. **Measure what the hook promises,** in the playtest:
+    - **Causal recognition rate:** of the bond stories shown, how often the player correctly names what they did.
+    - **Two Likert questions:** "I felt the neighborhood remembered what I did" and "the residents acted for themselves".
+    - **Complaints** that stories repeat.
+    - **A Journal wording A/B:** factual ("Haru sat on the bench three evenings") against causal ("Since you placed the bench, Haru has stopped here three evenings"). Judge on trust and repetitiveness, not just preference.
+14. **Reasons to return, never pressure.** The almanac line, "while you were away", festivals and paths worn since last time. No streaks, no daily rewards, no timers. The genre's typical playtime is one to five hours, mostly because building has no consequence; ours should.
+
 ## Acceptance criteria
 - 3 of 3 strangers say "oh!" at the first resident reaction, without prompting.
 - Median session in the playtest is over 20 minutes.
 - Zero known crashes, and zero visible pops in the first hour.
+- Causal recognition rate of 80% or more in the playtest.

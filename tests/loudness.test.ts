@@ -70,4 +70,17 @@ describe('the soundscape (prompt 11)', () => {
     expect(count('balanced', 0.3)).toBeLessThanOrEqual(9 + 3);
     expect(count('balanced', 0.9)).toBeGreaterThanOrEqual(count('balanced', 0.3));
   });
+
+  it('keeps a token back from footsteps, so a street of walkers never silences a cup or a creak', () => {
+    const b = new EventBudget('balanced');
+    let cups = 0,
+      steps = 0;
+    for (let t = 0; t < 60; t += 0.25) {
+      // four walkers a second, and a cup every five seconds
+      if (b.allow(t, 0.2)) steps++;
+      if (t % 5 === 0 && b.allow(t + 0.01, 0.5)) cups++;
+    }
+    expect(steps).toBeGreaterThan(0);
+    expect(cups).toBeGreaterThanOrEqual(8); // of 12: the walkers can't take the last token
+  });
 });

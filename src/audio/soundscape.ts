@@ -55,7 +55,9 @@ export const EVENTS_PER_MINUTE: Record<Density, number> = { quiet: 4, balanced: 
 /**
  * The density budget: a token bucket. Each event asks with its importance (0..1); ordinary events
  * need a whole token, important ones (≥ 0.8: the bell, a shutter at opening time) may go a little
- * into debt, so they're rarely the ones dropped. A busy minute thins out instead of piling up.
+ * into debt, so they're rarely the ones dropped, and the least important (< 0.3: footsteps) never
+ * take the last token, so a street of walkers can't starve the cups and creaks. A busy minute thins
+ * out instead of piling up.
  */
 export class EventBudget {
   private tokens: number;
@@ -70,7 +72,7 @@ export class EventBudget {
   allow(t: number, importance: number): boolean {
     this.tokens = Math.min(this.cap, this.tokens + ((t - this.last) * EVENTS_PER_MINUTE[this.density]) / 60);
     this.last = t;
-    const floor = importance >= 0.8 ? -1 : 0;
+    const floor = importance >= 0.8 ? -1 : importance < 0.3 ? 1 : 0;
     if (this.tokens - 1 < floor) return false;
     this.tokens -= 1;
     return true;

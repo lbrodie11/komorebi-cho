@@ -69,4 +69,19 @@ describe('utility scoring (prompt 08)', () => {
       );
     expect(seen).toEqual(new Set(['bench', 'wander']));
   });
+
+  it('gives no edge to a kind with nothing to flip-flop with (a stroll chosen once is not a habit)', () => {
+    const last = new Map([
+      ['wander', 'wander'],
+      ['bench', 'bench-a'],
+    ]);
+    const opts = [
+      { key: 'wander', kind: 'wander', score: 1 },
+      { key: 'home', kind: 'home', score: 1.05 },
+    ];
+    // the stroll was chosen before, but it has no rival of its kind: the better option wins
+    expect(pick(opts, () => 1, last)!.key).toBe('home');
+    // a single bench left of its kind: no margin either
+    expect(pick([{ key: 'bench-a', kind: 'bench', score: 1 }, ...opts], () => 1, last)!.key).toBe('home');
+  });
 });

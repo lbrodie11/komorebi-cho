@@ -28,3 +28,40 @@ These facts shaped the scaffold. Re-verify anything version-specific before rely
 - **Crowds:** cap attention slots per new object (2) and reactions per edit (3), and apply a crowd penalty.
 - **Narrow alleys under 1.4 m:** managed passages with direction tokens. Local avoidance alone deadlocks there.
 - **Lighting:** a few real lights plus many emissives. Glow comes from HDR emissives in the post pass, and exposure is clamped.
+
+## The Noticing Engine (2026-11-11 review of three research reports)
+Three outside reports were reviewed: "The Noticing Engine", "Causal Weave" and "Photonic-Acoustic Stigmergy". What we adopted, and why, is in prompt 09b and the prompts listed in `00-README.md`.
+
+**Sources behind 09b:**
+- **William H. Whyte**, *The Social Life of Small Urban Spaces* (1980), from the Street Life Project: people go where people are, where there's sun, water, trees and food, and where there's a *triangulator*, an external stimulus that gets strangers talking. We found no shipped game using triangulation as a bond trigger.
+- **Jan Gehl:** necessary, optional and social activity. These map onto our schedule (necessary), utility (optional, raised by the player's edits) and bonds (resultant social).
+- **Stanley Milgram**, "The Familiar Stranger" (1972), and **Paulos & Goodman**, CHI '04 (DOI 10.1145/985692.985721): people we see repeatedly but never speak to. Their Jabberwocky device counted co-presence without interaction, the closest computational analogue to our ladder. Relationship sims usually model interaction-driven meters instead.
+- **Story sifting** already exists: Felt (ICIDS 2019), Winnow (AIIDE 2021), Ryan's Sheldon, and composable sifting patterns (FDG '25). Viv records causal links as actions happen. None of them *tests* causation counterfactually; the closest is outside games (Halpern–Pearl causal models in explainable RL, Gerstenberg's counterfactual simulation model). Our decision-point but-for test is a pragmatic simplification: "made possible" versus "helped" covers overdetermination, not every Halpern–Pearl edge case.
+- **Why not rollouts:** agent sims with pathfinding reservations are chaotic. One changed choice reshuffles reservations and A* ties, and the futures diverge. Common random numbers only help while branches stay aligned. So paired full-future rollouts are a QA metric at most (09b task 7).
+- **Desire paths:** Helbing, Keltsch & Molnár, "Modelling the evolution of human trail systems", *Nature* 388, 47–50 (1997). The CHI '25 "Pathways of Desire" study (Lankes, Wallner & Kocur) is about *players'* footprints in a 2D game (they followed earlier players' paths 9.73% of the time), not NPC trails. Don't cite it for ours.
+- **Prospect-refuge** (Appleton) and **isovists** (Benedikt) are established in architecture. We use them as a seat-choice term: modestly novel, not a breakthrough.
+
+**Market and awards (checked 2026-11-11):**
+- **Tiny Glade:** over 1M wishlists by June 16, 2024; 1,375,441 at launch and 616k sold in under a month (GameDiscoverCo); median playtime about 1 h 4 min.
+- **Minami Lane:** over 30k wishlists after its Feb 2024 Next Fest demo, about 48k near launch (developer interview). Doot posted 10k copies on day one, then 28k in week 1, 50k in month 1 and 75k by month 3. Any exact conversion rate is an estimate.
+- **Unpacking:** two BAFTAs in 2022 (Narrative, and EE Game of the Year). Its audio is "over 14,000 foley wav files". Jeff van Dyck is composer and audio director; Angela van Dyck worked on the sounds.
+- **Typical playtimes in the genre** (HowLongToBeat, secondhand): Townscaper about 1 h; Minami Lane, Islanders and Unpacking 3–4 h; Dorfromantik about 5 h. Reviews of Tiny Glade and Townscaper complain that there's nothing to do after an hour, or that the world feels lifeless without people. Our residents answer the second complaint; consequence that compounds over days answers the first.
+- **IGF 2026:** Titanium Court took the Grand Prize and Excellence in Design. 2027 entries ran Aug 10 to Sept 13, 2026, with a $75 fee ($25 for students); the ceremony is March 3, 2027.
+- **BAFTA 2026:** Debut Game went to Clair Obscur: Expedition 33, Game Design to Blue Prince, and Game Beyond Entertainment to Despelote.
+- **Coziness:** "safety, abundance, softness" is Project Horseshoe's 2017 report (Short, Cook, Howe et al.).
+
+**Browser facts:**
+- **GitHub Pages can't set custom headers,** so no COOP/COEP and no `SharedArrayBuffer` without the coi-serviceworker shim, which forces a reload on first visit. Use Workers with transferable `ArrayBuffer`s.
+- **`CompressionStream`** (including `deflate-raw`) is Baseline 2023: Chrome and Edge 103, Firefox 113, Safari 16.4.
+- **`OffscreenCanvas`** arrived in Safari 16.4, but the WebGL context in workers only came in 17.0. Feature-detect inside the worker.
+
+**Considered and set aside:**
+- **2D Radiance Cascades GI.** It's flatland light transport, so it can't represent occlusion under eaves and canopies, which is our lighting. Most implementations want compute shaders, and the palette and dither would hide its gains.
+- **A narrative director steering residents.** It risks feeling scripted; triangulators make moments without steering anyone.
+- **LLM dialogue.** It costs determinism, privacy and tone, and doesn't fix what's missing (consequence).
+- **An economy, streaks or daily rewards.** They contradict the no-pressure design.
+- **A full structure-of-arrays rewrite.** A snapshot/restore (prompt 12) gives what it would, at 14 residents.
+- **Pentatonic scale-of-the-hour music.** The score is authored; the chimes are untuned bells, not melody.
+
+**Treat with care:** the third report said the repository was inaccessible and built on guesses (Japanese web fonts, a 128×128 grid, a 2D top-down game). Its specific numbers (704 KB fields, pathfinding timings, a 27% conversion rate, a six-month development time) weren't verified. Only the ideas above were taken from it.
+

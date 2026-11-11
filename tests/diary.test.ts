@@ -38,4 +38,13 @@ describe('diaries (prompt 08)', () => {
     expect(d.entries).toHaveLength(DIARY_DAYS);
     expect(d.entries[0]!.day).toBe(30 - DIARY_DAYS);
   });
+
+  it('says snow, not rain, on a winter day when what fell was snow', () => {
+    const d = new Diary();
+    d.weather(4, 0.7, true, true);
+    expect(fmt(d.close(4, new Rng(1))!.msg)).toMatch(/— a quiet day\. Snow\./);
+    // a dusting too light to notice stays out of it
+    d.weather(5, 0.1, true, true);
+    expect(fmt(d.close(5, new Rng(1))!.msg)).toMatch(/\. Sunny\./);
+  });
 });

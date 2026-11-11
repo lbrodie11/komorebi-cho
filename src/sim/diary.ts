@@ -25,7 +25,7 @@ const DETAILS = ['pigeons', 'cats', 'crows', 'bell', 'breeze', 'kids'] as const;
 
 export class Diary {
   entries: DiaryEntry[] = [];
-  private today: { day: number; event: DiaryEvent | null; thing: Msg | null; rain: number; out: boolean } | null = null;
+  private today: { day: number; event: DiaryEvent | null; thing: Msg | null; rain: number; snow: boolean; out: boolean } | null = null;
   private lastDetail = '';
 
   /** Something happened today (the first of the most notable kind is kept, with what it was about). */
@@ -37,17 +37,18 @@ export class Diary {
     }
   }
 
-  /** Once a tick or so: the weather they were out in today. */
-  weather(day: number, rain: number, out: boolean): void {
+  /** Once a tick or so: the weather they were out in today (`snow`: what's falling is snow). */
+  weather(day: number, rain: number, out: boolean, snow = false): void {
     const t = this.day(day);
     if (out) {
       t.out = true;
       t.rain = Math.max(t.rain, rain);
+      if (snow && rain > 0.15) t.snow = true;
     }
   }
 
   private day(day: number): NonNullable<Diary['today']> {
-    if (!this.today || this.today.day !== day) this.today = { day, event: null, thing: null, rain: 0, out: false };
+    if (!this.today || this.today.day !== day) this.today = { day, event: null, thing: null, rain: 0, snow: false, out: false };
     return this.today;
   }
 
@@ -69,7 +70,7 @@ export class Diary {
         params: {
           day: { key: `diary.weekday.${day % 7}` as MsgKey },
           what,
-          weather: { key: t.rain > 0.5 ? 'diary.rain' : t.rain > 0.15 ? 'diary.drizzle' : 'diary.fine' },
+          weather: { key: t.snow ? 'diary.snow' : t.rain > 0.5 ? 'diary.rain' : t.rain > 0.15 ? 'diary.drizzle' : 'diary.fine' },
           detail: { key: `diary.detail.${detail}` as MsgKey, params: { n: rng.int(2, 5) } },
         },
       },

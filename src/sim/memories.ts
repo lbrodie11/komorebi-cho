@@ -67,6 +67,37 @@ export const SNAPSHOT_RADIUS = 8;
 /** A rainy-day regular: used the same placed thing in the rain on this many days. */
 export const RAINY_DAYS = 3;
 
+/**
+ * What leads up to a memory, kept across reloads (a rainy-day regular takes three rainy days, which
+ * a player rarely sees in one sitting): per `${who}|${objectId}`, the use count and the recent days
+ * of use, and the recent rainy days. Days are capped to the last few.
+ */
+export interface MemoryStats {
+  uses: Record<string, { n: number; days: number[] }>;
+  rainy: Record<string, number[]>;
+}
+const STAT_DAYS = 7;
+const recent = (days: Iterable<number>): number[] => [...days].sort((a, b) => a - b).slice(-STAT_DAYS);
+
+/** Saved stats, field by field: anything malformed is dropped. */
+export function sanitizeStats(v: unknown): MemoryStats {
+  const out: MemoryStats = { uses: {}, rainy: {} };
+  if (typeof v !== 'object' || v === null) return out;
+  const o = v as Record<string, unknown>;
+  const day = (d: unknown): d is number => typeof d === 'number' && Number.isInteger(d) && d >= 0;
+  const key = (k: string) => /^[\w-]+\|[\w-]+$/.test(k);
+  if (typeof o.uses === 'object' && o.uses !== null)
+    for (const [k, u] of Object.entries(o.uses as Record<string, unknown>)) {
+      if (!key(k) || typeof u !== 'object' || u === null) continue;
+      const r = u as Record<string, unknown>;
+      if (typeof r.n !== 'number' || !Number.isFinite(r.n) || r.n < 0 || !Array.isArray(r.days)) continue;
+      out.uses[k] = { n: Math.floor(r.n), days: recent(r.days.filter(day)) };
+    }
+  if (typeof o.rainy === 'object' && o.rainy !== null)
+    for (const [k, d] of Object.entries(o.rainy as Record<string, unknown>)) if (key(k) && Array.isArray(d)) out.rainy[k] = recent(d.filter(day));
+  return out;
+}
+
 /** What the recorder needs to know about the world at the moment a fact happens. */
 export interface WorldView {
   minutes: number;
@@ -87,11 +118,21 @@ export class MemoryRecorder {
   private perDay = new Map<number, number>();
   private seq = 0;
 
-  constructor(saved: readonly Memory[] = []) {
+  constructor(saved: readonly Memory[] = [], stats?: MemoryStats) {
     this.list = saved.slice(-MEMORIES_MAX);
     // what is already in the journal is never told twice
     for (const m of this.list) this.told.add(this.key(m.kind, m.who, m.objectId));
     this.seq = this.list.length;
+    for (const [k, u] of Object.entries(stats?.uses ?? {})) this.uses.set(k, { n: u.n, days: new Set(u.days) });
+    for (const [k, d] of Object.entries(stats?.rainy ?? {})) this.rainyDays.set(k, new Set(d));
+  }
+
+  /** What's building toward a memory, for the save. */
+  stats(): MemoryStats {
+    const out: MemoryStats = { uses: {}, rainy: {} };
+    for (const [k, u] of this.uses) out.uses[k] = { n: u.n, days: recent(u.days) };
+    for (const [k, d] of this.rainyDays) out.rainy[k] = recent(d);
+    return out;
   }
 
   get memories(): readonly Memory[] {
@@ -141,6 +182,7 @@ export class MemoryRecorder {
   /** A placed object was removed: its use counts go (the memories stay; their snapshots hold it). */
   removed(objectId: string): void {
     for (const k of [...this.uses.keys()]) if (k.endsWith(`|${objectId}`)) this.uses.delete(k);
+    for (const k of [...this.rainyDays.keys()]) if (k.endsWith(`|${objectId}`)) this.rainyDays.delete(k);
   }
 
   private key(kind: MemoryKind, who: readonly string[], objectId: string): string {

@@ -190,6 +190,7 @@ function persist(): void {
     diaries: residents.diariesData(),
     tutorial: tutorial.flags,
     memories: [...memories.memories],
+    memoryStats: memories.stats(),
     notes: hud.noteList,
     settings: {
       pixel: pixelSetting,
@@ -279,6 +280,7 @@ const hud = new Hud(hudRoot, {
   setPixel: (p) => {
     pixelSetting = p;
     pixel = p;
+    if (p !== 'smooth') setFollow(null); // Follow is Smooth only (whole-pixel camera steps judder)
     hud.setPixel(p);
     resize();
   },
@@ -381,7 +383,7 @@ hud.setDiffusion(diffusion);
 
 bus.on('story', ({ msg: m, fleeting }) => hud.story(m, clock.day, clock.minutes, fleeting));
 // ── Memories (the journal) ────────────────────────────────────────────────
-const memories = new MemoryRecorder(saved?.memories ?? []);
+const memories = new MemoryRecorder(saved?.memories ?? [], saved?.memoryStats);
 function worldView(): WorldView {
   return {
     minutes: clock.minutes,
@@ -654,7 +656,7 @@ let followSet: { x: number; z: number; zoom: number; yaw: number } | null = null
 function setFollow(id: string | null): void {
   followId = id;
   followSet = null;
-  hud.setFollowing(!!id);
+  hud.setFollowing(id);
   if (id) followFrame(true);
 }
 function followFrame(start = false): void {
