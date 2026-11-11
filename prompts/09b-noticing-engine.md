@@ -147,9 +147,20 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
     - a "Because of you" Journal memory when a placed thing brought a pair to greeting terms or closer;
     - a Neighbors list on the card.
   - **Saved** with the town. Tests: `tests/bonds-sim.test.ts`.
+- **Task 2, the place field (2026-11-11, third step):** `src/sim/field.ts`, pure, with `tests/field.test.ts`.
+  - **What it scores:** a seat is judged as a place.
+    - shade at summer noon, sun on a winter morning;
+    - shelter in rain;
+    - light after dark;
+    - water and food nearby;
+    - something at your back with a view in front;
+    - the cat bowl, for cat people.
+  - **The four combinations** the prompt asks for each have a test.
+  - **Attribution groundwork:** each part names the placed things behind it (a planted sakura, a lantern, a bowl), ready for the but-for check.
+  - **Wired in:** benches use it in `freeTime`.
+  - **Not yet:** it reads features directly instead of a cached grid (cheap enough at this size; measure before changing), and people-attract-people is still the separate crowd and company terms.
 - **Still to do:**
   - Task 1, the scoring split and the "Why?" view.
-  - Task 2, the place field.
   - Task 3, real triangulators with attention profiles (wind chimes, cats, festivals). Today's three moments are a start.
   - Task 5, the real but-for check. Credit is currently given to the bench or object the moment happened at, which is right for those cases but is not yet the masked re-evaluation.
   - The three-panel bond sheet and the "while you were away" line.

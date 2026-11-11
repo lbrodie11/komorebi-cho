@@ -7,9 +7,10 @@ import { PlaceMemory, type PlaceMemoryData } from './places';
 import { curve, pick, score } from './utility';
 import { Diary, type DiaryEntry } from './diary';
 import { Bonds, type Promotion, type Rung } from './bonds';
+import { placeScore, type FieldEnv } from './field';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
-import { DOORS, EXITS, G, PASSAGES, ROOF_TERRACE, SHELTERS } from '../world/layout';
+import { DOORS, EXITS, G, PASSAGES, ROOF_TERRACE, SHELTERS, TREES } from '../world/layout';
 import { groundHeight } from '../world/terrain';
 import type { NavGrid } from './grid';
 import { PERSONAS, type Persona } from './personas';
@@ -718,16 +719,19 @@ export class Residents {
     const dist = (o: { x: number; z: number }) => Math.hypot(o.x - a.x, o.z - a.z);
     const dPen = (o: { x: number; z: number }) => 1 / (1 + dist(o) / 22);
     const rainPen = 1 - rain * 0.7;
+    let env: FieldEnv | null = null;
 
     const useOpt = (kind: SmartKind, base: number, label: (o: SmartObject) => Msg, dwell: [number, number], bubble?: BubbleIcon) => {
       for (const o of this.smart.available(kind, hour)) {
         if (o.placed && !a.known.has(o.id)) continue;
         if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
-        const s =
-          score(base, [dPen(o), this.crowdFactor(a, o), this.satiation(a, kind)]) *
-          this.placeFactor(a, o) *
-          this.socialFactor(a, o) *
-          this.lightFactor(o, hour);
+        // somewhere to sit is judged as a place (shade, shelter, light, what's nearby: field.ts);
+        // everything else just by whether it's lit after dark
+        const where =
+          kind === 'bench'
+            ? placeScore({ x: o.x, z: o.z, face: o.slots[0]?.face }, (env ??= this.fieldEnv(hour, rain)), !!p.catFriend).score
+            : this.lightFactor(o, hour);
+        const s = score(base, [dPen(o), this.crowdFactor(a, o), this.satiation(a, kind)]) * this.placeFactor(a, o) * this.socialFactor(a, o) * where;
         opts.push({ score: s, key: o.id, kind, make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
       }
       // every counter busy: queueing is an option, a less attractive one
@@ -1149,6 +1153,33 @@ export class Residents {
     if (o.kind === 'cafe') return 1.6;
     for (const p of this.smart.objects.values()) if (p.glow && Math.hypot(p.x - o.x, p.z - o.z) < LIT_RADIUS) return 1.5;
     return 1;
+  }
+
+  /** What the place field reads, as the town is now (trees and lights the player placed included, with their ids). */
+  fieldEnv(hour: number, rain: number): FieldEnv {
+    const trees: FieldEnv['trees'][number][] = TREES.map((t) => ({ x: t.x, z: t.z, r: t.r }));
+    const lights: FieldEnv['lights'][number][] = [],
+      food: FieldEnv['food'][number][] = [],
+      bowls: FieldEnv['bowls'][number][] = [];
+    for (const o of this.smart.objects.values()) {
+      const f = { x: o.x, z: o.z, ...(o.placed ? { id: o.id } : {}) };
+      if (o.placed && o.label === 'sakura') trees.push({ ...f, r: 1.6 });
+      if (o.glow) lights.push(f);
+      if (o.kind === 'vending' || o.kind === 'cafe') food.push(f);
+      if (o.kind === 'catbowl') bowls.push(f);
+    }
+    return {
+      hour,
+      season: this.season,
+      rain,
+      trees,
+      shelters: this.shelters(),
+      lights,
+      water: [{ x: 2.4, z: 2.1, r: 3 }], // the pond
+      food,
+      bowls,
+      isOpen: (x, z) => this.grid.isOpenAt(x, z),
+    };
   }
 
   /** Friends at a place make it more inviting, more so the more they want company (kids play together). */
