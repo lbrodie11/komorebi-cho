@@ -323,8 +323,13 @@ diffuseColor.rgb *= .9 + .2 * fract(sin(dot(vBlob, vec3(12.9898, 78.233, 37.719)
  * knows where to paint reflections. sceneRT alpha is otherwise 1 for every opaque surface.
  */
 export const WATER_MASK = 0.5;
-/** Alpha mask for painted signs: the post pass skips dithering there, so lettering stays crisp. */
-export const SIGN_MASK = 0.25;
+/**
+ * Alpha mask for painted signs: the post pass skips dithering there, so lettering stays crisp.
+ * 0.75, not lower: Smooth multisamples, and an edge pixel shared by a sign and an opaque wall
+ * (alpha 1) averages somewhere in 0.75..1, never down at WATER_MASK where it would be painted
+ * with reflections.
+ */
+export const SIGN_MASK = 0.75;
 const WATER_VERT_HEAD = /* glsl */ `
 varying vec3 vWPos;`;
 const WATER_VERT_BODY = /* glsl */ `
@@ -526,6 +531,52 @@ export class Materials {
     return m;
   }
 
+  /** Every painted sign, with its two textures (see setSmooth). */
+  private readonly signs: {
+    material: THREE.MeshStandardMaterial;
+    canvas: HTMLCanvasElement;
+    crisp: THREE.CanvasTexture;
+    soft: THREE.CanvasTexture | null;
+    lit: boolean;
+  }[] = [];
+  private smooth = false;
+
+  /**
+   * The Smooth look zooms continuously, and a sign's texels are about a render pixel wide: sampled
+   * nearest, a letter's strokes come out one or two pixels wide by turns as the zoom moves, so the
+   * lettering jumps. Smooth gets each sign enlarged 4× (still hard-edged) and filtered with
+   * mipmaps: strokes keep one width at every zoom. The palette looks keep the exact texels (their
+   * zoom moves in steps, and each step is static).
+   */
+  setSmooth(on: boolean): void {
+    if (this.smooth === on) return;
+    this.smooth = on;
+    for (const s of this.signs) this.applySignLook(s);
+  }
+
+  private applySignLook(s: Materials['signs'][number]): void {
+    if (this.smooth && !s.soft) {
+      const K = 4;
+      const c = document.createElement('canvas');
+      c.width = s.canvas.width * K;
+      c.height = s.canvas.height * K;
+      const ctx = c.getContext('2d');
+      if (!ctx) return;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(s.canvas, 0, 0, c.width, c.height);
+      const t = new THREE.CanvasTexture(c);
+      t.magFilter = THREE.LinearFilter;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.generateMipmaps = true;
+      t.anisotropy = 8;
+      t.colorSpace = THREE.SRGBColorSpace;
+      s.soft = t;
+    }
+    const t = this.smooth && s.soft ? s.soft : s.crisp;
+    s.material.map = t;
+    if (s.lit) s.material.emissiveMap = t;
+  }
+
   /**
    * A sign painted from the glyph atlas. Returns its size in metres at native
    * texel size. `glow` > 0 makes it a back-lit box: the face emits, the ink doesn't,
@@ -539,6 +590,8 @@ export class Materials {
     t.colorSpace = THREE.SRGBColorSpace;
     const material = this.std('#ffffff', 0.7, { map: t });
     material.userData.ownLook = true; // painted signs are never weathered over
+    this.signs.push({ material, canvas: p.canvas, crisp: t, soft: null, lit: glow > 0 });
+    if (this.smooth) this.applySignLook(this.signs[this.signs.length - 1]!);
     material.onBeforeCompile = (sh) => {
       sh.fragmentShader = inject(sh.fragmentShader, '#include <dithering_fragment>', `gl_FragColor.a = ${SIGN_MASK.toFixed(2)};`);
     };
@@ -583,6 +636,13 @@ export class Materials {
     for (const m of owned) {
       const i = this.lamps.indexOf(m as LampMaterial);
       if (i >= 0) this.lamps.splice(i, 1);
+      // a sign has two textures (the exact one and Smooth's): free both, and forget it
+      const si = this.signs.findIndex((s) => s.material === m);
+      if (si >= 0) {
+        const [s] = this.signs.splice(si, 1);
+        s!.crisp.dispose();
+        s!.soft?.dispose();
+      }
       (m as THREE.MeshStandardMaterial).map?.dispose();
       m.dispose();
     }

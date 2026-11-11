@@ -76,16 +76,18 @@ const KEYS: Key[] = [
   },
   // sunrise: a pink horizon and the first long orange shadows; lamps fading
   {
-    // colour script: gentle optimism; the town is waking up
+    // colour script: gentle optimism; the town is waking up. Dawn is dusk's opposite, not its
+    // twin: clean, cool air (a pale pink horizon under blue, a pale gold sun, blue-grey shade) and
+    // the lamps all but out, where sunset is persimmon and violet with the lamps coming on.
     h: 5.6,
     top: '#2f4a72',
-    bottom: '#e59b9b',
-    sun: '#ff6b3d',
+    bottom: '#f4c7cf',
+    sun: '#fff1c4',
     sunI: 0.35,
-    hemiSky: '#8e86c0',
-    hemiGround: '#45291b',
+    hemiSky: '#86aed4',
+    hemiGround: '#3f3a58',
     hemiI: 0.5,
-    lamp: 0.55,
+    lamp: 0.3,
     stars: 0.2,
     exposure: 1.12,
     clouds: 0.6,

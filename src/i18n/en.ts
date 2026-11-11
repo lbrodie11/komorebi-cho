@@ -79,6 +79,8 @@ export const en = {
 
   'zoom.label': 'Zoom',
   'zoom.in': 'Zoom in (+)',
+  'zoom.turnLeft': 'Turn the street left (Q)',
+  'zoom.turnRight': 'Turn the street right (E)',
   'zoom.out': 'Zoom out (−)',
   'zoom.fit': 'Fit the whole town (F)',
   'zoom.slider': 'Zoom',

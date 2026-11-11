@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Rng } from '../core/rng';
 import type { EventBus, GameEvents } from '../core/events';
 import type { Materials } from '../render/materials';
-import { G, ISLET, TG } from '../world/layout';
+import { G, ISLET, TG, TREES } from '../world/layout';
 import { clamp } from '../core/math';
 import { groundHeight } from '../world/terrain';
 import type { NavGrid } from './grid';
@@ -48,6 +48,8 @@ interface Sparrow {
   flying: boolean;
   next: number;
   pecking: number;
+  /** Up in a tree for the night or out of the rain (hidden in the leaves), or on the way there. */
+  roost: 'no' | 'going' | 'in';
 }
 
 /** Seconds a pigeon's flight takes, and a sparrow's (low and short). */
@@ -146,7 +148,7 @@ export class Animals {
       rig.root.rotation.y = this.rng.range(0, Math.PI * 2);
       root.add(rig.root);
       const p = rig.root.position.clone();
-      this.sparrows.push({ rig, from: p.clone(), to: p, u: 1, dur: 0.25, arc: 0, flying: false, next: this.rng.range(0.3, 2), pecking: 0 });
+      this.sparrows.push({ rig, from: p.clone(), to: p, u: 1, dur: 0.25, arc: 0, flying: false, next: this.rng.range(0.3, 2), pecking: 0, roost: 'no' });
     }
     ['#ff6b3d', '#f6efe0', '#d0402a', '#ffa94d', '#f6efe0', '#ff6b3d'].forEach((c, i) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.14), m.solid(c));
@@ -301,17 +303,55 @@ export class Animals {
     let startle: THREE.Vector3 | null = null;
     for (const b of this.sparrows) {
       const r = b.rig;
-      r.root.visible = out;
-      if (!out) continue;
       if (b.u < 1) {
         b.u = Math.min(1, b.u + dt / b.dur);
         r.root.position.lerpVectors(b.from, b.to, b.u);
         r.root.position.y += hopHeight(b.u, b.arc);
         r.setWings(b.flying ? flapFrame('sparrow', b.u * b.dur) : 'folded');
-        if (b.u >= 1) r.setWings('folded');
+        if (b.u >= 1) {
+          r.setWings('folded');
+          // into the leaves: out of sight until morning (or the rain eases)
+          if (b.roost === 'going') {
+            b.roost = 'in';
+            r.root.visible = false;
+          }
+        }
         continue;
       }
       b.flying = false;
+      if (b.roost === 'in') {
+        // morning: down from the tree to the ground nearby
+        if (out) {
+          const dest = this.grid.randomOpenIn(() => this.rng.next(), SPARROW_AREA.x0, SPARROW_AREA.x1, SPARROW_AREA.z0, SPARROW_AREA.z1);
+          if (dest) {
+            b.roost = 'no';
+            r.root.visible = true;
+            this.launch(b, dest[0], dest[1], SPARROW_FLIGHT + this.rng.range(0.2, 0.6), 0.5, true);
+          }
+        }
+        continue;
+      }
+      if (!out) {
+        // night, or heavy rain: fly up into the nearest tree (never just vanish)
+        const p0 = r.root.position;
+        let tree = TREES[0]!,
+          bd = Infinity;
+        for (const t of TREES) {
+          const d = Math.hypot(t.x - p0.x, t.z - p0.z);
+          if (d < bd) [tree, bd] = [t, d];
+        }
+        b.roost = 'going';
+        this.launch(
+          b,
+          tree.x,
+          tree.z,
+          SPARROW_FLIGHT + bd * 0.12 + this.rng.range(0, 0.4),
+          0.6,
+          true,
+          (tree.y ?? groundHeight(tree.x, tree.z)) + tree.h + tree.r * 0.4,
+        );
+        continue;
+      }
       if (b.pecking > 0) {
         b.pecking = Math.max(0, b.pecking - dt);
         r.setPeck(Math.sin((Math.PI * b.pecking) / 0.2));
@@ -337,16 +377,17 @@ export class Animals {
     // the flock goes up together: everyone grounded within 1.5 m of the startled bird
     for (const b of this.sparrows) {
       const p = b.rig.root.position;
-      if (b.u < 1 || Math.hypot(p.x - startle.x, p.z - startle.z) > 1.5) continue;
+      if (b.u < 1 || b.roost !== 'no' || Math.hypot(p.x - startle.x, p.z - startle.z) > 1.5) continue;
       const dest = this.grid.randomOpenIn(() => this.rng.next(), SPARROW_AREA.x0, SPARROW_AREA.x1, SPARROW_AREA.z0, SPARROW_AREA.z1);
       if (dest) this.launch(b, dest[0], dest[1], SPARROW_FLIGHT + this.rng.range(0, 0.25), 1.1, true);
     }
   }
 
-  private launch(b: Sparrow, x: number, z: number, dur: number, arc: number, flying: boolean): void {
+  /** Start a hop or a flight to (x, z), landing on the ground there unless `toY` says otherwise (a branch). */
+  private launch(b: Sparrow, x: number, z: number, dur: number, arc: number, flying: boolean, toY?: number): void {
     const p = b.rig.root.position;
-    b.from.set(p.x, groundHeight(p.x, p.z), p.z);
-    b.to.set(x, groundHeight(x, z), z);
+    b.from.copy(p); // from where it is (the ground, or its branch)
+    b.to.set(x, toY ?? groundHeight(x, z), z);
     b.u = 0;
     b.dur = dur;
     b.arc = arc;

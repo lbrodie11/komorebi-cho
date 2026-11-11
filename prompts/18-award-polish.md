@@ -77,6 +77,8 @@ The last 10% that people remember.
     - The painted 3×5 signs read at the default zoom in Classic. Check M against W and N against H; widen to 4×5 where a word fails.
     - In the Pixel lettering, I, l and 1 and O and 0 are distinct where they appear (times, the date, counts).
 
+16. **Desktop discoverability.** Every camera move has a visible control as well as a key. The street turns with Q / E and with the two turn buttons above the zoom buttons (added 2026-11-11). Check that a new player finds rotation within the first two minutes without opening Help; if not, add a first-minutes hint.
+
 ## Acceptance criteria
 - 3 of 3 strangers say "oh!" at the first resident reaction, without prompting.
 - Median session in the playtest is over 20 minutes.

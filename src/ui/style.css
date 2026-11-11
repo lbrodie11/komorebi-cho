@@ -938,6 +938,10 @@ button.px:disabled {
   #hud.building .zoom-box {
     display: none;
   }
+  /* phones: an open panel fills the width, and the zoom box would sit on top of its last rows */
+  #hud:has(.settings.open, .notes.open, .people.open, .help.open) .zoom-box {
+    display: none;
+  }
   .meet-hint {
     bottom: 64px;
   }

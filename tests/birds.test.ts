@@ -75,8 +75,18 @@ describe('birds', () => {
     a.hidden = true;
     for (let s = 0; s < 40; s++) animals.update(1 / 20, 1 + s / 20, 10, 0, 'summer', residents.agents);
     expect(sp.every((b) => b.frame === 'folded')).toBe(true);
-    // night and heavy rain: under cover
+    // night: they fly up into a tree (wings out, still in sight), and only then are gone, into the leaves
     animals.update(1 / 20, 5, 22, 0, 'summer', residents.agents);
+    expect(sp.every((b) => b.root.visible)).toBe(true);
+    let flew = false;
+    for (let s = 0; s < 20 * 6; s++) {
+      animals.update(1 / 20, 5 + s / 20, 22, 0, 'summer', residents.agents);
+      if (sp.some((b) => b.root.visible && b.frame !== 'folded' && b.root.position.y > 1)) flew = true;
+    }
+    expect(flew).toBe(true);
     expect(sp.every((b) => !b.root.visible)).toBe(true);
+    // morning: back down, on the ground and in sight
+    for (let s = 0; s < 20 * 4; s++) animals.update(1 / 20, 20 + s / 20, 8, 0, 'summer', residents.agents);
+    expect(sp.every((b) => b.root.visible && b.frame === 'folded' && b.root.position.y < 1)).toBe(true);
   });
 });

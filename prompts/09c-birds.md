@@ -35,6 +35,8 @@ Birds that read as birds at 8–12 render pixels and behave like the town's own:
 - Wing beats are held frames stepped on twos (12 fps: up, level, down, level). Crows beat, then glide.
 - Pigeons peck, turn in small steps and walk-hop; they no longer spin.
 - A flock of five tree sparrows hops (never walks) and pecks along the lane and the park edge. They go up together when someone comes within 1.2 m and land a few meters on. They shelter at night and in heavy rain.
+- Each bird is four draw calls sharing one material (colors ride on the vertices), down from seven.
+- At night and in heavy rain the sparrows fly up into the nearest tree and come down in the morning. They never just vanish. Pigeons still do; give them the same roost.
 - Tests: `tests/birds.test.ts`.
 
 ## Tasks

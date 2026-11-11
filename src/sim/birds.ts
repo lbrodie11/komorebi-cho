@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Materials } from '../render/materials';
 
 /**
@@ -54,6 +55,14 @@ export function flapFrame(species: Species, t: number): WingFrame {
 /** Height of a hop at phase u (0..1): a parabola peaking at `h`. */
 export const hopHeight = (u: number, h: number): number => 4 * h * Math.max(0, Math.min(1, u)) * (1 - Math.max(0, Math.min(1, u)));
 
+/** One material for every bird (colours ride on the vertices): four draw calls a bird, all sharing it. */
+const shared = new WeakMap<Materials, THREE.Material>();
+function birdMaterial(m: Materials): THREE.Material {
+  let mat = shared.get(m);
+  if (!mat) shared.set(m, (mat = m.std('#ffffff', 0.9, { vertexColors: true })));
+  return mat;
+}
+
 export class BirdRig {
   readonly root = new THREE.Group();
   private readonly wings: [THREE.Object3D, THREE.Object3D];
@@ -66,36 +75,39 @@ export class BirdRig {
   ) {
     const L = LOOKS[species];
     const [w, h, l] = L.body;
-    const mat = (c: string) => m.solid(c, 0.9);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), mat(L.colors.body));
-    body.position.y = h / 2 + 0.03;
-    const tail = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, h * 0.25, l * 0.45), mat(L.colors.tail));
-    tail.position.set(0, h * 0.75, -l * 0.62);
-    tail.rotation.x = -0.35;
-    // the head pivots where it meets the body, so a peck dips it forward
+    const mat = birdMaterial(m);
+    // a coloured box, moved into place in the geometry itself, so parts that never move apart merge
+    const part = (sx: number, sy: number, sz: number, color: string, x: number, y: number, z: number, rx = 0): THREE.BufferGeometry => {
+      const g = new THREE.BoxGeometry(sx, sy, sz);
+      if (rx) g.rotateX(rx);
+      g.translate(x, y, z);
+      const c = new THREE.Color(color);
+      const n = g.getAttribute('position').count;
+      const col = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      return g;
+    };
+    // body and tail: one mesh
+    const body = new THREE.Mesh(
+      mergeGeometries([part(w, h, l, L.colors.body, 0, h / 2 + 0.03, 0), part(w * 0.6, h * 0.25, l * 0.45, L.colors.tail, 0, h * 0.75, -l * 0.62, -0.35)]),
+      mat,
+    );
+    // the head (skull, beak, cheek: one mesh) pivots where it meets the body, so a peck dips it forward
     this.head.position.set(0, h * 0.9, l * 0.36);
     const hd = L.head;
-    const skull = new THREE.Mesh(new THREE.BoxGeometry(hd, hd, hd), mat(L.colors.head));
-    skull.position.set(0, hd * 0.5, hd * 0.25);
-    const beak = new THREE.Mesh(new THREE.BoxGeometry(hd * 0.3, hd * 0.25, hd * 0.45), mat(L.colors.beak));
-    beak.position.set(0, hd * 0.4, hd * 0.85);
-    this.head.add(skull, beak);
-    if (L.colors.cheek) {
-      const cheek = new THREE.Mesh(new THREE.BoxGeometry(hd * 1.04, hd * 0.4, hd * 0.4), mat(L.colors.cheek));
-      cheek.position.set(0, hd * 0.35, hd * 0.3);
-      this.head.add(cheek);
-    }
+    const headParts = [part(hd, hd, hd, L.colors.head, 0, hd * 0.5, hd * 0.25), part(hd * 0.3, hd * 0.25, hd * 0.45, L.colors.beak, 0, hd * 0.4, hd * 0.85)];
+    if (L.colors.cheek) headParts.push(part(hd * 1.04, hd * 0.4, hd * 0.4, L.colors.cheek, 0, hd * 0.35, hd * 0.3));
+    this.head.add(new THREE.Mesh(mergeGeometries(headParts), mat));
     // wings hinge at the shoulder, along the body's sides
     const wing = (side: -1 | 1) => {
       const pivot = new THREE.Group();
       pivot.position.set((side * w) / 2, h * 0.85, 0);
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(w * 1.3, h * 0.18, l * 0.7), mat(L.colors.wing));
-      plate.position.x = (side * w * 1.3) / 2;
-      pivot.add(plate);
+      pivot.add(new THREE.Mesh(part(w * 1.3, h * 0.18, l * 0.7, L.colors.wing, (side * w * 1.3) / 2, 0, 0), mat));
       return pivot;
     };
     this.wings = [wing(-1), wing(1)];
-    this.root.add(body, tail, this.head, ...this.wings);
+    this.root.add(body, this.head, ...this.wings);
     // only the body casts a shadow: at this size the rest is a pixel or two, and each caster is another draw call
     body.castShadow = true;
     this.setWings('folded');

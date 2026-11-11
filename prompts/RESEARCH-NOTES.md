@@ -93,3 +93,33 @@ Two outside reports on pixel text, pixel-perfect rendering and code-made birds. 
 - a DPR matrix, contrast sampled over the canvas, texture-filter and shimmer checks (15);
 - a readability audit (18).
 
+## Light and sky review (2026-11-11), checked against the code
+Two outside reports on the times of day, clouds, water and atmosphere. Neither could see the repository; one worked from four screenshots.
+
+**True, and fixed:**
+- **Dawn and sunset were twins.** The 05:36 and 18:24 sky keys shared their horizon, sun and fill colors. Dawn is now cool and pale.
+- **Stars showed below the plinth.** They now fade out under the horizon line.
+- **Windows and signs changed shape while zooming in Smooth** (the owner's own screenshots). The scene was sampled once per pixel and signs used nearest filtering at about one texel per pixel. Smooth now multisamples 4× and uses enlarged, mipmapped sign textures.
+
+**True, taken into prompt 10b:**
+- Flat midday contrast.
+- The bright void under the plinth by day, and the plinth melting into the night sky.
+- Smudgy clouds and a smooth moon beside pixel art.
+- Night lights without a clear hierarchy or bedtimes.
+- No bathhouse steam.
+
+**False or already handled:**
+- **"Shadows don't reverse between dawn and dusk":** the sun does cross (`sunDirection`).
+- **"Trees cast solid blobs":** canopies already cast dappled shadows; what's missing is contrast.
+- **"Fireflies at uniform brightness":** they pulse.
+- **"No sound", "the water is static", "no camera movement", "check NearestFilter and setPixelRatio":** all present. See the pixel-readability review above.
+- **"Round the camera position to integers":** the camera snaps to render texels and presents the sub-pixel remainder, which is the correct version of that advice.
+
+**Rejected:** see "Not doing" in prompt 10b.
+
+**Places and practices** (not re-verified here; check before quoting publicly):
+- Tokyo neighborhood bathhouses typically open mid-afternoon to late evening.
+- Sprinkling water on the street (uchimizu) is a long-standing summer habit.
+- The sunset view from Yanaka's "Sunset Steps".
+- Perez, Alexander & Bailey (2013, *BMC Psychiatry*): a meta-analysis that found no consistent effect of air ions on mood or relaxation.
+

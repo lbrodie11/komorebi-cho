@@ -81,6 +81,8 @@ export interface HudActions {
   resizeShop(dir: 1 | -1): void;
   /** One zoom step in (1) or out (-1), about the centre. */
   zoom(dir: 1 | -1): void;
+  /** Turn the street a quarter turn (Q / E). */
+  turn(dir: 1 | -1): void;
   /** Fit the whole town. */
   fit(): void;
   /** Photo mode's zoom slider: a magnification, 0.8–3. */
@@ -414,6 +416,8 @@ export class Hud {
     this.zoomBox.setAttribute('role', 'group');
     this.text(() => this.zoomBox.setAttribute('aria-label', t('zoom.label')));
     this.zoomBox.append(
+      this.btn('turnLeft', null, 'zoom.turnLeft', () => this.act.turn(-1)),
+      this.btn('turnRight', null, 'zoom.turnRight', () => this.act.turn(1)),
       this.btn('zoomIn', null, 'zoom.in', () => this.act.zoom(1)),
       this.btn('zoomOut', null, 'zoom.out', () => this.act.zoom(-1)),
       this.btn('fit', null, 'zoom.fit', () => this.act.fit()),

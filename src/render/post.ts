@@ -39,6 +39,8 @@ export const DITHER_SPREAD = 0.03;
 
 /** Camera-step dissolve length, seconds. */
 export const DISSOLVE_S = 0.25;
+/** Multisampling for the Smooth look's scene target (see setPalette). */
+export const SMOOTH_SAMPLES = 4;
 
 const VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }';
 /** For passes that address pixels with gl_FragCoord (no varying: Firefox warns about unread outputs). */
@@ -207,7 +209,8 @@ void main(){
         st += max(0., 1. - dp.x) * max(0., 1. - dp.y) * (.55 + .45 * sin(time * 1.5 + s * 400.));
       }
     }
-    c += vec3(.8) * stars * st;
+    // stars keep to the sky: none below the horizon line, where the plinth stands
+    c += vec3(.8) * stars * st * smoothstep(.3, .45, y);
     vec2 mp = (sUv - vec2(.86, .8)) * vec2(skyRes.x / skyRes.y, 1.);
     float md = length(mp);
     // edges by pixel coverage, not a hard step: the render grid slides under the still moon as the
@@ -358,11 +361,15 @@ export class PostPass {
     this.gpu = this.build();
   }
 
+  /** Multisampling of the scene target: 0 in the palette looks, SMOOTH_SAMPLES in Smooth. */
+  private samples = 0;
+
   private build(): Gpu {
     const sceneRT = new THREE.WebGLRenderTarget(this.w, this.h, {
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
       type: THREE.HalfFloatType,
+      samples: this.samples,
     });
     sceneRT.depthTexture = new THREE.DepthTexture(this.w, this.h);
     sceneRT.depthTexture.type = THREE.UnsignedIntType;
@@ -528,6 +535,16 @@ export class PostPass {
   /** Palette snap on (the pixel-art presets) or off (Smooth: full-colour shading). */
   setPalette(on: boolean): void {
     this.gpu.compMat.uniforms.snap!.value = on ? 1 : 0;
+    // Smooth zooms continuously, so anything thinner than a render pixel (a window bar, a sill, a
+    // wire) would be there one frame and gone the next: 4× multisampling gives it a steady share
+    // of its pixel instead. The palette looks stay unsampled: their pixels are meant to be hard.
+    const samples = on ? 0 : SMOOTH_SAMPLES;
+    this.samples = samples; // a rebuild after a lost context keeps it (see build)
+    const rt = this.gpu.sceneRT;
+    if (rt.samples !== samples) {
+      rt.samples = samples;
+      rt.dispose(); // re-allocated with the new sample count on the next render
+    }
   }
 
   /** Canvas size for the active path (device-resolution budget, see diffusionOutputSize). */

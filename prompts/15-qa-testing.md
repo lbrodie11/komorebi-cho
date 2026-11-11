@@ -66,6 +66,12 @@ Confidence to change anything without fear.
     - **Texture filters.** A unit test asserts that every sprite and sign texture (bubbles, painted signs, glyphs) magnifies with `NearestFilter` and has no partly transparent texels. Tiling surface textures keep mipmapped minification on purpose: nearest minification shimmers as the camera moves.
     - **Shimmer.** Pan slowly across the street in Classic at 0.65×, 1× and 2×: no pixel crawl. The texel snap plus the sub-pixel presentation should hold; this is the regression guard.
 
+15. **Smooth-look stability** (2026-11-11: windows and signs "jumped" while zooming).
+    - The Smooth look's scene target is multisampled (4×), and its signs use enlarged, mipmapped textures.
+    - Regression shot: the shop row at zoom 1.00, 1.07 and 1.60. Every sign's letters keep one stroke width, and no window bar or sill appears in one and vanishes in another.
+    - The same check after a quarter turn.
+    - The sign alpha tag must stay clear of the water tag under multisampling: no reflections painted on sign edges.
+
 ## Acceptance criteria
 - CI runs unit, visual, replay and fuzz suites in under 15 minutes, and all are green.
 - A known bug injected into nav, AI or post is caught by at least one suite (show this).

@@ -319,6 +319,7 @@ const hud = new Hud(hudRoot, {
     hud.setDensity(d);
   },
   zoom: (dir) => zoomStep(dir),
+  turn: (dir) => cameraStep(() => iso.rotate(dir)),
   fit: () => fitTown(),
   setZoom: (z) => {
     if (iso.continuous) iso.zoomTo(z);
@@ -479,6 +480,7 @@ function resize(): void {
   Object.assign(canvas.style, { width: `${l.cssW}px`, height: `${l.cssH}px`, left: `${l.cssLeft}px`, top: `${l.cssTop}px` });
   post.setSize(l.bw, l.bh);
   post.setPalette(usesPalette(pixel));
+  world.mats.setSmooth(!usesPalette(pixel));
   iso.setViewport(l.rw, l.rh, l.margin);
   // Smooth zooms continuously; the palette looks keep to whole steps (a fractional zoom snaps to the nearest)
   const continuous = !usesPalette(pixel);

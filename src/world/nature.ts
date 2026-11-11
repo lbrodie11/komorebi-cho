@@ -16,11 +16,20 @@ const STRATA: readonly (readonly [number, string])[] = [
 ];
 const CUT_TOP = -0.32;
 
-/** Utilities under a lane, seen end-on in the cutaway: u = position along the face, y = depth. */
-const PIPES = [
-  { u: 2.1, y: -0.8, r: 0.15, color: '#ff6b3d', label: SIGNS.fibre },
-  { u: 4.2, y: -1.05, r: 0.2, color: '#ffd37a', label: SIGNS.gas },
-  { u: 6.3, y: -1.35, r: 0.28, color: '#4f73a3', label: SIGNS.water },
+/**
+ * Utilities under a lane, seen end-on in the cutaway: u = position along the face, y = depth.
+ * Each label sits centred under its pipe, so the pipes are spaced by their labels' widths: the
+ * three words side by side just fit the panel (a test holds that no label leaves it or overlaps).
+ */
+export const PIPES = [
+  { u: 1.23, y: -0.8, r: 0.15, color: '#ff6b3d', label: SIGNS.fibre },
+  { u: 3.15, y: -1.05, r: 0.2, color: '#ffd37a', label: SIGNS.gas },
+  { u: 5.32, y: -1.35, r: 0.28, color: '#4f73a3', label: SIGNS.water },
+] as const;
+/** The cutaway panels: which face, and their span along it (m). */
+export const CUTAWAYS = [
+  { face: 'front', u0: -12.9, u1: -6.1 },
+  { face: 'right', u0: 2.2, u1: 9.4 },
 ] as const;
 
 export interface NatureOut {
@@ -91,8 +100,7 @@ export function buildNature(k: Kit): NatureOut {
     }
   };
   k.merged(() => {
-    cutaway('front', -12.9, -6.1);
-    cutaway('right', 2.2, 9.4);
+    for (const c of CUTAWAYS) cutaway(c.face, c.u0, c.u1);
   });
 
   // ── Base ground + raised temple terrace with stone retaining wall ──────────

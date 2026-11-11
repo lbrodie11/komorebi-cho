@@ -24,6 +24,7 @@ These prompts take the scaffold in `komorebi-cho/` to a polished, free, web rele
 | 09b | The Noticing Engine | A place field, triangulators, a bond ladder from co-presence, but-for credit for the edit that made a friendship possible |
 | 09c | Birds | Species with a place and a season (sparrows, white-eyes, wagtails, crows, swallows), perches as data, sound from the birds themselves |
 | 10 | Time, weather & seasons v2 | Weather states, snow cover, festivals, wind and chimes, desire paths and moss, a 72-microseason almanac, real-date option |
+| 10b | Light and sky | Four times of day you can tell apart: noon komorebi contrast, clouds in the game's own pixels, a grounded plinth, night light in three tiers, the bathhouse's hours |
 | 11 | Music & sound v2 | Bigger composer, spatial emitters, mix targets, captions |
 | 12 | Performance & companion mode | Sim snapshots, a Worker sim, batching, cached shadows, idle rendering, desktop strip mode |
 | 13 | Save, share & photo | Story postcards, export/import, share codes in URL hash, photo mode v2 |
