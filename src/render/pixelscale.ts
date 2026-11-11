@@ -51,14 +51,24 @@ export function pixelScale(deviceH: number, preset: PixelPreset): number {
 export interface CanvasLayout {
   /** Device pixels per render pixel (an integer, except for Smooth). */
   scale: number;
-  /** Render-target size. */
+  /** Device pixels per render pixel along each axis (both `scale`, except for Smooth, which fills the box exactly). */
+  sx: number;
+  sy: number;
+  /** The visible render size. */
   rw: number;
   rh: number;
-  /** CSS box for the canvas: exactly rw×scale by rh×scale device pixels, centred. */
+  /** Overscan: render pixels drawn beyond each edge of the visible view. */
+  margin: number;
+  /** Render-target (drawing buffer) size: the visible size plus the margin on every side. */
+  bw: number;
+  bh: number;
+  /** CSS box for the whole canvas, margin included: exactly bw×sx by bh×sy device pixels, the visible part centred. */
   cssW: number;
   cssH: number;
   cssLeft: number;
   cssTop: number;
+  /** CSS height of the visible view (without the margin). */
+  viewCssH: number;
 }
 
 /**
@@ -66,24 +76,54 @@ export interface CanvasLayout {
  * DPR is explicit: the renderer works in render pixels (pixel ratio 1), and
  * CSS sizes are device sizes divided by `dpr`, so the browser's scale-up is an
  * exact integer. The leftover (< scale device px per axis) is split as a border.
+ *
+ * `margin` render pixels of overscan go round the visible view, past the container's edges (it
+ * clips them). The camera's sub-pixel offset shifts the canvas by up to half a render pixel, and
+ * the margin is what shows at the edge instead of a gap.
  */
-export function canvasLayout(deviceW: number, deviceH: number, dpr: number, preset: PixelPreset): CanvasLayout {
+export function canvasLayout(deviceW: number, deviceH: number, dpr: number, preset: PixelPreset, margin = 0): CanvasLayout {
   const scale = pixelScale(deviceH, preset);
+  let rw: number, rh: number, sx: number, sy: number, left: number, top: number;
   if (preset === 'smooth') {
     // fill the container exactly; the render target keeps its aspect at SMOOTH_H rows (fewer on tiny screens)
-    const rh = Math.max(1, Math.round(deviceH / scale));
-    const rw = Math.max(1, Math.round((deviceW * rh) / deviceH));
-    return { scale, rw, rh, cssW: deviceW / dpr, cssH: deviceH / dpr, cssLeft: 0, cssTop: 0 };
+    rh = Math.max(1, Math.round(deviceH / scale));
+    rw = Math.max(1, Math.round((deviceW * rh) / deviceH));
+    sx = deviceW / rw;
+    sy = deviceH / rh;
+    left = top = 0;
+  } else {
+    rw = Math.max(1, Math.floor(deviceW / scale));
+    rh = Math.max(1, Math.floor(deviceH / scale));
+    sx = sy = scale;
+    left = Math.floor((deviceW - rw * scale) / 2);
+    top = Math.floor((deviceH - rh * scale) / 2);
   }
-  const rw = Math.max(1, Math.floor(deviceW / scale));
-  const rh = Math.max(1, Math.floor(deviceH / scale));
+  const bw = rw + 2 * margin,
+    bh = rh + 2 * margin;
   return {
     scale,
+    sx,
+    sy,
     rw,
     rh,
-    cssW: (rw * scale) / dpr,
-    cssH: (rh * scale) / dpr,
-    cssLeft: Math.floor((deviceW - rw * scale) / 2) / dpr,
-    cssTop: Math.floor((deviceH - rh * scale) / 2) / dpr,
+    margin,
+    bw,
+    bh,
+    cssW: (bw * sx) / dpr,
+    cssH: (bh * sy) / dpr,
+    cssLeft: (left - margin * sx) / dpr,
+    cssTop: (top - margin * sy) / dpr,
+    viewCssH: (rh * sy) / dpr,
   };
+}
+
+/**
+ * The CSS translation (x right, y down) that presents a texel-snapped frame where the unsnapped
+ * camera would have put it: the camera's sub-pixel error in render pixels, scaled to device pixels
+ * and rounded to whole ones, so every art pixel keeps landing on the device-pixel grid (identical
+ * squares in the palette looks) while the image as a whole moves in device-pixel steps.
+ */
+export function presentOffset(sub: { x: number; y: number }, l: Pick<CanvasLayout, 'sx' | 'sy'>, dpr: number): { x: number; y: number } {
+  // + 0 turns -0 into 0, so an unchanged offset compares equal and the style isn't rewritten
+  return { x: Math.round(sub.x * l.sx) / dpr + 0, y: Math.round(sub.y * l.sy) / dpr + 0 };
 }

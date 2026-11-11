@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EventBus, type GameEvents } from './core/events';
 import { WorldClock, type Season } from './core/clock';
 import { IsoCamera } from './render/camera';
-import { canvasLayout, DEFAULT_PIXEL, usesPalette, type PixelPreset } from './render/pixelscale';
+import { canvasLayout, DEFAULT_PIXEL, presentOffset, usesPalette, type CanvasLayout, type PixelPreset } from './render/pixelscale';
 import { PostPass } from './render/post';
 import { PALETTE } from './render/palette';
 import { skyAt, type SkyState } from './render/sky';
@@ -25,6 +25,7 @@ import { PLACEABLES, type PlaceableKind } from './world/props';
 import { parseLaunchParams, warmupStart } from './core/params';
 import { warmUp } from './sim/warmup';
 import { DEFAULT_DIFFUSION, diffusionOutputSize } from './render/diffusion';
+import { clamp } from './core/math';
 import { msg, t, type MsgKey } from './i18n';
 
 // ── Boot ──────────────────────────────────────────────────────────────────
@@ -363,6 +364,16 @@ const app = document.getElementById('app') as HTMLElement;
 let devW = Math.round(app.clientWidth * (window.devicePixelRatio || 1));
 let devH = Math.round(app.clientHeight * (window.devicePixelRatio || 1));
 let exactDeviceBox = false;
+/**
+ * Render pixels of overscan round the view. The camera renders texel-snapped and the canvas is
+ * shifted by its sub-pixel error (at most half a render pixel), so one pixel of margin always
+ * covers the edge (render/camera.ts, `subpixel`).
+ */
+const OVERSCAN = 1;
+/** The screen layout from the last resize(): the canvas box, its overscan, device pixels per render pixel. */
+let layout: CanvasLayout = canvasLayout(devW, devH, window.devicePixelRatio || 1, pixel, OVERSCAN);
+/** The canvas's current sub-pixel shift (CSS px), so it is only rewritten when it changes. */
+let shown = { x: NaN, y: NaN };
 
 /**
  * Lay out the canvas. At 0% Film Diffusion the drawing buffer is the internal render
@@ -372,11 +383,12 @@ let exactDeviceBox = false;
  */
 function resize(): void {
   const dpr = window.devicePixelRatio || 1;
-  const l = canvasLayout(devW, devH, dpr, pixel);
+  const l = canvasLayout(devW, devH, dpr, pixel, OVERSCAN);
+  layout = l;
   Object.assign(canvas.style, { width: `${l.cssW}px`, height: `${l.cssH}px`, left: `${l.cssLeft}px`, top: `${l.cssTop}px` });
-  post.setSize(l.rw, l.rh);
+  post.setSize(l.bw, l.bh);
   post.setPalette(usesPalette(pixel));
-  iso.setViewport(l.rw, l.rh);
+  iso.setViewport(l.rw, l.rh, l.margin);
   // Smooth zooms continuously; the palette looks keep to whole steps (a fractional zoom snaps to the nearest)
   const continuous = !usesPalette(pixel);
   if (continuous !== iso.continuous) {
@@ -385,12 +397,25 @@ function resize(): void {
   }
   const out = diffusionOutputSize(l.cssW, l.cssH, dpr);
   post.setOutputSize(out.w, out.h);
-  const active = post.setDiffusion(renderer, diffusion, out.w / l.rw);
+  const active = post.setDiffusion(renderer, diffusion, out.w / l.bw);
   canvas.classList.toggle('diffused', active);
   // Smooth's fractional enlargement is filtered; nearest-neighbour at 1.33× would make uneven pixel columns
   canvas.classList.toggle('smooth', !usesPalette(pixel));
   if (active) renderer.setSize(out.w, out.h, false);
-  else renderer.setSize(l.rw, l.rh, false);
+  else renderer.setSize(l.bw, l.bh, false);
+  shown = { x: NaN, y: NaN };
+}
+
+/**
+ * Put the texel-snapped frame where the true camera would have drawn it: shift the canvas by the
+ * camera's sub-pixel error in whole device pixels (a compositor-only change, no repaint). This is
+ * what makes pans, glides and smooth zooms move in device pixels rather than whole art pixels.
+ */
+function present(): void {
+  const o = presentOffset(iso.subpixel, layout, window.devicePixelRatio || 1);
+  if (o.x === shown.x && o.y === shown.y) return;
+  shown = o;
+  canvas.style.transform = o.x || o.y ? `translate(${o.x}px, ${o.y}px)` : '';
 }
 
 /** Photos are this tall whatever the display's DPR; the width follows the window, so the photo frames what you see. */
@@ -433,13 +458,16 @@ function setDiffusion(s: number): void {
   diffusion = s;
   if (crossed || !post.diffusing) resize();
   else {
-    const l = canvasLayout(devW, devH, window.devicePixelRatio || 1, pixel);
-    post.setDiffusion(renderer, s, post.outputWidth / l.rw);
+    const l = canvasLayout(devW, devH, window.devicePixelRatio || 1, pixel, OVERSCAN);
+    post.setDiffusion(renderer, s, post.outputWidth / l.bw);
   }
 }
 const ro = new ResizeObserver(([entry]) => {
-  const box = entry?.devicePixelContentBoxSize?.[0];
+  let box = entry?.devicePixelContentBoxSize?.[0];
   const dpr = window.devicePixelRatio || 1;
+  // Emulated DPR (DevTools device mode, headless test browsers) reports this box in CSS pixels,
+  // which would lay the canvas out at 1/dpr of the screen. A real one is within a pixel of CSS × dpr.
+  if (box && Math.abs(box.inlineSize - app.clientWidth * dpr) > 2) box = undefined;
   exactDeviceBox = !!box;
   devW = box ? box.inlineSize : Math.round(app.clientWidth * dpr);
   devH = box ? box.blockSize : Math.round(app.clientHeight * dpr);
@@ -474,7 +502,7 @@ const FIT_POINTS = [GROUND.x0, GROUND.x1].flatMap((x) =>
 FIT_POINTS.push(new THREE.Vector3(-14.9, TG + 13.05, -11.9));
 const FIT_CENTRE = new THREE.Vector3(0, 3.9, 0);
 
-iso.bounds = GROUND;
+iso.bounds = world.outline;
 resize();
 // Return visits keep their rotation only; zoom and pan always start from Fit (an old close-up is disorienting).
 // Scripted runs keep the fixed 1× reference view their screenshots were made with.
@@ -489,8 +517,8 @@ const ndc = new THREE.Vector2();
 let drag: { x: number; y: number; moved: boolean; id: number } | null = null;
 /** Fingers on the canvas, for pinch (zoom) and twist (rotate). */
 const touches = new Map<number, { x: number; y: number }>();
-/** Distance and angle between two fingers when the last zoom/rotate step fired. */
-let gesture: { d: number; a: number } | null = null;
+/** Distance and angle between two fingers when the last zoom/rotate step fired, and where their midpoint was. */
+let gesture: { d: number; a: number; mx: number; my: number } | null = null;
 /** After a two-finger gesture, lifting the fingers must not count as a tap. */
 let gestured = false;
 /** Touch: pressing and holding on someone opens their card (a long press is not a tap). */
@@ -504,10 +532,34 @@ let hintSpot: { x: number; z: number } | null = null;
 function downRay(x: number, z: number): THREE.Ray {
   return new THREE.Ray(new THREE.Vector3(x, 40, z), new THREE.Vector3(0, -1, 0));
 }
-/** A screen point as normalised device coordinates of the canvas (-1..1, y up). */
+/**
+ * A screen point as normalised device coordinates of the canvas (-1..1, y up), for zoom anchors.
+ * Measured against the canvas's layout box, not its sub-pixel shift: anchors belong to the true
+ * camera, whose view the shifted canvas shows. (Picking, in setNdc, uses the shifted box: it casts
+ * through the snapped camera that drew the pixels.)
+ */
 function ndcOf(e: { clientX: number; clientY: number }): { x: number; y: number } {
-  const r = canvas.getBoundingClientRect();
-  return { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 };
+  const a = app.getBoundingClientRect();
+  const x = e.clientX - a.left - layout.cssLeft,
+    y = e.clientY - a.top - layout.cssTop;
+  return { x: (x / layout.cssW) * 2 - 1, y: -(y / layout.cssH) * 2 + 1 };
+}
+/** Recent drag positions (CSS px, ms), for the fling velocity on release. */
+const dragTrail: { x: number; y: number; t: number }[] = [];
+/** Velocity is measured over this much of the drag's end; a pointer that rested longer than FLING_REST_MS before lifting doesn't fling. */
+const FLING_WINDOW_MS = 80;
+const FLING_REST_MS = 60;
+function trail(x: number, y: number, t: number): void {
+  dragTrail.push({ x, y, t });
+  while (dragTrail.length > 2 && t - dragTrail[0]!.t > FLING_WINDOW_MS) dragTrail.shift();
+}
+/** Velocity of the drag's last moments (CSS px per second), or zero if the pointer had come to rest. */
+function flingVelocity(now: number): { x: number; y: number } {
+  const last = dragTrail[dragTrail.length - 1],
+    first = dragTrail[0];
+  if (!last || !first || last === first || now - last.t > FLING_REST_MS) return { x: 0, y: 0 };
+  const dt = Math.max(1, last.t - first.t) / 1000;
+  return { x: (last.x - first.x) / dt, y: (last.y - first.y) / dt };
 }
 /** The last mouse or pen position over the canvas, to refresh the build preview when the camera moves under it. */
 let lastPointer: { clientX: number; clientY: number } | null = null;
@@ -527,9 +579,13 @@ const TWIST_STEP = 0.5; // radians, about 30°
 function onGesture(): void {
   const g = twoFingers();
   if (!g || !gesture) return;
+  // two fingers moving together pan the town with them (the grabbed spot stays between the fingers)
+  iso.drag(g.mid.clientX - gesture.mx, g.mid.clientY - gesture.my, layout.viewCssH);
+  gesture.mx = g.mid.clientX;
+  gesture.my = g.mid.clientY;
   if (iso.continuous) {
-    // Smooth: the town follows the fingers, anchored between them
-    iso.zoomBy(g.d / gesture.d, ndcOf(g.mid));
+    // Smooth: the town follows the fingers exactly (no easing to lag them), anchored between them
+    iso.pinchBy(g.d / gesture.d, ndcOf(g.mid));
     gesture.d = g.d;
   } else if (g.d > gesture.d * PINCH_STEP || g.d < gesture.d / PINCH_STEP) {
     zoomStep(g.d > gesture.d ? 1 : -1, ndcOf(g.mid));
@@ -551,6 +607,7 @@ function endPointer(e: PointerEvent): void {
   if (longPress) window.clearTimeout(longPress.timer);
   touches.delete(e.pointerId);
   if (touches.size < 2) gesture = null;
+  iso.hold = gesture !== null; // the fingers lifted: the bounds may ease the view back now
   if (touches.size === 0) gestured = false;
   if (drag?.id === e.pointerId) {
     drag = null;
@@ -564,13 +621,17 @@ canvas.addEventListener('pointerdown', (e) => {
     cancelLongPress();
     // second finger: stop panning, start a pinch/twist
     const g = twoFingers()!;
-    gesture = { d: Math.max(1, g.d), a: g.a };
+    gesture = { d: Math.max(1, g.d), a: g.a, mx: g.mid.clientX, my: g.mid.clientY };
+    iso.hold = true;
     gestured = true;
     drag = null;
     canvas.classList.remove('dragging');
     return;
   }
   drag = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
+  iso.grab(); // a touch stops a glide or a fling where it is
+  dragTrail.length = 0;
+  trail(e.clientX, e.clientY, e.timeStamp);
   if (e.pointerType === 'touch' && build.mode === 'view' && !photo) {
     const at = { clientX: e.clientX, clientY: e.clientY };
     longPress = {
@@ -610,9 +671,10 @@ canvas.addEventListener('pointermove', (e) => {
       drag.moved = true;
       cancelLongPress();
       canvas.classList.add('dragging');
-      iso.panScreen(dx, dy, canvas.clientHeight);
+      iso.drag(dx, dy, layout.viewCssH);
       drag.x = e.clientX;
       drag.y = e.clientY;
+      trail(e.clientX, e.clientY, e.timeStamp);
     }
     return;
   }
@@ -622,6 +684,11 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', (e) => {
   const wasDrag = drag?.moved || gestured;
   const mine = drag?.id === e.pointerId; // a press that began on the HUD and was released here is not a click
+  if (mine && drag?.moved && !gestured) {
+    // a flick keeps the town moving and lets it coast to a stop
+    const v = flingVelocity(e.timeStamp);
+    iso.release(v.x, v.y, layout.viewCssH);
+  }
   const held = longPress?.fired;
   endPointer(e);
   longPress = null;
@@ -649,6 +716,42 @@ canvas.addEventListener('pointerup', (e) => {
  * trackpad burst or macOS momentum scrolling can't race through every level.
  */
 const WHEEL_STEP_PX = 60;
+/** Trackpad pinches arrive as ctrl+wheel deltas of a few pixels; a ctrl+mouse-wheel notch is ~100. */
+const PINCH_DELTA_MAX = 25;
+/**
+ * Safari (macOS) reports trackpad pinches as its own gesture events, not ctrl+wheel. Without these
+ * handlers the pinch would zoom the page. iOS also sends them alongside touch pointers, which the
+ * pointer handlers already turn into pinches, so these stand aside while fingers are down.
+ */
+let safariPinch: { scale: number } | null = null;
+interface SafariGestureEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
+canvas.addEventListener('gesturestart', (e) => {
+  e.preventDefault();
+  if (touches.size) return;
+  safariPinch = { scale: 1 };
+});
+canvas.addEventListener('gesturechange', (ev) => {
+  const e = ev as SafariGestureEvent;
+  e.preventDefault();
+  if (!safariPinch || touches.size || !(e.scale > 0)) return;
+  const f = e.scale / safariPinch.scale;
+  const anchor = ndcOf(e);
+  if (iso.continuous) {
+    iso.pinchBy(f, anchor);
+    safariPinch.scale = e.scale;
+  } else if (f > PINCH_STEP || f < 1 / PINCH_STEP) {
+    zoomStep(f > 1 ? 1 : -1, anchor);
+    safariPinch.scale = e.scale;
+  }
+});
+canvas.addEventListener('gestureend', (e) => {
+  e.preventDefault();
+  safariPinch = null;
+});
 const WHEEL_COOLDOWN_MS = 250;
 const WHEEL_IDLE_MS = 200;
 let wheelSum = 0;
@@ -658,12 +761,18 @@ canvas.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
-    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? layout.viewCssH : 1;
     const dy = e.deltaY * unit;
     const anchor = ndcOf(e);
     lastPointer = { clientX: e.clientX, clientY: e.clientY };
+    if (e.ctrlKey && safariPinch) return; // Safari reports the same pinch as gesture events too
+    // A trackpad pinch (ctrl, small deltas) is direct manipulation: applied at once, glued to the fingers.
+    // Ctrl + a mouse wheel notch (±100) is a wheel step, eased like any other.
+    const pinch = e.ctrlKey && Math.abs(dy) < PINCH_DELTA_MAX;
     if (iso.continuous) {
-      iso.zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), anchor);
+      if (pinch) iso.pinchBy(Math.exp(-dy * 0.01), anchor);
+      // one event never zooms more than 2× (a page-mode delta, a burst from a free-spinning wheel)
+      else iso.zoomBy(Math.exp(clamp(-dy * 0.0015, -Math.LN2, Math.LN2)), anchor);
       return;
     }
     const now = performance.now();
@@ -778,10 +887,10 @@ window.addEventListener('keydown', (e) => {
   else if (k === '=' || k === '+' || k === 'z') zoomStep(1);
   else if (k === '-' || k === 'c') zoomStep(-1);
   else if (k === 'f' || k === 'home') fitTown();
-  else if (k === 'w' || k === 'arrowup') iso.panScreen(0, pan, canvas.clientHeight);
-  else if (k === 's' || k === 'arrowdown') iso.panScreen(0, -pan, canvas.clientHeight);
-  else if (k === 'a' || k === 'arrowleft') iso.panScreen(pan, 0, canvas.clientHeight);
-  else if (k === 'd' || k === 'arrowright') iso.panScreen(-pan, 0, canvas.clientHeight);
+  else if (k === 'w' || k === 'arrowup') iso.panScreen(0, pan, layout.viewCssH);
+  else if (k === 's' || k === 'arrowdown') iso.panScreen(0, -pan, layout.viewCssH);
+  else if (k === 'a' || k === 'arrowleft') iso.panScreen(pan, 0, layout.viewCssH);
+  else if (k === 'd' || k === 'arrowright') iso.panScreen(-pan, 0, layout.viewCssH);
   else if (k === ' ') {
     e.preventDefault();
     clock.paused = !clock.paused;
@@ -833,6 +942,8 @@ let slow = 0;
 let saveTimer = 0;
 let prevHour = clock.hour;
 let wasRaining = world.weather.rain > 0.3;
+/** The zoom the photo slider last showed. */
+let sliderZoom = NaN;
 
 function renderFrame(dt: number): void {
   iso.update(dt);
@@ -841,10 +952,13 @@ function renderFrame(dt: number): void {
 
 const lastCam = new THREE.Vector3();
 let lastHalfH = 0;
+let lastShown = shown;
 function cameraMoved(): boolean {
-  const moved = !lastCam.equals(iso.camera.position) || lastHalfH !== iso.halfH;
+  // the canvas's sub-pixel shift counts: it moves what is under a still pointer too
+  const moved = !lastCam.equals(iso.camera.position) || lastHalfH !== iso.halfH || lastShown !== shown;
   lastCam.copy(iso.camera.position);
   lastHalfH = iso.halfH;
+  lastShown = shown;
   return moved;
 }
 
@@ -1039,7 +1153,6 @@ function frame(now: number): void {
     hud.setClock(clock.label(), clock.day, clock.season);
     hud.refreshCard();
     hud.renderPeople();
-    if (photo) hud.setZoom(iso.zoomGoal); // the photo slider follows wheel and pinch zoom too
     const raining = rain > 0.3;
     if (raining !== wasRaining) {
       wasRaining = raining;
@@ -1062,6 +1175,11 @@ function frame(now: number): void {
   }
   if (!frozen) updateHints(realDt);
   renderFrame(realDt);
+  present();
+  if (photo && iso.zoomGoal !== sliderZoom) {
+    sliderZoom = iso.zoomGoal;
+    hud.setZoom(sliderZoom); // the photo slider follows wheel and pinch zoom as they happen
+  }
   // the camera moved under a still mouse (a smooth zoom, a pan settling): keep the build preview under the cursor
   if (build.mode !== 'view' && lastPointer && !kbCursor && !photo && cameraMoved()) {
     setNdc(lastPointer);

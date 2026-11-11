@@ -8,7 +8,7 @@ import { buildNature, type NatureOut } from './nature';
 import { buildBuildings, type BuildingsOut } from './buildings';
 import { buildProps, type PropsOut } from './props';
 import { Weather } from './weather';
-import { GROUND, VENDING } from './layout';
+import { G, GROUND, PLINTH, VENDING } from './layout';
 import { groundHeight } from './terrain';
 import { ACCENT_BUDGET, EMISSIVE, shopDarkness, windowLevel, windowSpill, windowStep } from './lighting';
 import { LightPools } from './lightpools';
@@ -19,6 +19,50 @@ import { fitSunShadow, type ShadowFit } from '../render/shadow';
  * texel finer than one screen pixel even at 3× zoom (tested), at ~56% of 2048²'s fill cost.
  */
 export const SHADOW_MAP = 1536;
+
+/** Outline grid over the plinth: fine enough that a back-row roof and an empty front corner differ. */
+const OUTLINE_NX = 8;
+const OUTLINE_NZ = 6;
+
+/**
+ * The town as a few hundred points: the plinth's corners, top and bottom, and over a coarse grid
+ * the top corners of each cell at the height of the tallest thing standing in it. The camera
+ * projects these to know how far a pan may go along each screen axis (a box would let the view
+ * wander into empty sky above a low front corner; the ground alone would hide the tallest roofs).
+ */
+export function townOutline(root: THREE.Object3D): THREE.Vector3[] {
+  const { x0, x1, z0, z1 } = GROUND;
+  const top = new Float64Array(OUTLINE_NX * OUTLINE_NZ).fill(G);
+  const cw = (x1 - x0) / OUTLINE_NX,
+    cd = (z1 - z0) / OUTLINE_NZ;
+  const box = new THREE.Box3();
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || !o.visible) return;
+    box.setFromObject(o);
+    if (box.isEmpty() || box.max.y <= G) return;
+    const i0 = Math.max(0, Math.floor((box.min.x - x0) / cw)),
+      i1 = Math.min(OUTLINE_NX - 1, Math.floor((box.max.x - x0) / cw));
+    const j0 = Math.max(0, Math.floor((box.min.z - z0) / cd)),
+      j1 = Math.min(OUTLINE_NZ - 1, Math.floor((box.max.z - z0) / cd));
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) top[j * OUTLINE_NX + i] = Math.max(top[j * OUTLINE_NX + i]!, box.max.y);
+  });
+  const pts: THREE.Vector3[] = [];
+  for (const x of [x0, x1]) for (const z of [z0, z1]) pts.push(new THREE.Vector3(x, G, z), new THREE.Vector3(x, G - PLINTH.h, z));
+  for (let j = 0; j < OUTLINE_NZ; j++)
+    for (let i = 0; i < OUTLINE_NX; i++) {
+      const y = top[j * OUTLINE_NX + i]!;
+      if (y <= G) continue;
+      for (const [di, dj] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ] as const)
+        pts.push(new THREE.Vector3(x0 + (i + di) * cw, y, z0 + (j + dj) * cd));
+    }
+  return pts;
+}
 
 /** Physical-light scale factors (three.js uses physically based units since r155). */
 const SUN_K = 3.4;
@@ -51,6 +95,8 @@ export class World {
   /** Every shadow caster and receiver: the static diorama plus headroom for things players place. */
   readonly shadowBox: THREE.Box3;
   shadowFit: ShadowFit | null = null;
+  /** The static town's silhouette as points (plinth corners, rooftops): what the camera's pan bounds keep in reach. */
+  readonly outline: THREE.Vector3[];
   /** Accessibility: stills swaying lanterns, flags and swings. */
   reducedMotion = false;
 
@@ -66,6 +112,7 @@ export class World {
     this.shadowBox = new THREE.Box3().setFromObject(root);
     this.shadowBox.union(new THREE.Box3(new THREE.Vector3(GROUND.x0, this.shadowBox.min.y, GROUND.z0), new THREE.Vector3(GROUND.x1, 0, GROUND.z1)));
     this.shadowBox.max.y += 1; // a placed sakura on the terrace can top the tallest static roof
+    this.outline = townOutline(root);
     this.weather = new Weather(root, this.mats, seed);
     this.pools = this.buildPools(root);
 

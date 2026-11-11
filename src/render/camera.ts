@@ -5,10 +5,15 @@ import { clamp, damp } from '../core/math';
  * Orthographic 2:1 dimetric camera (pitch = atan(1/2), classic pixel-art
  * isometric) with 90-degree rotation steps, a zoom range of 0.65× to 3×, and texel snapping.
  *
- * Nothing ever crawls:
- * - Texel snapping: the camera position is rounded to whole render-target
- *   pixels along its own right/up axes every frame, so panning moves the whole
- *   image by whole pixels.
+ * Nothing ever crawls, and nothing ever jumps:
+ * - Texel snapping: the camera that renders is rounded to whole render-target pixels along its
+ *   own right/up axes every frame, so the scene is always rasterised on the same grid and art
+ *   pixels never shimmer.
+ * - Sub-pixel presentation: the rounding error is handed back as `subpixel`, and the caller shifts
+ *   the finished canvas by it (in whole device pixels, into a one-pixel overscan margin), so the
+ *   image on screen sits where the unsnapped camera would put it. Pans, glides and smooth zooms
+ *   move in device pixels instead of whole art pixels, and the point under the cursor stays put
+ *   while zooming instead of wobbling by up to half an art pixel each frame.
  * - Rotation is an instant step (the post pass Bayer-dissolves between views).
  * - Zoom depends on the look. The palette looks (Fine, Classic, Chunky) zoom in discrete
  *   steps (ZOOM_STEPS) with the same dissolve, so no frame shows geometry sliding across
@@ -16,7 +21,11 @@ import { clamp, damp } from '../core/math';
  *   jump, so 1.5× sits between. Each step is still static and snapped, which is what keeps
  *   pixels stable; don't "fix" them back to integers. Smooth (full colour, filtered) zooms
  *   continuously, easing in log space so zooming in and out feel the same speed.
- * - Zoom keeps the point under the cursor where it is (anchor), as maps do.
+ * - Zoom keeps the point under the cursor where it is (anchor), as maps do. Zooming in, the pan
+ *   bounds wait until the zoom settles and then ease the view back, rather than dragging the
+ *   anchor away mid-zoom.
+ * - Dragging is direct (the grabbed point stays under the pointer) and a release with speed
+ *   flings the view, which coasts to a stop.
  */
 /**
  * Half-height of the view at 1× magnification, world units. Sized so the whole
@@ -29,16 +38,43 @@ export const MAX_ZOOM = 3;
 export const ZOOM_STEPS = [0.65, 0.8, 1, 1.5, 2, 3] as const;
 /** Smooth zoom easing rate: settles in about 200 ms. */
 const ZOOM_RATE = 15;
+/**
+ * Pan glide stiffness, 1/s (keyboard pans, the bounds settling, Show me): a critically damped
+ * spring that is 95% of the way in about 0.4 s, like the old exponential glide at rate 8.
+ */
+const PAN_OMEGA = 12;
+/** Fling friction, 1/s: a flick coasts for about half a second. */
+const FLING_FRICTION = 5;
+/** A fling slower than this (camera-plane units per second) has stopped. */
+const FLING_STOP = 0.05;
+/** After zooming in, the bounds wait this long (s) for more zoom before easing the view back. */
+const BOUNDS_SETTLE_S = 0.15;
+/** How far past the town's outline the view may go, camera-plane units (right, up). */
+const SLACK_R = 1.5;
+const SLACK_U = 2;
 /** The legacy scripted zoom indices (freeze({ zoom })) mean 1×, 2×, 3×. */
 const LEGACY_ZOOMS = [1, 2, 3] as const;
 
-/** A rectangle on the ground (world x/z) that the view should stay over. */
-export interface GroundRect {
-  x0: number;
-  x1: number;
-  z0: number;
-  z1: number;
+/** The town's outline: points whose projection is everything worth looking at (plinth corners, rooftops). */
+export type Outline = readonly THREE.Vector3[];
+
+/** The outline's extent along screen right (r) and screen up (u), camera-plane units. */
+type Span = { r0: number; r1: number; u0: number; u1: number };
+
+/**
+ * The allowed range for the view centre along one screen axis: content `lo..hi` seen through a
+ * window `v` either side of the centre. Bigger than the window: every part reachable, `slack`
+ * past its ends. Smaller: held centred (± slack). The two meet when the content fills the window,
+ * so the range changes continuously with zoom and the view never jumps.
+ */
+export function viewRange(lo: number, hi: number, v: number, slack: number): [number, number] {
+  if (hi - lo >= 2 * v) return [lo + v - slack, hi - v + slack];
+  const mid = (lo + hi) / 2;
+  return [mid - slack, mid + slack];
 }
+
+/** How a clamp treats the view: both targets to the bounds, only the goal (the view eases after it), or never further out. */
+type ClampMode = 'hard' | 'goal' | 'follow';
 
 export class IsoCamera {
   readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 400);
@@ -51,25 +87,47 @@ export class IsoCamera {
   /** Smooth look: continuous zoom. Otherwise discrete ZOOM_STEPS. */
   continuous = false;
   yaw = Math.PI / 4;
+  /** Half-height of the visible view (the overscan margin is extra), world units. */
   halfH = this.baseHalfH;
   readonly target = new THREE.Vector3(0, 3.9, 0);
   readonly targetGoal = new THREE.Vector3(0, 3.9, 0);
   /** Reduced motion: pans and zooms jump straight to their goal instead of gliding. */
   instant = false;
-  /** The ground the view stays over (set from the plinth); panning is limited by what is visible. */
-  bounds: GroundRect | null = null;
+  /** The town's outline (see Outline); panning is limited by what of it is visible. */
+  bounds: Outline | null = null;
+  /** Fingers are on the screen (a pinch): the bounds wait until they lift. */
+  hold = false;
+  /**
+   * Render pixels (x right, y down) to shift the finished image by, so it shows the unsnapped view.
+   * Always within ±½; the canvas has an overscan margin of at least one pixel to absorb it.
+   */
+  readonly subpixel = { x: 0, y: 0 };
   private aspect = 1;
   private rtHeight = 220;
-  /** Screen point (NDC) a smooth zoom is anchored to, until it settles. */
+  /** Render pixels rendered beyond each edge of the visible view. */
+  private margin = 0;
+  /** Screen point (NDC of the whole canvas) a smooth zoom is anchored to, until it settles. */
   private anchor: { x: number; y: number } | null = null;
+  /** Seconds since the last zoom in (the bounds wait for it to settle). */
+  private sinceZoomIn = Infinity;
+  /** Fling velocity, camera-plane units per second (right, up). */
+  private readonly fling = new THREE.Vector2();
+  /** The glide's velocity (world units per second): the spring that carries `target` to `targetGoal`. */
+  private readonly glide = new THREE.Vector3();
+  private spanCache: { yaw: number; y: number; bounds: Outline; span: Span } | null = null;
+  /** Where the view and its goal were before a drag or fling step (for the 'follow' clamp). */
+  private readonly prevGoal = new THREE.Vector3();
+  private readonly prevTarget = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
 
-  setViewport(rtWidth: number, rtHeight: number): void {
+  /** The visible render size, plus `margin` render pixels of overscan on every side. */
+  setViewport(rtWidth: number, rtHeight: number, margin = 0): void {
     this.aspect = rtWidth / rtHeight;
     this.rtHeight = rtHeight;
+    this.margin = margin;
     this.updateProjection();
-    this.clampTarget();
+    this.clampTarget('hard');
   }
 
   get viewAspect(): number {
@@ -79,7 +137,8 @@ export class IsoCamera {
   rotate(dir: 1 | -1): void {
     // keep yaw bounded so it never accumulates float error over many turns
     this.yaw = (((this.yaw + (dir * Math.PI) / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-    this.clampTarget(); // the plinth is not square: what's visible along each axis changes
+    this.fling.set(0, 0);
+    this.clampTarget('hard'); // the town is not square: what's visible along each axis changes
   }
 
   /** The discrete step the current zoom is at (or just below). */
@@ -110,6 +169,22 @@ export class IsoCamera {
     this.zoomTo(this.zoomGoal * factor, anchor);
   }
 
+  /**
+   * Multiply the zoom by `factor` this instant, anchored: direct manipulation for pinches, where
+   * the fingers already move smoothly and an ease on top would only make the town lag them.
+   */
+  pinchBy(factor: number, anchor: { x: number; y: number }): void {
+    if (!this.continuous) {
+      this.zoomBy(factor, anchor);
+      return;
+    }
+    // a pinch takes over from any easing still running: start from what is on screen
+    this.anchor = anchor;
+    this.zoomGoal = clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
+    this.applyZoom(this.zoomGoal);
+    this.anchor = null;
+  }
+
   /** Zoom to `z` (clamped), anchored. Continuous looks ease there; palette looks snap to the nearest step. */
   zoomTo(z: number, anchor?: { x: number; y: number }): void {
     const goal = clamp(z, MIN_ZOOM, MAX_ZOOM);
@@ -120,15 +195,17 @@ export class IsoCamera {
     }
     this.zoomGoal = goal;
     this.anchor = anchor ?? { x: 0, y: 0 };
+    if (goal > this.zoom) this.sinceZoomIn = 0;
     if (this.instant) this.applyZoom(goal);
   }
 
-  /** Set the zoom immediately (no easing), anchored. */
+  /** Set the zoom immediately (no easing), anchored. The view lands inside the bounds (callers dissolve). */
   setZoomNow(z: number, anchor?: { x: number; y: number }): void {
     this.anchor = anchor ?? { x: 0, y: 0 };
     this.zoomGoal = clamp(z, MIN_ZOOM, MAX_ZOOM);
     this.applyZoom(this.zoomGoal);
     this.anchor = null;
+    this.clampTarget('hard');
   }
 
   /** Jump straight to a legacy magnification index (0 = 1×, 1 = 2×, 2 = 3×), for scripted views. */
@@ -144,68 +221,151 @@ export class IsoCamera {
    * Change the displayed zoom, keeping the point under the anchor fixed on screen. The camera is
    * orthographic, so every point on the anchor's line of sight stays put: shift the target by the
    * anchor's offset times the change in view size (no raycast, rooftops and ground alike).
+   * Zooming in, the bounds wait (see update); zooming out, they tighten and the view eases inside.
    */
   private applyZoom(z: number): void {
-    const prev = this.halfH;
+    const c = this.camera;
+    const prevR = c.right,
+      prevT = c.top,
+      prevZ = this.zoom;
     this.zoom = z;
     this.halfH = this.baseHalfH / z;
     this.updateProjection();
     const a = this.anchor;
-    if (a) {
-      const dh = prev - this.halfH; // camera-plane units
-      this.shiftView(a.x * dh * this.aspect, a.y * dh, true);
-    }
-    this.clampTarget();
-  }
-
-  /** Move the view by (dx, dy) camera-plane units (right, up), sliding the target along the ground. */
-  private shiftView(dx: number, dy: number, both: boolean): void {
-    this.camera.updateMatrixWorld();
-    this.right.setFromMatrixColumn(this.camera.matrixWorld, 0).setY(0).normalize();
-    this.up.setFromMatrixColumn(this.camera.matrixWorld, 1);
-    const fwd = new THREE.Vector3(this.up.x, 0, this.up.z).normalize();
-    const move = this.right.multiplyScalar(dx).addScaledVector(fwd, dy / Math.sin(this.pitch));
-    this.targetGoal.add(move);
-    if (both) this.target.add(move);
-  }
-
-  /** Pan in screen space (pixels of the CSS canvas). */
-  panScreen(dxPx: number, dyPx: number, cssHeight: number): void {
-    const worldPerPx = (2 * this.halfH) / cssHeight;
-    this.shiftView(-dxPx * worldPerPx, dyPx * worldPerPx, false);
-    this.clampTarget();
+    if (a) this.shiftView(a.x * (prevR - c.right), a.y * (prevT - c.top), true);
+    // pinching on against the 3× limit still counts as zooming in: the bounds keep waiting
+    if (z > prevZ + 1e-9 || (z >= MAX_ZOOM && a)) this.sinceZoomIn = 0;
+    else if (z < prevZ - 1e-9) this.clampTarget('goal');
   }
 
   /**
-   * Keep the view over the plinth, per screen axis, from what is actually visible at this zoom
-   * and rotation: zoomed out, the plinth stays centred; zoomed in, you can reach every edge.
+   * Move the view by (dx, dy) camera-plane units (right, up), sliding the target along the ground.
+   * The axes come from the yaw, not the camera's matrix, which is stale between a rotate and the next frame.
    */
-  clampTarget(): void {
+  private shiftView(dx: number, dy: number, both: boolean): void {
+    const s = Math.sin(this.yaw),
+      c = Math.cos(this.yaw);
+    const f = dy / Math.sin(this.pitch); // screen up is the ground's forward, foreshortened
+    const mx = c * dx - s * f,
+      mz = -s * dx - c * f;
+    this.targetGoal.x += mx;
+    this.targetGoal.z += mz;
+    if (both) {
+      this.target.x += mx;
+      this.target.z += mz;
+    }
+  }
+
+  /** World units per CSS pixel, for a visible view `cssHeight` CSS pixels tall. */
+  private worldPerPx(cssHeight: number): number {
+    return (2 * this.halfH) / Math.max(1, cssHeight);
+  }
+
+  /** Pan in screen space (CSS pixels; `cssHeight` is the visible view's height). The view glides there. */
+  panScreen(dxPx: number, dyPx: number, cssHeight: number): void {
+    const w = this.worldPerPx(cssHeight);
+    this.shiftView(-dxPx * w, dyPx * w, false);
+    this.clampTarget('goal');
+  }
+
+  /** Grab the view (pointer down): stop any glide or fling where it is on screen now. */
+  grab(): void {
+    this.fling.set(0, 0);
+    this.glide.set(0, 0, 0);
+    this.targetGoal.copy(this.target);
+  }
+
+  /** Drag by (dx, dy) CSS pixels: the grabbed point follows the pointer exactly, stopping at the bounds. */
+  drag(dxPx: number, dyPx: number, cssHeight: number): void {
+    const w = this.worldPerPx(cssHeight);
+    this.prevGoal.copy(this.targetGoal);
+    this.prevTarget.copy(this.target);
+    this.shiftView(-dxPx * w, dyPx * w, true);
+    this.clampTarget('follow');
+  }
+
+  /** Let go with a velocity (CSS pixels per second): the view coasts on and slows to a stop. */
+  release(vxPx: number, vyPx: number, cssHeight: number): void {
+    if (this.instant) return;
+    const w = this.worldPerPx(cssHeight);
+    this.fling.set(-vxPx * w, vyPx * w);
+  }
+
+  /** The outline's extent along screen right and up (camera-plane units), around (0, y, 0). Cached per view direction. */
+  private span(points: Outline, y: number): Span {
+    const k = this.spanCache;
+    if (k && k.yaw === this.yaw && k.y === y && k.bounds === points) return k.span;
+    const s = Math.sin(this.pitch),
+      co = Math.cos(this.pitch);
+    const r = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const u = new THREE.Vector3(-Math.sin(this.yaw) * s, co, -Math.cos(this.yaw) * s);
+    const span = { r0: Infinity, r1: -Infinity, u0: Infinity, u1: -Infinity };
+    const d = new THREE.Vector3();
+    for (const p of points) {
+      d.set(p.x, p.y - y, p.z);
+      const a = d.dot(r),
+        b = d.dot(u);
+      span.r0 = Math.min(span.r0, a);
+      span.r1 = Math.max(span.r1, a);
+      span.u0 = Math.min(span.u0, b);
+      span.u1 = Math.max(span.u1, b);
+    }
+    this.spanCache = { yaw: this.yaw, y, bounds: points, span };
+    return span;
+  }
+
+  /**
+   * Keep the view over the town, per screen axis, from what of its outline is visible at this zoom
+   * and rotation (rooftops included, so a zoomed-in view can reach the tallest chimney): zoomed out,
+   * the town stays centred; zoomed in, you can reach every edge. Returns whether it moved anything.
+   * - 'hard' puts both the view and its goal inside (rotation, steps, resize: the caller dissolves or relayouts);
+   * - 'goal' moves only the goal, and the view eases after it;
+   * - 'follow' (dragging, flinging) stops each at the bounds but never pulls one further in than it already is,
+   *   so a view still easing back from a zoom never jumps.
+   */
+  clampTarget(mode: ClampMode = 'hard'): boolean {
     const b = this.bounds;
-    if (!b) return;
-    const cx = (b.x0 + b.x1) / 2,
-      cz = (b.z0 + b.z1) / 2;
-    const hx = (b.x1 - b.x0) / 2,
-      hz = (b.z1 - b.z0) / 2;
+    if (!b || !b.length) return false;
+    const sp = this.span(b, this.targetGoal.y);
+    const sinP = Math.sin(this.pitch);
+    const [rLo, rHi] = viewRange(sp.r0, sp.r1, this.halfH * this.aspect, SLACK_R);
+    const [uLo, uHi] = viewRange(sp.u0, sp.u1, this.halfH, SLACK_U);
     const r = { x: Math.cos(this.yaw), z: -Math.sin(this.yaw) }; // screen right on the ground
     const f = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) }; // screen up on the ground (away from the camera)
-    const extR = hx * Math.abs(r.x) + hz * Math.abs(r.z);
-    const extF = hx * Math.abs(f.x) + hz * Math.abs(f.z);
-    const visR = this.halfH * this.aspect;
-    const visF = this.halfH / Math.sin(this.pitch);
-    const slack = 1.5; // a little room past the edge, so the plinth's rim can be framed
-    const limR = Math.max(0, extR - visR) + slack;
-    const limF = Math.max(0, extF - visF) + slack;
-    for (const v of [this.targetGoal, this.target]) {
-      const dx = v.x - cx,
-        dz = v.z - cz;
-      const a = dx * r.x + dz * r.z,
-        c = dx * f.x + dz * f.z;
-      const a2 = clamp(a, -limR, limR),
-        c2 = clamp(c, -limF, limF);
-      v.x = cx + a2 * r.x + c2 * f.x;
-      v.z = cz + a2 * r.z + c2 * f.z;
+    let moved = false;
+    const fit = (v: THREE.Vector3, prev: THREE.Vector3 | null): void => {
+      const a = v.x * r.x + v.z * r.z,
+        c = (v.x * f.x + v.z * f.z) * sinP; // camera-plane units up
+      let lo = rLo,
+        hi = rHi,
+        lu = uLo,
+        hu = uHi;
+      if (prev) {
+        const pa = prev.x * r.x + prev.z * r.z,
+          pc = (prev.x * f.x + prev.z * f.z) * sinP;
+        lo = Math.min(lo, pa);
+        hi = Math.max(hi, pa);
+        lu = Math.min(lu, pc);
+        hu = Math.max(hu, pc);
+      }
+      const a2 = clamp(a, lo, hi),
+        c2 = clamp(c, lu, hu) / sinP;
+      if (Math.abs(a2 - a) < 1e-9 && Math.abs(c2 - c / sinP) < 1e-9) return;
+      moved = true;
+      v.x = a2 * r.x + c2 * f.x;
+      v.z = a2 * r.z + c2 * f.z;
+    };
+    if (mode === 'follow') {
+      fit(this.targetGoal, this.prevGoal);
+      fit(this.target, this.prevTarget);
+    } else {
+      fit(this.targetGoal, null);
+      if (mode === 'hard') {
+        fit(this.target, null);
+        this.glide.set(0, 0, 0); // a cut (rotation, step, resize) leaves nothing gliding
+      }
     }
+    return moved;
   }
 
   /** The town's projected extent around `centre`: half-sizes and the offset of its middle, camera-plane units. */
@@ -248,6 +408,8 @@ export class IsoCamera {
     const z = this.fitZoom(points, centre);
     this.zoom = this.zoomGoal = z;
     this.anchor = null;
+    this.fling.set(0, 0);
+    this.glide.set(0, 0, 0);
     this.halfH = this.baseHalfH / z;
     this.updateProjection();
     this.targetGoal.copy(centre);
@@ -255,7 +417,7 @@ export class IsoCamera {
     this.update(0); // matrices for this yaw before shifting along them
     const e = this.extent(points, centre);
     this.shiftView(e.mx, e.my, true);
-    this.clampTarget();
+    this.clampTarget('hard');
   }
 
   /** Is a smooth zoom still easing? (The caller refreshes the build preview while it does.) */
@@ -263,18 +425,47 @@ export class IsoCamera {
     return Math.abs(Math.log(this.zoomGoal / this.zoom)) > 1e-4;
   }
 
+  /** Is the view coasting after a fling? */
+  get coasting(): boolean {
+    return this.fling.lengthSq() > 0;
+  }
+
   update(dt: number): void {
+    this.sinceZoomIn += dt;
     if (this.zooming) {
       // ease in log space: the same feel zooming in and out
       const l = this.instant ? Math.log(this.zoomGoal) : damp(Math.log(this.zoom), Math.log(this.zoomGoal), ZOOM_RATE, dt);
       this.applyZoom(Math.abs(l - Math.log(this.zoomGoal)) < 1e-4 ? this.zoomGoal : Math.exp(l));
       if (!this.zooming) this.anchor = null;
     }
-    if (this.instant) this.target.copy(this.targetGoal);
-    else {
-      this.target.x = damp(this.target.x, this.targetGoal.x, 8, dt);
-      this.target.y = damp(this.target.y, this.targetGoal.y, 8, dt);
-      this.target.z = damp(this.target.z, this.targetGoal.z, 8, dt);
+    if (this.coasting && dt > 0) {
+      this.prevGoal.copy(this.targetGoal);
+      this.prevTarget.copy(this.target);
+      this.shiftView(this.fling.x * dt, this.fling.y * dt, true);
+      // hitting the bounds ends the coast there; the view never bounces through them
+      if (this.clampTarget('follow')) this.fling.set(0, 0);
+      else this.fling.multiplyScalar(Math.exp(-FLING_FRICTION * dt));
+      if (this.fling.length() < FLING_STOP) this.fling.set(0, 0);
+    }
+    // the bounds wait for a zoom in (and for fingers) to settle, then the view eases back inside
+    const zoomingIn = this.zooming && this.zoomGoal > this.zoom;
+    if (!this.hold && !zoomingIn && this.sinceZoomIn >= BOUNDS_SETTLE_S) this.clampTarget('goal');
+    if (this.instant) {
+      this.target.copy(this.targetGoal);
+      this.glide.set(0, 0, 0);
+    } else if (dt > 0) {
+      // Critically damped spring, solved exactly (stable at any dt): a glide gathers speed and
+      // settles without overshoot. Plain exponential smoothing starts at full speed, which reads
+      // as a jolt at the start of every pan and every ease back into the bounds.
+      const e = Math.exp(-PAN_OMEGA * dt);
+      const x = this.target.clone().sub(this.targetGoal);
+      const tmp = this.glide.clone().addScaledVector(x, PAN_OMEGA).multiplyScalar(dt);
+      this.glide.addScaledVector(tmp, -PAN_OMEGA).multiplyScalar(e);
+      this.target.copy(this.targetGoal).add(x.add(tmp).multiplyScalar(e));
+      if (this.target.distanceToSquared(this.targetGoal) < 1e-10 && this.glide.lengthSq() < 1e-8) {
+        this.target.copy(this.targetGoal);
+        this.glide.set(0, 0, 0);
+      }
     }
 
     const r = 160;
@@ -286,23 +477,29 @@ export class IsoCamera {
     );
     c.lookAt(this.target);
     c.updateMatrixWorld();
-    // texel snap
+    // texel snap, and the error it made for the presentation to undo (see `subpixel`)
     const px = (2 * this.halfH) / this.rtHeight;
     this.right.setFromMatrixColumn(c.matrixWorld, 0);
     this.up.setFromMatrixColumn(c.matrixWorld, 1);
     const dx = c.position.dot(this.right);
     const dy = c.position.dot(this.up);
-    c.position.addScaledVector(this.right, Math.round(dx / px) * px - dx);
-    c.position.addScaledVector(this.up, Math.round(dy / px) * px - dy);
+    const ex = Math.round(dx / px) * px - dx;
+    const ey = Math.round(dy / px) * px - dy;
+    c.position.addScaledVector(this.right, ex);
+    c.position.addScaledVector(this.up, ey);
     c.updateMatrixWorld();
+    // the snapped camera sits ex right and ey up of the true one, so its image is ex left and ey low
+    this.subpixel.x = ex / px;
+    this.subpixel.y = -ey / px;
   }
 
   private updateProjection(): void {
     const c = this.camera;
-    c.left = -this.halfH * this.aspect;
-    c.right = this.halfH * this.aspect;
-    c.top = this.halfH;
-    c.bottom = -this.halfH;
+    const m = (this.margin * 2 * this.halfH) / this.rtHeight;
+    c.left = -this.halfH * this.aspect - m;
+    c.right = this.halfH * this.aspect + m;
+    c.top = this.halfH + m;
+    c.bottom = -this.halfH - m;
     c.updateProjectionMatrix();
   }
 }
