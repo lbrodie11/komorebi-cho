@@ -32,6 +32,10 @@ export interface SmartObject {
   /** Concurrent "come look at this" visitors, capped to avoid swarms. */
   inspectors: number;
   openHours?: [number, number];
+  /** How many can use it in comfort (its slots are the hard limit); by default, all of them. */
+  soft?: number;
+  /** Standing spots where people wait their turn when every slot is taken (shops), nearest first. */
+  queue?: Slot[];
 }
 
 export class SmartRegistry {
@@ -63,7 +67,24 @@ export class SmartRegistry {
     return s;
   }
   release(who: string): void {
-    for (const o of this.objects.values()) for (const s of o.slots) if (s.takenBy === who) s.takenBy = null;
+    for (const o of this.objects.values()) {
+      for (const s of o.slots) if (s.takenBy === who) s.takenBy = null;
+      for (const s of o.queue ?? []) if (s.takenBy === who) s.takenBy = null;
+    }
+  }
+  /** A free place in the queue, nearest the counter first. */
+  reserveQueue(o: SmartObject, who: string): Slot | null {
+    const s = o.queue?.find((q) => !q.takenBy);
+    if (!s) return null;
+    s.takenBy = who;
+    return s;
+  }
+  /** Shops with every slot taken but room in the queue (open now). */
+  queueable(kind: SmartKind, hour: number): SmartObject[] {
+    const out: SmartObject[] = [];
+    for (const o of this.objects.values())
+      if (o.kind === kind && o.queue && this.isOpen(o, hour) && o.slots.every((s) => s.takenBy) && o.queue.some((q) => !q.takenBy)) out.push(o);
+    return out;
   }
   /** Who is using an object (for edge cases like removing an occupied bench). */
   occupants(o: SmartObject): string[] {
@@ -83,6 +104,13 @@ export function frontSlot(x: number, z: number, ry: number, d: number, pose: Pos
   return { x: x + Math.sin(ry) * d, z: z + Math.cos(ry) * d, face: ry + Math.PI, pose, takenBy: null };
 }
 
+/** Where people wait outside a shop, from its counter (x, z offsets; nearest first). */
+const SHOP_QUEUE: readonly (readonly [number, number])[] = [
+  [0.75, 0.15],
+  [1.35, 0.3],
+  [1.95, 0.45],
+];
+
 export function registerStaticObjects(r: SmartRegistry): void {
   for (const b of BENCHES) r.add({ id: b.id, kind: 'bench', label: 'bench', x: b.x, z: b.z, slots: benchSlots(b.x, b.z, b.ry) });
   VENDING.forEach((v, i) => r.add({ id: `vending-${i}`, kind: 'vending', label: 'vending', x: v.x, z: v.z, slots: [frontSlot(v.x, v.z, 0, 0.85)] }));
@@ -101,6 +129,9 @@ export function registerStaticObjects(r: SmartRegistry): void {
       z,
       openHours: hours,
       slots: [-0.7, 0.7].map((o) => ({ x: -9.55, z: z + o, face: -Math.PI / 2, pose: 'stand' as const, takenBy: null })),
+      soft: 1,
+      // a short line out into the lane, angled a little up the street
+      queue: SHOP_QUEUE.map(([dx, dz]) => ({ x: -9.55 + dx, z: z + dz, face: -Math.PI / 2, pose: 'stand' as const, takenBy: null })),
     });
   const mid = (BRIDGE.x0 + BRIDGE.x1) / 2;
   r.add({

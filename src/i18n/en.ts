@@ -309,6 +309,7 @@ export const en = {
   'task.sitting': 'Sitting for a while',
   'task.drink': 'Buying a drink',
   'task.browsing': 'Browsing at {thing}',
+  'task.queueing': 'Waiting in line at {thing}',
   'task.koi': 'Watching the koi from the bridge',
   'task.shrine': 'Praying at the little shrine',
   'task.temple': 'Visiting the temple',

@@ -40,7 +40,7 @@ export function applyShopEdit(c: ShopEditContext, id: string, z0: number, z1: nu
   c.residents.onRemoved(o.id);
   const dz = mid - o.z;
   o.z = mid;
-  for (const s of o.slots) s.z += dz;
+  for (const s of [...o.slots, ...(o.queue ?? [])]) s.z += dz;
   if (!announce) return;
   o.inspectors = 0;
   c.bus.emit('sfx', { name: 'place', x: o.x, z: mid });

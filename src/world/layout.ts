@@ -40,6 +40,14 @@ export const ISLET = { x: 4.6, z: 2, r: 0.95 } as const;
 /** A snow-viewing stone lantern (yukimi-dōrō) standing in the shallows, so the pond has a light to mirror at night. */
 export const POND_LANTERN = { x: 2.9, z: -0.95 } as const;
 export const BRIDGE = { x0: -2.2, x1: 3.65, z: 2, halfW: 0.55, rise: 0.85 } as const;
+
+/**
+ * Passages too narrow for two people to pass (clear width under 1.4 m): walkers take turns
+ * (src/sim/passage.ts). The bridge deck is 1.1 m.
+ */
+export const PASSAGES: readonly { id: string; x0: number; x1: number; z0: number; z1: number; axis: 'x' | 'z' }[] = [
+  { id: 'bridge', x0: BRIDGE.x0, x1: BRIDGE.x1, z0: BRIDGE.z - BRIDGE.halfW - 0.1, z1: BRIDGE.z + BRIDGE.halfW + 0.1, axis: 'x' },
+];
 export const STREAM = { x: -0.1, z0: -6, z1: -0.6, w: 0.7 } as const;
 
 export type RegionKind = 'lane' | 'path' | 'grass' | 'paving' | 'soil' | 'terrace' | 'steps' | 'front';

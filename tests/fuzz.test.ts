@@ -10,14 +10,26 @@ import { installHeadlessDom } from './helpers/headless';
 beforeAll(() => installHeadlessDom());
 
 describe('edit fuzz', () => {
-  it('survives 500 random edits with no teleports, no one stuck, and undoes to the start', async () => {
+  it(
+    'survives 500 random edits with no teleports, no one stuck, and undoes to the start',
+    () => fuzz({ edits: 500, ticksPerEdit: 10, speed: 1, seed: 500 }),
+    180_000,
+  );
+  // prompt 07's acceptance: ten minutes of an edit every 2 s, with the clock fast-forwarded (routines change underneath)
+  it(
+    'survives ten fast-forwarded minutes of an edit every 2 s, with nobody deadlocked at the bridge',
+    () => fuzz({ edits: 300, ticksPerEdit: 40, speed: 6, seed: 707 }),
+    300_000,
+  );
+});
+
+async function fuzz(o: { edits: number; ticksPerEdit: number; speed: number; seed: number }): Promise<void> {
+  {
     const { EventBus } = await import('../src/core/events');
     const { WorldClock } = await import('../src/core/clock');
     const { skyAt } = await import('../src/render/sky');
     const { World } = await import('../src/world/world');
-    const { GROUND, OBSTACLES } = await import('../src/world/layout');
-    const { groundHeight, isWalkableSurface } = await import('../src/world/terrain');
-    const { NavGrid } = await import('../src/sim/grid');
+    const { townGrid } = await import('../src/sim/town');
     const { SmartRegistry, registerStaticObjects } = await import('../src/sim/smart');
     const { Residents } = await import('../src/sim/residents');
     const { BuildTool } = await import('../src/ui/build');
@@ -30,12 +42,9 @@ describe('edit fuzz', () => {
 
     const bus = new EventBus<Events>();
     const clock = new WorldClock(15);
+    clock.speed = o.speed;
     const world = new World();
-    const grid = new NavGrid(
-      { x0: GROUND.x0, z0: GROUND.z0, w: GROUND.x1 - GROUND.x0, d: GROUND.z1 - GROUND.z0, cell: 0.5 },
-      { walkable: isWalkableSurface, height: groundHeight },
-      OBSTACLES,
-    );
+    const grid = townGrid();
     const smart = new SmartRegistry();
     registerStaticObjects(smart);
     const residents = new Residents(world.scene, grid, smart, bus, world.mats);
@@ -64,7 +73,7 @@ describe('edit fuzz', () => {
       undoneBefore.length = 0;
       history.perform(c);
     };
-    const rng = new Rng(500);
+    const rng = new Rng(o.seed);
     const kinds = Object.keys(PLACEABLES) as (keyof typeof PLACEABLES)[];
     // near the people: the lanes, the park and the shopping street, where edits land on someone
     const spot = () => [Math.round(rng.range(-9, 9) * 4) / 4, Math.round(rng.range(-5, 9) * 4) / 4] as const;
@@ -124,8 +133,10 @@ describe('edit fuzz', () => {
     const last = new Map<string, { x: number; z: number; visible: boolean }>();
     const still = new Map<string, { x: number; z: number; since: number }>();
     const inside = new Map<string, number>();
-    while (n < 500) {
-      for (let s = 0; s < 10; s++) {
+    const waits = new Map<string, number>();
+    let longestWait = 0;
+    while (n < o.edits) {
+      for (let s = 0; s < o.ticksPerEdit; s++) {
         t += dt;
         const gm = clock.tick(dt);
         world.update(dt, t, clock, skyAt(clock.hour, world.weather.rain, clock.season), gm);
@@ -138,8 +149,12 @@ describe('edit fuzz', () => {
           // a visible jump faster than anyone walks or shuffles is a teleport
           if (was?.visible && visible && Math.hypot(a.x - was.x, a.z - was.z) > 0.35) teleports++;
           last.set(a.p.id, { x: a.x, z: a.z, visible });
+          // waiting a turn at the bridge is fine; waiting forever is a deadlock
+          const w = a.waitingFor ? (waits.get(a.p.id) ?? 0) + dt : 0;
+          waits.set(a.p.id, w);
+          longestWait = Math.max(longestWait, w);
           // walking but not getting anywhere
-          if (a.hidden || a.arrived || a.standUp > 0 || a.shuffle) still.delete(a.p.id);
+          if (a.hidden || a.arrived || a.standUp > 0 || a.shuffle || a.waitingFor) still.delete(a.p.id);
           else {
             const st = still.get(a.p.id);
             if (!st || Math.hypot(st.x - a.x, st.z - a.z) > 0.05) still.set(a.p.id, { x: a.x, z: a.z, since: t });
@@ -161,6 +176,7 @@ describe('edit fuzz', () => {
       n++;
     }
     expect(teleports).toBe(0);
+    expect(longestWait).toBeLessThan(20);
     expect(maxStill).toBeLessThan(5);
     expect(maxInside).toBeLessThan(1);
     expect(history.log.some((c) => c.op === 'shop')).toBe(true);
@@ -172,5 +188,5 @@ describe('edit fuzz', () => {
     // redo exactly what was undone (anything already undone during the fuzz stays undone)
     for (let k = 0; k < depth; k++) history.redo();
     expect(hash()).toBe(end);
-  }, 180_000);
-});
+  }
+}

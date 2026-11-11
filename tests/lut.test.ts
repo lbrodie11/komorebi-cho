@@ -20,7 +20,10 @@ describe('palette LUT', () => {
 
   it('stores only valid palette indices, 4 per cell, red fastest', () => {
     expect(lut.data.length).toBe(LUT_SIZE ** 3 * LUT_SLOTS);
-    for (const v of lut.data) expect(v).toBeLessThan(PALETTE.length);
+    // one assertion, not one per byte (millions of expect calls took 7-10 s on a loaded machine)
+    let max = 0;
+    for (const v of lut.data) if (v > max) max = v;
+    expect(max).toBeLessThan(PALETTE.length);
     const n = LUT_SIZE;
     const at = (x: number, y: number, z: number) => lut.data[((z * n + y) * n + x) * 4];
     const mid = (i: number) => (lutEdge(i) + lutEdge(i + 1)) / 2;

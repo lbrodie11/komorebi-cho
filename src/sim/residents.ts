@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { Rng } from '../core/rng';
 import { hourInRange } from '../core/clock';
 import { clamp } from '../core/math';
+import { Passage } from './passage';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
-import { DOORS, EXITS } from '../world/layout';
+import { DOORS, EXITS, PASSAGES } from '../world/layout';
 import { groundHeight } from '../world/terrain';
 import type { NavGrid } from './grid';
 import { PERSONAS, type Persona } from './personas';
@@ -12,7 +13,7 @@ import type { Pose, Slot, SmartKind, SmartObject, SmartRegistry } from './smart'
 import { bubbleMaterial, type BubbleIcon } from './bubbles';
 import { msg, type Msg, type MsgKey } from '../i18n';
 
-type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger';
+type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger' | 'queue';
 
 interface Task {
   kind: TaskKind;
@@ -30,11 +31,22 @@ interface Task {
   /** Exact standing point (slot), reached by a short glide after the path ends. */
   exact?: [number, number];
   onArrive?: () => void;
+  /** Queueing: what they'll do at the counter. */
+  next?: { label: Msg; dwell: number; bubble?: BubbleIcon };
 }
 
 const PERSONA_SEED = 77;
 
 /** One neighbour: a little rig of boxes plus a brain made of a schedule, three needs and a utility picker. */
+/** How close (m) another resident must be before a walker sidesteps (two walkers close at ~2.4 m/s). */
+const AVOID_RADIUS = 1.2;
+/** People within this distance (m) of something make it feel crowded. */
+const CROWD_RADIUS = 2;
+/** Game minutes someone waits in a shop's line before giving up. */
+const QUEUE_PATIENCE = 12;
+/** Path searches per tick, at most (20 Hz sim: 120 a second, far more than residents ever need). */
+export const PATHS_PER_TICK = 6;
+
 export class Agent {
   readonly root = new THREE.Group();
   readonly body: THREE.Mesh;
@@ -56,6 +68,12 @@ export class Agent {
   readonly needs = { fatigue: 0.2, thirst: 0.2 };
   readonly known = new Set<string>();
   lastInspect = -999;
+  /** The narrow passage they are waiting to enter (it is the other way's turn), if any. */
+  waitingFor: string | null = null;
+  /** Waiting for a path search (searches are rationed per tick, so many re-plans never land in one frame). */
+  needsPath = false;
+  /** The nav version their region was last checked at (recovery from islands). */
+  regionChecked = -1;
   /** Stepping aside from something that just landed where they stood (from, to, elapsed, duration). */
   shuffle: { fx: number; fz: number; tx: number; tz: number; t: number; dur: number } | null = null;
   /** Where they went out of sight (home door, shop door, the station exit). They reappear there. */
@@ -227,6 +245,14 @@ export class Residents {
   private storyCooldown = 0;
   private minutes = 0;
   private readonly toldUse = new Set<string>();
+  /** Path searches left this tick (PATHS_PER_TICK). */
+  private pathBudget = 0;
+  /** Narrow passages where walkers take turns (the bridge). */
+  private readonly passages = PASSAGES.map((s) => new Passage(s));
+  /** Seconds of simulation, for passage waits. */
+  private clockS = 0;
+  /** The hour of the current tick. */
+  private hourNow = 0;
 
   constructor(
     private readonly scene: THREE.Object3D,
@@ -270,7 +296,12 @@ export class Residents {
   update(dt: number, gm: number, hour: number, rain: number, time: number): void {
     this.storyCooldown -= dt;
     this.minutes += gm;
+    this.pathBudget = PATHS_PER_TICK;
+    this.clockS += dt;
+    this.hourNow = hour;
+    this.syncPassages();
     for (const a of this.agents) {
+      if (!a.hidden && !a.shuffle && a.regionChecked !== this.grid.version) this.recover(a);
       a.needs.thirst = clamp(a.needs.thirst + gm * 0.004, 0, 1);
       if (a.shuffle) {
         this.shuffleStep(a, dt);
@@ -377,9 +408,14 @@ export class Residents {
       for (const o of this.smart.available(kind, hour)) {
         if (o.placed && !a.known.has(o.id)) continue;
         if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
-        const crowd = o.slots.filter((s) => s.takenBy).length / o.slots.length;
-        const score = base * dPen(o) * (1 - crowd * 0.5);
+        const score = base * dPen(o) * this.crowdFactor(a, o);
         opts.push({ score, make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
+      }
+      // every counter busy: queueing is an option, a less attractive one
+      for (const o of this.smart.queueable(kind, hour)) {
+        if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
+        const score = base * dPen(o) * this.crowdFactor(a, o) * 0.55;
+        opts.push({ score, make: () => this.queueTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
       }
     };
     const isKid = !!p.kid;
@@ -463,6 +499,64 @@ export class Residents {
     return { kind: 'jog', label: msg('task.jogging'), goal: loop[i]!, dwell: 0.2, pose: 'stand', interruptible: true };
   }
 
+  /**
+   * Crowding (prompt 07): desirability × 1 / (1 + density × crowdAversion), where density is the
+   * people within 2 m of it (using it or just standing about) over how many it suits in comfort.
+   */
+  private crowdFactor(a: Agent, o: SmartObject): number {
+    let n = 0;
+    for (const b of this.agents) if (b !== a && !b.hidden && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) n++;
+    const density = n / Math.max(1, o.soft ?? o.slots.length);
+    return 1 / (1 + density * (a.p.crowdAversion ?? 1));
+  }
+
+  /** Wait in line at a shop: when a counter frees up they step up to it; if it takes too long, they give up. */
+  private queueTask(a: Agent, o: SmartObject, label: Msg, useDwell: number, bubble?: BubbleIcon): Task | null {
+    const spot = this.smart.reserveQueue(o, a.p.id);
+    if (!spot) return null;
+    return {
+      kind: 'queue',
+      label: msg('task.queueing', { thing: thing(o.label) }),
+      goal: [spot.x, spot.z],
+      exact: [spot.x, spot.z],
+      dwell: QUEUE_PATIENCE,
+      pose: 'stand',
+      face: spot.face,
+      obj: o,
+      slot: spot,
+      interruptible: true,
+      next: { label, dwell: useDwell, bubble },
+    };
+  }
+
+  /** In line: step up to a free counter, or move up a place. */
+  private queueStep(a: Agent, t: Task): void {
+    const o = t.obj!;
+    if (o.slots.some((s) => !s.takenBy) && this.smart.isOpen(o, this.hourNow)) {
+      this.smart.release(a.p.id);
+      const use = this.useTask(a, o, t.next!.label, t.next!.dwell, t.next!.bubble);
+      if (use) return this.assign(a, use);
+    }
+    const q = o.queue ?? [];
+    const mine = q.indexOf(t.slot!);
+    const ahead = q.findIndex((s) => !s.takenBy);
+    if (ahead !== -1 && ahead < mine) {
+      t.slot!.takenBy = null;
+      const s = q[ahead]!;
+      s.takenBy = a.p.id;
+      t.slot = s;
+      t.goal = [s.x, s.z];
+      t.exact = [s.x, s.z];
+      a.arrived = false;
+      a.path = [
+        [a.x, a.z],
+        [s.x, s.z],
+      ];
+      a.pathIdx = 1;
+      a.pathVersion = this.grid.version;
+    }
+  }
+
   private useTask(a: Agent, o: SmartObject, label: Msg, dwell: number, bubble?: BubbleIcon): Task | null {
     const slot = this.smart.reserve(o, a.p.id);
     if (!slot) return null;
@@ -498,6 +592,7 @@ export class Residents {
 
   private assign(a: Agent, t: Task): void {
     a.task = t;
+    a.waitingFor = null;
     a.arrived = false;
     a.path = [];
     a.pathIdx = 0;
@@ -513,6 +608,15 @@ export class Residents {
 
   private repath(a: Agent): void {
     if (!a.task) return;
+    if (this.pathBudget <= 0) {
+      // the rest wait a tick (50 ms): a crowd re-planning at once never costs one frame
+      a.needsPath = true;
+      a.path = [];
+      a.pathIdx = 0;
+      return;
+    }
+    this.pathBudget--;
+    a.needsPath = false;
     const path = this.grid.findPath(a.x, a.z, a.task.goal[0], a.task.goal[1]);
     a.pathVersion = this.grid.version;
     if (!path) {
@@ -537,6 +641,7 @@ export class Residents {
     if (a.pose === 'sit' || a.pose === 'crouch') a.standUp = 0.6;
     a.pose = 'stand';
     a.task = null;
+    a.waitingFor = null;
     a.path = [];
     a.arrived = false;
     if (icon) a.say(icon, 1.6);
@@ -555,6 +660,10 @@ export class Residents {
       return;
     }
     if (!a.arrived) {
+      if (a.needsPath) {
+        this.repath(a);
+        if (a.needsPath || !a.task) return;
+      }
       if (a.pathVersion !== this.grid.version) {
         a.pathVersion = this.grid.version;
         if (this.grid.pathBlocked([[a.x, a.z], ...a.path.slice(a.pathIdx)], 1)) this.repath(a);
@@ -566,6 +675,10 @@ export class Residents {
     // acting
     a.dwellLeft -= gm;
     if (t.face !== undefined) a.root.rotation.y = t.face;
+    if (t.kind === 'queue') {
+      this.queueStep(a, t);
+      if (a.task !== t || !a.arrived) return;
+    }
     if (t.kind === 'inspect' && a.bubbleT < 0.3 && a.dwellLeft < t.dwell * 0.6 && t.bubble) {
       a.say(t.bubble, 2);
       t.bubble = undefined;
@@ -575,9 +688,80 @@ export class Residents {
     }
   }
 
+  /** Tell each passage who is walking inside it now, and who is still waiting at its ends. */
+  private syncPassages(): void {
+    for (const p of this.passages) {
+      const walkers = new Map<string, -1 | 1>();
+      const waiters = new Set<string>();
+      for (const a of this.agents) {
+        if (a.hidden || !a.task) continue;
+        if (a.waitingFor === p.spec.id) waiters.add(a.p.id);
+        if (a.arrived || a.pathIdx >= a.path.length || !p.contains(a.x, a.z)) continue;
+        const [tx, tz] = a.path[a.pathIdx]!;
+        walkers.set(a.p.id, p.heading(tx - a.x, tz - a.z));
+      }
+      p.sync(walkers, waiters);
+    }
+  }
+
+  /**
+   * Local avoidance (prompt 07): a sidestep away from anyone within reach ahead (walking, sitting
+   * or standing), as a sideways speed along the walker's left (+) or right (-). Head-on, both step
+   * to their own left, so they pass (people in Tokyo keep left). Deterministic: agent order only.
+   */
+  private sidestep(a: Agent, ux: number, uz: number): { lat: number; slow: number } {
+    let lat = 0,
+      slow = 1;
+    for (const b of this.agents) {
+      if (b === a || b.hidden) continue;
+      const rx = b.x - a.x,
+        rz = b.z - a.z;
+      const d = Math.hypot(rx, rz);
+      if (d > AVOID_RADIUS || d < 1e-4) continue;
+      const ahead = (rx * ux + rz * uz) / d;
+      if (ahead < -0.2 && d > 0.35) continue; // behind them: theirs to avoid
+      // which side of my heading they're on: + means on my left (left of (ux, uz) is (uz, -ux))
+      const side = (rx * uz - rz * ux) / d;
+      const w = Math.min(1, (1.6 * (AVOID_RADIUS - d)) / AVOID_RADIUS);
+      // nearly head-on: keep left; otherwise step away from their side
+      lat += w * (Math.abs(side) < 0.25 ? 1 : -Math.sign(side));
+      // right in front: ease off while stepping aside
+      if (ahead > 0.6 && d < 0.6) slow = Math.min(slow, 0.35 + d);
+    }
+    return { lat: clamp(lat, -1, 1), slow };
+  }
+
   private walk(a: Agent, dt: number): void {
     const t = a.task!;
     let move = a.p.speed * dt;
+    // a sidestep first (only onto open ground), then on along the path, which re-aims from wherever they are
+    if (a.pathIdx < a.path.length) {
+      const [tx, tz] = a.path[a.pathIdx]!;
+      const d = Math.hypot(tx - a.x, tz - a.z);
+      if (d > 0.05) {
+        const ux = (tx - a.x) / d,
+          uz = (tz - a.z) / d;
+        // about to step onto the bridge while it's the other way's turn: wait at the end, facing it
+        const ahead = Math.min(d, move) + 0.05;
+        for (const p of this.passages) {
+          if (p.contains(a.x, a.z) || !p.contains(a.x + ux * ahead, a.z + uz * ahead)) continue;
+          if (p.request(a.p.id, p.heading(ux, uz), this.clockS)) continue;
+          a.waitingFor = p.spec.id;
+          a.root.rotation.y = Math.atan2(ux, uz);
+          return;
+        }
+        a.waitingFor = null;
+        const av = this.sidestep(a, ux, uz);
+        move *= av.slow;
+        const lat = av.lat * a.p.speed * 0.9 * dt;
+        const nx = a.x + uz * lat,
+          nz = a.z - ux * lat;
+        if (lat !== 0 && this.grid.isOpenAt(nx, nz)) {
+          a.root.position.x = nx;
+          a.root.position.z = nz;
+        }
+      }
+    }
     while (move > 0 && a.pathIdx < a.path.length) {
       const [tx, tz] = a.path[a.pathIdx]!;
       const dx = tx - a.x,
@@ -711,6 +895,23 @@ export class Residents {
         if (Math.hypot(a.x - o.x, a.z - o.z) < 3.2) a.known.add(o.id);
       }
     }
+  }
+
+  /**
+   * Recovery (prompt 07): someone visible on an island, a pocket the player's edits sealed off from
+   * every door and exit, steps over the nearest obstruction back into the town at walking pace
+   * (never a jump), after a puzzled moment; whatever they were doing there is over.
+   */
+  private recover(a: Agent): void {
+    a.regionChecked = this.grid.version;
+    if (!this.grid.trapped(a.x, a.z)) return;
+    const out = this.grid.nearestMain(a.x, a.z, 10);
+    if (!out) return;
+    if (a.task) this.endTask(a, 'question');
+    a.standUp = 0;
+    a.pose = 'stand';
+    const len = Math.hypot(out[0] - a.x, out[1] - a.z);
+    a.shuffle = { fx: a.x, fz: a.z, tx: out[0], tz: out[1], t: 0, dur: Math.max(0.4, len / (a.p.speed * 0.8)) };
   }
 
   /**

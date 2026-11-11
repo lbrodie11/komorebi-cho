@@ -18,9 +18,12 @@ const MAX_STEP = 0.45;
 
 /**
  * Walkability grid + A*. Cheap enough to rebuild a region on every edit, small
- * enough (0.5 m cells, ~3.5k cells) that A* is instant. Dynamic obstacles
- * (player-placed props) are stamped in/out with reference counts so removing
- * one prop never unblocks another overlapping one.
+ * enough (0.5 m cells, 3.3k cells) that A* is instant (docs/NAV.md has the
+ * numbers). Dynamic obstacles (player-placed props) are stamped in/out with
+ * reference counts so removing one prop never unblocks another overlapping one.
+ * Connected regions are labelled lazily after each change, so a path between two
+ * regions fails at once instead of searching the whole town, and anything sealed
+ * off from the doors and exits (an island) can be found.
  */
 export class NavGrid {
   readonly cols: number;
@@ -30,6 +33,12 @@ export class NavGrid {
   private readonly heights: Float32Array;
   /** Bumped whenever walkability changes; agents compare to know when to re-path. */
   version = 0;
+  /** Connected region of each cell (-1: closed), for `version` `labelled`. */
+  private readonly comp: Int32Array;
+  private labelled = -1;
+  private mainComp = -1;
+  /** Where people come and go (doors, exits): the region holding most of them is the town; the rest are islands. */
+  private anchors: () => readonly (readonly [number, number])[] = () => [];
 
   constructor(
     readonly spec: GridSpec,
@@ -42,6 +51,7 @@ export class NavGrid {
     this.base = new Uint8Array(n);
     this.blocked = new Uint16Array(n);
     this.heights = new Float32Array(n);
+    this.comp = new Int32Array(n);
     for (let j = 0; j < this.rows; j++)
       for (let i = 0; i < this.cols; i++) {
         const [x, z] = this.center(i, j);
@@ -113,6 +123,132 @@ export class NavGrid {
     this.version++;
   }
 
+  /** The doors and exits that define the town's main region (see `island`). */
+  setAnchors(anchors: () => readonly (readonly [number, number])[]): void {
+    this.anchors = anchors;
+    this.labelled = -1;
+  }
+
+  /**
+   * Label connected regions (4-neighbour flood with the same step rule as A*: a diagonal move
+   * needs both orthogonal moves, so it never joins regions the orthogonals don't). Lazy: once
+   * per walkability change.
+   */
+  private label(): void {
+    if (this.labelled === this.version) return;
+    this.labelled = this.version;
+    const comp = this.comp;
+    comp.fill(-1);
+    const stack: number[] = [];
+    let next = 0;
+    for (let k = 0; k < comp.length; k++) {
+      const i0 = k % this.cols;
+      if (comp[k] !== -1 || !this.open(i0, (k - i0) / this.cols)) continue;
+      comp[k] = next;
+      stack.push(k);
+      while (stack.length) {
+        const c = stack.pop()!;
+        const i = c % this.cols,
+          j = (c - i) / this.cols;
+        for (let d = 0; d < 4; d++) {
+          const ni = i + (d === 0 ? 1 : d === 1 ? -1 : 0),
+            nj = j + (d === 2 ? 1 : d === 3 ? -1 : 0);
+          if (!this.canStep(i, j, ni, nj)) continue;
+          const nk = nj * this.cols + ni;
+          if (comp[nk] !== -1) continue;
+          comp[nk] = next;
+          stack.push(nk);
+        }
+      }
+      next++;
+    }
+    // the main region: the one most doors and exits open onto (ties: the lower label, deterministic)
+    const votes = new Map<number, number>();
+    for (const [x, z] of this.anchors()) {
+      const p = this.nearestOpen(x, z, 3);
+      if (!p) continue;
+      const c = this.regionAt(p[0], p[1]);
+      votes.set(c, (votes.get(c) ?? 0) + 1);
+    }
+    let best = -1,
+      bv = 0;
+    for (const [c, v] of votes) if (v > bv || (v === bv && c < best)) [best, bv] = [c, v];
+    this.mainComp = best;
+  }
+
+  /** The connected region at a point (-1 if the cell is closed). */
+  regionAt(x: number, z: number): number {
+    this.label();
+    const [i, j] = this.cellOf(x, z);
+    return this.inBounds(i, j) ? this.comp[j * this.cols + i]! : -1;
+  }
+
+  /** Is this open point sealed off from the town's doors and exits (an island the player's edits made)? */
+  island(x: number, z: number): boolean {
+    const r = this.regionAt(x, z);
+    this.label();
+    return r !== -1 && this.mainComp !== -1 && r !== this.mainComp;
+  }
+
+  /** Every open cell centre on an island, for the build tool's "unreachable" hint. */
+  islandCells(): [number, number][] {
+    this.label();
+    const out: [number, number][] = [];
+    if (this.mainComp === -1) return out;
+    for (let k = 0; k < this.comp.length; k++) {
+      const c = this.comp[k]!;
+      if (c === -1 || c === this.mainComp) continue;
+      const i = k % this.cols;
+      out.push(this.center(i, (k - i) / this.cols));
+    }
+    return out;
+  }
+
+  /**
+   * The nearest open point in the town's main region, searching outward through anything (a
+   * resident sealed in by a ring of planters steps over the nearest one). Null if none is near.
+   */
+  nearestMain(x: number, z: number, maxRing = 8): [number, number] | null {
+    this.label();
+    return this.mainComp === -1 ? null : this.nearestInRegion(x, z, this.mainComp, maxRing);
+  }
+
+  /** The nearest open cell centre of region `region` within `maxRing` cells of a point. */
+  private nearestInRegion(x: number, z: number, region: number, maxRing: number): [number, number] | null {
+    const [ci, cj] = this.cellOf(x, z);
+    for (let r = 0; r <= maxRing; r++) {
+      let best: [number, number] | null = null;
+      let bd = Infinity;
+      for (let dj = -r; dj <= r; dj++)
+        for (let di = -r; di <= r; di++) {
+          if (Math.abs(di) !== r && Math.abs(dj) !== r) continue;
+          const i = ci + di,
+            j = cj + dj;
+          if (!this.inBounds(i, j) || this.comp[j * this.cols + i] !== region) continue;
+          const c = this.center(i, j);
+          const d = Math.hypot(c[0] - x, c[1] - z);
+          if (d < bd) {
+            bd = d;
+            best = c;
+          }
+        }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  /**
+   * Is someone at (x, z) sealed off from the town? On an island cell, yes; on a closed cell (sitting
+   * on a bench, inside a slot), only if no cell of the main region is within a step or two.
+   */
+  trapped(x: number, z: number): boolean {
+    this.label();
+    if (this.mainComp === -1) return false;
+    const r = this.regionAt(x, z);
+    if (r !== -1) return r !== this.mainComp;
+    return this.nearestInRegion(x, z, this.mainComp, 3) === null && this.nearestOpen(x, z, 3) !== null;
+  }
+
   /** Nearest open cell centre to a point (spiral search), for snapping goals. */
   nearestOpen(x: number, z: number, maxRing = 8): [number, number] | null {
     const [ci, cj] = this.cellOf(x, z);
@@ -146,6 +282,15 @@ export class NavGrid {
     const start = this.nearestOpen(sx, sz, 3);
     const goal = this.nearestOpen(gx, gz, 6);
     if (!start || !goal) return null;
+    // different regions: no path, known at once (an unreachable goal used to search the whole town).
+    // Someone on a closed cell (a bench seat) may have a pocket behind them and the street in front:
+    // start from the goal's region if it's a step or two away.
+    if (this.regionAt(start[0], start[1]) !== this.regionAt(goal[0], goal[1])) {
+      const alt = this.isOpenAt(sx, sz) ? null : this.nearestInRegion(sx, sz, this.regionAt(goal[0], goal[1]), 3);
+      if (!alt) return null;
+      start[0] = alt[0];
+      start[1] = alt[1];
+    }
     const [si, sj] = this.cellOf(start[0], start[1]);
     const [gi, gj] = this.cellOf(goal[0], goal[1]);
     const n = this.cols * this.rows;
@@ -234,12 +379,12 @@ export class NavGrid {
     return false;
   }
 
-  /** Random open point inside a rectangle (for wandering). */
+  /** Random open point inside a rectangle (for wandering); never on an island. */
   randomOpenIn(rand: () => number, x0: number, x1: number, z0: number, z1: number, tries = 20): [number, number] | null {
     for (let t = 0; t < tries; t++) {
       const x = x0 + (x1 - x0) * rand();
       const z = z0 + (z1 - z0) * rand();
-      if (this.isOpenAt(x, z)) return [x, z];
+      if (this.isOpenAt(x, z) && !this.island(x, z)) return [x, z];
     }
     return null;
   }

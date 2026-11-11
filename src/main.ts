@@ -7,9 +7,9 @@ import { PostPass } from './render/post';
 import { PALETTE } from './render/palette';
 import { skyAt, type SkyState } from './render/sky';
 import { World } from './world/world';
-import { G, GROUND, OBSTACLES, PLINTH, TG } from './world/layout';
-import { groundHeight, isWalkableSurface } from './world/terrain';
-import { NavGrid } from './sim/grid';
+import { G, GROUND, PLINTH, TG } from './world/layout';
+import { groundHeight } from './world/terrain';
+import { townGrid } from './sim/town';
 import { SmartRegistry, registerStaticObjects } from './sim/smart';
 import { Residents, type Agent } from './sim/residents';
 import { Animals } from './sim/animals';
@@ -81,11 +81,7 @@ const post = new PostPass(PALETTE, !params.lutOff);
 const iso = new IsoCamera();
 const sound = new Sound();
 
-const grid = new NavGrid(
-  { x0: GROUND.x0, z0: GROUND.z0, w: GROUND.x1 - GROUND.x0, d: GROUND.z1 - GROUND.z0, cell: 0.5 },
-  { walkable: isWalkableSurface, height: groundHeight },
-  OBSTACLES,
-);
+const grid = townGrid();
 const smart = new SmartRegistry();
 registerStaticObjects(smart);
 const residents = new Residents(world.scene, grid, smart, bus, world.mats, params.seed);
@@ -1210,6 +1206,7 @@ function frame(now: number): void {
   const rain = world.weather.rain;
   const sky = skyAt(hour, rain, clock.season);
   world.update(dt, time, clock, sky, gm);
+  build.showIslands();
   const s0 = performance.now();
   if (!frozen) {
     residents.update(dt, gm, hour, rain, time);

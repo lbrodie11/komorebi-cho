@@ -111,6 +111,9 @@ export class BuildTool {
   private readonly shopFill: THREE.Mesh;
   private readonly shopEdges: THREE.LineSegments;
   private readonly shopOkLine = new THREE.LineBasicMaterial({ color: '#86b45a', depthTest: false, transparent: true });
+  /** The "unreachable" hint: a dot on every cell the player's edits have sealed off from the town. */
+  private readonly islandDots: THREE.InstancedMesh;
+  private islandsAt = -1;
   private readonly shopBadLine = new THREE.LineDashedMaterial({ color: '#d0402a', depthTest: false, transparent: true, dashSize: 0.12, gapSize: 0.1 });
   /** Every edit goes through here (the history, in main.ts); without it, clicks apply directly. */
   onCommit: ((c: Command) => void) | null = null;
@@ -136,8 +139,30 @@ export class BuildTool {
     this.shopEdges.computeLineDistances();
     this.shopEdges.renderOrder = 3;
     this.shopGhost.add(this.shopFill, this.shopEdges);
+    const dot = new THREE.PlaneGeometry(0.14, 0.14).rotateX(-Math.PI / 2);
+    this.islandDots = new THREE.InstancedMesh(dot, new THREE.MeshBasicMaterial({ color: '#ffd37a' }), grid.cols * grid.rows);
+    this.islandDots.count = 0;
+    this.islandDots.visible = false;
+    root.add(this.islandDots);
     this.shopGhost.visible = false;
     root.add(this.shopGhost);
+  }
+
+  /**
+   * While building, show where edits have sealed ground off from every door and exit (a dotted
+   * patch): nobody can get there, and anyone caught inside steps out. Once a frame; it only
+   * rebuilds when the nav grid changed.
+   */
+  showIslands(): void {
+    const on = this.mode !== 'view';
+    this.islandDots.visible = on;
+    if (!on || this.islandsAt === this.grid.version) return;
+    this.islandsAt = this.grid.version;
+    const cells = this.grid.islandCells();
+    const m = new THREE.Matrix4();
+    cells.forEach(([x, z], i) => this.islandDots.setMatrixAt(i, m.makeTranslation(x, groundHeight(x, z) + 0.04, z)));
+    this.islandDots.count = cells.length;
+    this.islandDots.instanceMatrix.needsUpdate = true;
   }
 
   /** Show the shop ghost over z0..z1 (a hover highlight, or where a carried shop would go). */

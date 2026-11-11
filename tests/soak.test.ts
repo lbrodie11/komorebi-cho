@@ -27,9 +27,7 @@ describe('soak', () => {
     const { WorldClock, SEASONS } = await import('../src/core/clock');
     const { skyAt } = await import('../src/render/sky');
     const { World } = await import('../src/world/world');
-    const { GROUND, OBSTACLES } = await import('../src/world/layout');
-    const { groundHeight, isWalkableSurface } = await import('../src/world/terrain');
-    const { NavGrid } = await import('../src/sim/grid');
+    const { townGrid } = await import('../src/sim/town');
     const { SmartRegistry, registerStaticObjects } = await import('../src/sim/smart');
     const { Residents } = await import('../src/sim/residents');
     const { Animals } = await import('../src/sim/animals');
@@ -40,11 +38,7 @@ describe('soak', () => {
     const bus = new EventBus<Events>();
     const clock = new WorldClock(16.6);
     const world = new World();
-    const grid = new NavGrid(
-      { x0: GROUND.x0, z0: GROUND.z0, w: GROUND.x1 - GROUND.x0, d: GROUND.z1 - GROUND.z0, cell: 0.5 },
-      { walkable: isWalkableSurface, height: groundHeight },
-      OBSTACLES,
-    );
+    const grid = townGrid();
     const smart = new SmartRegistry();
     registerStaticObjects(smart);
     const residents = new Residents(world.scene, grid, smart, bus, world.mats);
@@ -56,6 +50,8 @@ describe('soak', () => {
     const dt = 1 / 20;
     let t = 0;
     let maxStill = 0;
+    const waits = new Map<string, number>();
+    let longestWait = 0;
     const still = new Map<string, { x: number; z: number; since: number }>();
     const steps = 20 * 60 * 48;
     for (let s = 0; s < steps; s++) {
@@ -80,7 +76,11 @@ describe('soak', () => {
       }
       for (const a of residents.agents) {
         expect(Number.isFinite(a.x) && Number.isFinite(a.z) && Number.isFinite(a.root.position.y)).toBe(true);
-        if (a.hidden || a.arrived || a.standUp > 0) {
+        // waiting a turn at the bridge is fine (a deadlock is not: see below)
+        const w = a.waitingFor ? (waits.get(a.p.id) ?? 0) + dt : 0;
+        waits.set(a.p.id, w);
+        longestWait = Math.max(longestWait, w);
+        if (a.hidden || a.arrived || a.standUp > 0 || a.shuffle || a.waitingFor) {
           still.delete(a.p.id);
           continue;
         }
@@ -90,6 +90,7 @@ describe('soak', () => {
       }
     }
     expect(maxStill).toBeLessThan(5);
+    expect(longestWait).toBeLessThan(20);
     expect(residents.agents.some((a) => a.known.size > 0)).toBe(true);
   }, 120_000);
 });

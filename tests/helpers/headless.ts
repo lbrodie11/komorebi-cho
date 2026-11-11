@@ -20,9 +20,7 @@ export async function buildSim(seed: number) {
   const { EventBus } = await import('../../src/core/events');
   const { WorldClock } = await import('../../src/core/clock');
   const { World } = await import('../../src/world/world');
-  const { GROUND, OBSTACLES } = await import('../../src/world/layout');
-  const { groundHeight, isWalkableSurface } = await import('../../src/world/terrain');
-  const { NavGrid } = await import('../../src/sim/grid');
+  const { townGrid } = await import('../../src/sim/town');
   const { SmartRegistry, registerStaticObjects } = await import('../../src/sim/smart');
   const { Residents } = await import('../../src/sim/residents');
   const { Animals } = await import('../../src/sim/animals');
@@ -31,11 +29,7 @@ export async function buildSim(seed: number) {
   const bus = new EventBus<Events>();
   const clock = new WorldClock(16.6);
   const world = new World(seed);
-  const grid = new NavGrid(
-    { x0: GROUND.x0, z0: GROUND.z0, w: GROUND.x1 - GROUND.x0, d: GROUND.z1 - GROUND.z0, cell: 0.5 },
-    { walkable: isWalkableSurface, height: groundHeight },
-    OBSTACLES,
-  );
+  const grid = townGrid();
   const smart = new SmartRegistry();
   registerStaticObjects(smart);
   const residents = new Residents(world.scene, grid, smart, bus, world.mats, seed);

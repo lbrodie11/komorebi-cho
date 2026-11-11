@@ -37,7 +37,7 @@ src/world     layout (THE DATA), grammar/ (building specs → parts → geometry
               weathering (pure per-vertex maths), lighting (window schedules, spill, brightness hierarchy),
               lightpools (ground pool decals), buildings, shopstreet (the shop row, rebuildable shop by shop), nature, props (+ placeables), crowd (light sharing),
               weather, world (assembly + time-driven updates)
-src/sim       grid (nav + A*), smart (affordances/reservations), personas (the neighbours), residents (schedule → needs → utility → action), memories (true-to-sim journal events + scene snapshots),
+src/sim       grid (nav + A*, regions/islands), town (the town's grid + anchors), passage (narrow passages take turns), smart (affordances/reservations/queues), personas (the neighbours), residents (schedule → needs → utility → action), memories (true-to-sim journal events + scene snapshots),
               animals, bubbles, warmup (fixed-step warm-up for seeded runs)
 src/audio     engine (graph), theory (pure), music (generative piano), ambience (soundscape), sound (facade + sfx)
 src/ui        hud (DOM), build (placement tool), debug (?debug overlay), wordmark (bitmap font), style.css
@@ -45,7 +45,7 @@ src/edit      history (commands, undo/redo, replay log), shops (the shop row's r
 src/save      storage (versioned localStorage + migrations + validation), tabs (one saving tab at a time)
 tests/        vitest: core, sim, audio, render maths (lut, shadow, pixel scale), art (glyphs, weathering, leaves, sky keys)
 prompts/      the roadmap: numbered work orders, done in order
-docs/         ARCHITECTURE, COLOR, CONTRIBUTING, VERSIONS, PLAYTEST (the people-and-phones script)
+docs/         ARCHITECTURE, COLOR, CONTRIBUTING, NAV (navigation numbers and decisions), VERSIONS, PLAYTEST (the people-and-phones script)
 scripts/      diffusion-shots.mjs (reproducible reference screenshots), ui-audit.mjs (every control, touch, two tabs), a11y-scan.mjs (axe over every HUD state), compare-builds.mjs (two builds: pixels + scene graph),
               subset-fonts.sh; Playwright and axe-core installed --no-save, in one command (a second --no-save install prunes the first)
 ```

@@ -17,7 +17,7 @@ render: iso.update (texel snap) ─► post.render: scene → sceneRT (low res, 
 `src/world/layout.ts` is the single source of truth for where things are: regions (walkable surfaces by kind), doors, exits, trees, benches, poles, pond polygon, bridge, islet, steps, obstacles, sign texts, and the quiet props. Builders, nav grid, smart objects and the build tool all read it.
 
 ## Navigation
-`NavGrid`: 0.5 m cells, static walkability from `terrain.isWalkableSurface`, heights from `terrain.groundHeight`. Neighbouring cells connect only if their height difference is ≤ 0.45 m, so the 1.4 m terrace wall is impassable and the steps are the only way up. Obstacles are reference-counted stamps, so overlapping placements never unblock each other. A* uses an octile heuristic with no corner cutting, followed by line-of-sight smoothing. `version` bumps on every stamp, and agents re-check their remaining path when it changes.
+`NavGrid`: 0.5 m cells, static walkability from `terrain.isWalkableSurface`, heights from `terrain.groundHeight`. Neighbouring cells connect only if their height difference is ≤ 0.45 m, so the 1.4 m terrace wall is impassable and the steps are the only way up. Obstacles are reference-counted stamps, so overlapping placements never unblock each other. A* uses an octile heuristic with no corner cutting, followed by line-of-sight smoothing. `version` bumps on every stamp, and agents re-check their remaining path when it changes. Connected regions are labelled lazily after each change: a path between regions fails at once, and a region cut off from every door and exit is an island (residents caught there step back out; build mode dots it). Path searches are rationed (6 a tick). Walkers sidestep each other (keep left), take turns on the bridge (`src/sim/passage.ts`), and avoid crowds and queue at shops. docs/NAV.md has the measurements and decisions.
 
 ## Residents
 Layers: **schedule** (sleep / commute / work windows) → **needs** (fatigue, thirst) → **utility** over smart-object adverts and wander/jog/deliver → **reservation** (slots) → **path** → **action** (pose + dwell in game minutes).
@@ -162,7 +162,7 @@ The HUD (`src/ui/hud.ts`) is DOM over the canvas: pixel icons drawn from 9×9 st
 Input: mouse, keyboard and touch reach everything. In build or remove mode the arrow keys move a cursor on the ground and Enter commits; on touch, the first tap previews and the second commits, and a long press on someone opens their card.
 
 ## Known simplifications (see the prompt pack for upgrades)
-- Grid nav instead of recast TileCache; no local avoidance between residents
+- Grid nav instead of recast TileCache (measured: far under budget, docs/NAV.md); the simulation runs on the main thread (0.05 ms a tick; the Worker is deferred)
 - Buildings are hand-placed in `buildings.ts`, not grammar-generated
 - Placeables only: buildings can't be moved yet
 - Single thread (the sim is DOM-free so it can move to a Worker)

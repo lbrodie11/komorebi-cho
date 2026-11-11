@@ -1,16 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { NavGrid } from '../src/sim/grid';
-import { GROUND, OBSTACLES, DOORS, EXITS, STEPS, TG, G } from '../src/world/layout';
+import { townGrid } from '../src/sim/town';
+import { DOORS, EXITS, STEPS, TG, G } from '../src/world/layout';
 import { groundHeight, isWalkableSurface } from '../src/world/terrain';
 import { SmartRegistry, registerStaticObjects } from '../src/sim/smart';
 import { PERSONAS } from '../src/sim/personas';
 
-const makeGrid = () =>
-  new NavGrid(
-    { x0: GROUND.x0, z0: GROUND.z0, w: GROUND.x1 - GROUND.x0, d: GROUND.z1 - GROUND.z0, cell: 0.5 },
-    { walkable: isWalkableSurface, height: groundHeight },
-    OBSTACLES,
-  );
+const makeGrid = () => townGrid();
 
 describe('terrain', () => {
   it('terrace is raised and steps ramp between', () => {

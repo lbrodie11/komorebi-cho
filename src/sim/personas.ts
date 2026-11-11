@@ -27,6 +27,8 @@ export interface Persona {
   curiosity: number;
   likes: Partial<Record<SmartKind | 'wander' | 'jog' | 'deliver', number>>;
   speed: number;
+  /** How much a crowd puts them off (1 by default; kids hardly mind, the quiet ones mind more). */
+  crowdAversion?: number;
 }
 
 /**
@@ -81,6 +83,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'nana',
+    crowdAversion: 1.6,
     colors: { top: '#6a5a9a', legs: '#2e2a42', skin: '#e8c3a0', hair: '#16141f' },
     accessory: 'bag',
     home: 'aptB',
@@ -92,6 +95,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'mitsuko',
+    crowdAversion: 1.3,
     colors: { top: '#c46a7a', legs: '#45291b', skin: '#e8c3a0', hair: '#eef2f5' },
     accessory: 'cane',
     home: 'kyosho',
@@ -102,6 +106,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'genzo',
+    crowdAversion: 1.4,
     colors: { top: '#2e2a42', legs: '#2e2a42', skin: '#c99e7a', hair: '#adb2b8' },
     accessory: 'broom',
     home: 'temple',
@@ -135,6 +140,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'sora',
+    crowdAversion: 0.4,
     kid: true,
     colors: { top: '#ffd37a', legs: '#2f4a72', skin: '#e8c3a0', hair: '#16141f' },
     accessory: 'hat',
@@ -147,6 +153,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'rin',
+    crowdAversion: 0.3,
     kid: true,
     colors: { top: '#e59b9b', legs: '#f6efe0', skin: '#e8c3a0', hair: '#2a1912' },
     home: 'kyosho',
@@ -169,6 +176,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'hiro',
+    crowdAversion: 0.6,
     colors: { top: '#2f7f7a', legs: '#2e2a42', skin: '#c99e7a', hair: '#16141f', accent: '#d4a774' },
     accessory: 'box',
     home: 'exit',

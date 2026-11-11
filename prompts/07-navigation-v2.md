@@ -30,6 +30,10 @@ Working method:
 ## Goal
 Navigation that never deadlocks, scales to dense player builds, and runs off the main thread.
 
+Done (first pass; docs/NAV.md has the numbers and decisions): profiled with 40 residents and 40 placed objects: A* median 0.05 ms, the sim tick 0.05 ms mean. That is far under the 1 ms rule, so **the grid stays**, with connected regions labelled lazily after each edit (unreachable paths fail at once) and a budget of 6 path searches a tick (no re-planning spikes). **Recovery:** the region most doors and exits open onto is the town; anyone caught on an island steps over the nearest obstruction back into it at walking pace, goals are never picked on islands, and build mode shows island ground as a dotted hint. **Local avoidance:** sidesteps onto open ground, keep-left when head-on, easing off behind someone. **Narrow passages:** the bridge takes turns with a direction token, draining after a 6 s wait. **Crowding:** soft and hard capacities, `1/(1 + density × crowdAversion)` with per-persona aversion, and three-place queues outside the shops. Tests for each, plus the fuzz extended to ten fast-forwarded minutes of an edit every 2 s (zero stuck for 5 s, zero bridge deadlocks, zero teleports).
+
+Deliberately deferred: **the Worker.** The tick is 0.3% of a frame, and the split means separating `Agent` from its meshes; do it when the sim costs something (docs/NAV.md). Still to do: off-mesh links (cats jumping between ledges with their own agent profile).
+
 ## Tasks
 1. **Worker.** Move `src/sim/*` and the nav grid into a Web Worker on a fixed 20 Hz tick with a seeded PRNG. The renderer gets transferable `Float32Array` snapshots and interpolates between them. Keep the API boundary small: commands go in (edits, time, weather), snapshots and events come out.
 2. **Nav backend decision.** Profile the current grid A* with 30 agents and 40 placed objects.

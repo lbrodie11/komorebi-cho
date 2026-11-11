@@ -31,7 +31,8 @@ describe('moving a shop-house (prompt 06 phase C)', () => {
     residents.onDoorMoved(from, [d.x, 1]);
     expect(inside!.hiddenAt).toEqual([d.x, 1]);
     expect(walking!.task.goal).toEqual([d.x, 1]);
-    // the new path ends at (or beside) the new door
+    // path searches wait for the next tick (they're rationed per tick); then the path ends at the new door
+    residents.update(1 / 20, 0.05, 10, 0, 0);
     const end = walking!.path[walking!.path.length - 1]!;
     expect(Math.hypot(end[0] - d.x, end[1] - 1)).toBeLessThan(0.8);
   });
