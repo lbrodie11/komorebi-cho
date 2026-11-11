@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dropPoles, poleSpans } from './grammar/wires';
 import type { Kit } from './kit';
 import type { Materials } from '../render/materials';
 import {
@@ -13,6 +14,7 @@ import {
   MILK_CRATES,
   PARK_LAMPS,
   POLES,
+  DROPS,
   ROAD_MIRRORS,
   TG,
   UMBRELLA_STANDS,
@@ -161,21 +163,16 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
         wireMat,
       );
   };
-  span(0, 1);
-  span(1, 2);
-  span(0, 3);
-  span(3, 4);
-  for (const [p, x, y, z] of [
-    [0, -10.5, G + 4.6, -2],
-    [1, -10.5, G + 3.8, 1.5],
-    [1, -10.5, G + 3.4, 4.7],
-    [2, -10.5, G + 4.4, 7.6],
-    [3, 0, TG + 5, -9.6],
-    [0, -7.6, TG + 7, -9.2],
-    [4, 10.7, G + 5, -1],
-    [4, 9.5, TG + 4.4, -9.4],
-  ] as const)
-    k.wire(new THREE.Vector3(P[p]![0], G + 7.2, P[p]![1]), new THREE.Vector3(x, y, z), 0.05, wireMat);
+  // the wire network is solved, not hand-placed: a spanning tree over the poles, each drop to its nearest pole
+  for (const [a, b] of poleSpans(P)) span(a, b);
+  const owners = dropPoles(
+    DROPS.map((d) => [d.x, d.z] as const),
+    P,
+  );
+  DROPS.forEach((d, i) => {
+    const p = owners[i]!;
+    if (p >= 0) k.wire(new THREE.Vector3(P[p]![0], G + 7.2, P[p]![1]), new THREE.Vector3(d.x, d.y, d.z), 0.05, wireMat);
+  });
   // convex road mirrors at the blind corners: orange-rimmed, angled down the lane
   k.merged(() => {
     for (const r of ROAD_MIRRORS) {

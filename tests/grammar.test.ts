@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { GROUND, SHOPS } from '../src/world/layout';
-import { BAY_M, planShopHouse, shopFootprint } from '../src/world/grammar/shophouse';
+import { DROPS, GROUND, POLES, SHOPS } from '../src/world/layout';
+import { dropPoles, poleSpans } from '../src/world/grammar/wires';
+import { BAY_M, planShopHouse, shopFootprint } from '../src/world/grammar/archetypes/shophouse';
 import { classifyGap, planSeam } from '../src/world/grammar/seams';
 import type { Footprint, Part, ShopHouseSpec } from '../src/world/grammar/types';
 import { Rng } from '../src/core/rng';
@@ -104,5 +105,42 @@ describe('seam grammar', () => {
       expect(JSON.stringify(planSeam(classifyGap(c, d), c, d, -10.5))).toBe(seamCD);
     }
     expect(JSON.stringify(planShopHouse({ ...base, id: 'd', z0: 25.3, z1: 29 }))).toBe(shopD);
+  });
+});
+
+describe('utility wires', () => {
+  it('spans the poles with a minimum spanning tree: today that is exactly the hand-placed network', () => {
+    expect(poleSpans(POLES)).toEqual([
+      [0, 1],
+      [0, 3],
+      [1, 2],
+      [3, 4],
+    ]);
+  });
+
+  it('hangs each drop from its nearest pole (the same poles as before)', () => {
+    expect(
+      dropPoles(
+        DROPS.map((d) => [d.x, d.z] as const),
+        POLES,
+      ),
+    ).toEqual([0, 1, 1, 2, 3, 0, 4, 4]);
+  });
+
+  it('never spans further than the limit, and connects what it can', () => {
+    const poles = [
+      [0, 0],
+      [10, 0],
+      [50, 0],
+    ] as const;
+    expect(poleSpans(poles)).toEqual([[0, 1]]); // 40 m to the third pole: out of reach
+    expect(dropPoles([[60, 0]], poles)).toEqual([2]);
+    expect(dropPoles([[200, 0]], poles)).toEqual([-1]);
+  });
+
+  it('moving a pole re-solves the network deterministically', () => {
+    const moved = POLES.map((p, i) => (i === 3 ? ([-2, -3.65] as const) : p));
+    expect(poleSpans(moved)).toEqual(poleSpans(moved));
+    expect(poleSpans(moved)).toHaveLength(POLES.length - 1);
   });
 });

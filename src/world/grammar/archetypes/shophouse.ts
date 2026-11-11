@@ -1,5 +1,5 @@
-import { G } from '../layout';
-import type { Part, ShopHouseSpec } from './types';
+import { G } from '../../layout';
+import type { Part, ShopHouseSpec, ShopAttachment } from '../types';
 
 /**
  * Shop-house archetype: semantic facade zones, top to bottom of the plan:
@@ -70,3 +70,59 @@ export const shopFootprint = (s: ShopHouseSpec) => ({
   height: s.height,
   front: 'x1' as const,
 });
+
+/**
+ * A shop-house's street-side attachments (the "attachments" facade zone), placed from its
+ * frontage: the ramen shop's lanterns and back-lit sign, an AC unit, the bakery's bread rack, the
+ * florist's buckets, the bookshop's 100-yen cart. Planned after all shop bodies, in street order.
+ */
+export function planAttachments(s: ShopHouseSpec): Part[] {
+  const fx = s.frontX;
+  const cz = (s.z0 + s.z1) / 2;
+  const parts: Part[] = [];
+  for (const a of s.attachments ?? []) parts.push(...attachment(a, s, fx, cz));
+  return parts;
+}
+
+function attachment(a: ShopAttachment, s: ShopHouseSpec, fx: number, cz: number): Part[] {
+  switch (a.kind) {
+    case 'lanternSign':
+      return [
+        { op: 'lantern', x: fx + 0.3, y: G + 2.3, z: s.z0 + 0.4 },
+        { op: 'lantern', x: fx + 0.3, y: G + 2.3, z: s.z1 - 0.4 },
+        { op: 'box', w: 0.12, h: 3.25, d: 1, mat: { lamp: '#d0402a', glow: '#9a2b22', intensity: 0.6 }, x: fx + 0.14, y: G + 3.6, z: cz },
+        { op: 'sign', sign: a.sign, x: fx + 0.21, y: G + 3.6, z: cz, ry: Math.PI / 2, glow: 0.6 },
+      ];
+    case 'ac':
+      return [{ op: 'scope', age: a.age, parts: [{ op: 'ac', x: fx + 0.14, y: G + a.y, z: cz + a.dz, ry: Math.PI / 2 }] }];
+    case 'breadRack': {
+      const parts: Part[] = [{ op: 'box', w: 0.5, h: 0.8, d: 1.2, mat: { solid: '#8a5634' }, x: fx + 0.55, y: G + 0.4, z: cz + 0.9 }];
+      for (let i = 0; i < 6; i++) parts.push({ op: 'blob', x: fx + 0.55, y: G + 0.88, z: cz + 0.45 + i * 0.18, r: 0.09, mat: { solid: '#d4a774' } });
+      return parts;
+    }
+    case 'flowerBuckets': {
+      const flowers = ['#f4c7cf', '#ffd37a', '#d0402a', '#f6efe0', '#6a5a9a', '#ff6b3d'];
+      const parts: Part[] = [
+        { op: 'box', w: 0.9, h: 0.5, d: 2.2, mat: { solid: '#8a5634' }, x: fx + 0.5, y: G + 0.25, z: cz },
+        { op: 'box', w: 0.6, h: 0.4, d: 2, mat: { solid: '#653d27' }, x: fx + 0.35, y: G + 0.7, z: cz },
+      ];
+      for (let i = 0; i < 22; i++)
+        parts.push({
+          op: 'gem',
+          r: 0.14,
+          mat: { std: flowers[i % flowers.length]!, flat: true },
+          x: fx + 0.75 - (i % 2) * 0.35,
+          y: G + 0.62 + (i % 2) * 0.42,
+          z: cz - 0.9 + (i % 11) * 0.18,
+        });
+      return parts;
+    }
+    case 'bookCart': {
+      const colours = ['#9a2b22', '#2f4a72', '#e8dcc2', '#3c6838'];
+      const parts: Part[] = [{ op: 'box', w: 0.5, h: 0.7, d: 1.4, mat: { solid: '#45291b' }, x: fx + 0.5, y: G + 0.35, z: cz }];
+      for (let i = 0; i < 7; i++)
+        parts.push({ op: 'box', w: 0.3, h: 0.32, d: 0.16, mat: { solid: colours[i % 4]! }, x: fx + 0.5, y: G + 0.86, z: cz - 0.55 + i * 0.18 });
+      return parts;
+    }
+  }
+}

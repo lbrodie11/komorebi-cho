@@ -1,5 +1,6 @@
 import type { Vec2, Rect } from '../core/math';
 import type { ShopHouseSpec } from './grammar/types';
+import type { ApatoSpec, ArchSpec, CafeSpec, MicroHomeSpec, SentoSpec, ShedSpec, TempleSpec } from './grammar/archetypes/landmarks';
 import type { SignSpec } from '../render/glyphs';
 
 /**
@@ -146,6 +147,20 @@ export const POLES: Vec2[] = [
   [-7.85, 8.3],
   [0.6, -3.65],
   [8, -3.65],
+];
+/**
+ * Where service wires enter buildings (x, socket height, z). The wire solver hangs each from its
+ * nearest pole (src/world/grammar/wires.ts); nothing here says which pole.
+ */
+export const DROPS: readonly { x: number; y: number; z: number }[] = [
+  { x: -10.5, y: G + 4.6, z: -2 },
+  { x: -10.5, y: G + 3.8, z: 1.5 },
+  { x: -10.5, y: G + 3.4, z: 4.7 },
+  { x: -10.5, y: G + 4.4, z: 7.6 },
+  { x: 0, y: TG + 5, z: -9.6 },
+  { x: -7.6, y: TG + 7, z: -9.2 },
+  { x: 10.7, y: G + 5, z: -1 },
+  { x: 9.5, y: TG + 4.4, z: -9.4 },
 ];
 export const VENDING: { x: number; z: number; body: string; face: string; glow: string }[] = [
   { x: 0.9, z: -5.6, body: '#e8ebee', face: '#c4f0ff', glow: '#4fd6ff' },
@@ -300,6 +315,7 @@ export const SHOPS: readonly ShopHouseSpec[] = [
     crest: SIGNS.ramenCrest,
     hours: [11, 23],
     age: 0.8,
+    attachments: [{ kind: 'lanternSign', sign: SIGNS.ramen }],
   },
   {
     id: 'bakery',
@@ -315,6 +331,7 @@ export const SHOPS: readonly ShopHouseSpec[] = [
     sign: { spec: SIGNS.bakery, y: 3.4 },
     hours: [7, 19],
     age: 0.5,
+    attachments: [{ kind: 'ac', y: 4, dz: 0.1, age: 0.8 }, { kind: 'breadRack' }],
   },
   {
     id: 'florist',
@@ -330,6 +347,7 @@ export const SHOPS: readonly ShopHouseSpec[] = [
     sign: { spec: SIGNS.florist, y: 3.1 },
     hours: [9, 18],
     age: 0.65,
+    attachments: [{ kind: 'flowerBuckets' }],
   },
   {
     id: 'books',
@@ -346,5 +364,72 @@ export const SHOPS: readonly ShopHouseSpec[] = [
     sign: { spec: SIGNS.books, y: 3.8 },
     hours: [10, 20],
     age: 0.7,
+    attachments: [{ kind: 'bookCart' }],
   },
 ];
+
+/**
+ * The landmarks, as data for their archetypes (src/world/grammar/archetypes/landmarks.ts).
+ * Weathering ages are art direction: the old timber bath and temple are the most stained, the
+ * recent concrete micro-home the least.
+ */
+export const SENTO: SentoSpec = {
+  x: -12.8,
+  z: -10.7,
+  y: TG,
+  w: 6.6,
+  d: 3.4,
+  h: 4,
+  wall: { tex: 'wood', color: '#8a5634', rx: 2.5, ry: 1.4 },
+  entrance: { tex: 'wood', color: '#653d27', rx: 1, ry: 1 },
+  chimney: { x: -14.9, z: -11.9, h: 13, mat: { tex: 'concrete', color: '#adb2b8', rx: 1, ry: 4 } },
+  noren: '#2f4a72',
+  sign: SIGNS.sento,
+  board: SIGNS.sentoBoard,
+  age: 0.85,
+};
+export const MICRO_HOME: MicroHomeSpec = {
+  pts: [
+    [-9.2, -12.4],
+    [-6, -12.4],
+    [-6, -10.2],
+    [-7, -9.2],
+    [-9.2, -9.2],
+  ],
+  y: TG,
+  h: 9.2,
+  wall: { tex: 'concrete', color: '#b3b7bc', rx: 0.4, ry: 0.36 },
+  roof: { solid: '#4b4f5a', rough: 0.6 },
+  age: 0.25,
+};
+export const APATO: ApatoSpec = { x: -2, z: -11, y: TG, w: 6.8, d: 2.8, h: 5.4, wall: { tex: 'plaster', color: '#e8dcc2', rx: 2, ry: 1.5 }, age: 0.6 };
+export const TEMPLE: TempleSpec = { x: 9.5, z: -10.9, y: TG, w: 6, d: 2.4, h: 2.6, wall: { tex: 'wood', color: '#5a3622', rx: 2, ry: 1 }, age: 0.9, moss: 0.5 };
+export const ARCH: ArchSpec = { x: -9.25, z: 9.6, y: G, span: 2.6, h: 4.4, sign: SIGNS.arch };
+export const CAFE: CafeSpec = {
+  pts: [
+    [10.6, -3.6],
+    [16.2, -3.6],
+    [16.2, 1.6],
+    [11.8, 1.6],
+    [10.6, 0.4],
+  ],
+  trim: [
+    [10.45, -3.75],
+    [16.35, -3.75],
+    [16.35, 1.75],
+    [11.86, 1.75],
+    [10.45, 0.34],
+  ],
+  y: G,
+  h1: 3,
+  h2: 2.6,
+  upper: [12.7, 14.2, 15.6],
+  cup: SIGNS.kissatenCup,
+  blade: SIGNS.kissaten,
+  tables: [
+    { x: 12.8, top: '#f6efe0' },
+    { x: 15, top: '#2f7f7a' },
+  ],
+  age: 0.55,
+};
+export const TOOL_SHED: ShedSpec = { x: 15.5, z: 11.6, y: G, w: 1.2, d: 1, h: 1.4, colour: '#4f73a3', age: 0.5 };

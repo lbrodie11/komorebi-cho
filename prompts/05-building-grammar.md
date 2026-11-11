@@ -45,7 +45,9 @@ Move buildings from hand-written code (`src/world/buildings.ts`) to **data + gra
 ## Progress (2026-11-11)
 Done (phase A): `src/world/grammar/` with `types.ts` (MatRef, Part, ShopHouseSpec, Footprint, Seam), `shophouse.ts` (the shop-house archetype: bays, upper windows, roof, noren, awning, shop board, all from the frontage), `seams.ts` (`classifyGap` and `planSeam`, keyed by the pair's seed), and `evaluate.ts` (parts → Kit, in the original call order). The four shopping-street shops are data (`SHOPS` in `layout.ts`); the screenshots are pixel-identical at noon and dusk. The three 0.2 m gaps between them now get downpipes (out of sight from the default view). Tests: determinism, 4 m → 6 m adds a bay and moves the sign, seam thresholds, 1,000 random edits leave untouched seams alone, everything on the plinth.
 
-Still to do: port the sento, kyosho house, apāto, temple and kissaten to archetypes (task 2), the priority layers and setback rule, utility wires as a spanning tree (task 4), and the "geometry hash" version of the stability test once buildings can move (prompt 06).
+Done (phase B): every building is data. `archetypes/landmarks.ts` holds the bathhouse, micro-home, apāto, temple, arch, café and tool shed archetypes, each a spec (in `layout.ts`) plus rules that derive repeated features from size: apāto units per 2.3 m, micro-home floors per 2.8 m, the bathhouse's side windows at its corners, the café's mullions per metre of window. Shop-house attachments (lanterns and back-lit sign, AC, bread rack, flower buckets, book cart) are data on each shop. Ten views (the whole town and four close-ups, noon and dusk) are pixel-identical to the hand-built town. `grammar/wires.ts` solves the wires: a minimum spanning tree over the poles (max span 30 m) and each drop to its nearest pole, which reproduces today's network exactly.
+
+Still to do: the priority layers (eaves trimmed to a neighbour's plane, signs sliding to an A-frame), the setback rule, an auxiliary anchor when a drop crosses a roof, and seam re-evaluation when buildings move (prompt 06 makes them movable).
 
 ## Tasks
 1. `src/world/grammar/` with:
