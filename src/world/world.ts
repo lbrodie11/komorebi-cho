@@ -37,8 +37,9 @@ export function townOutline(root: THREE.Object3D): THREE.Vector3[] {
     cd = (z1 - z0) / OUTLINE_NZ;
   const box = new THREE.Box3();
   root.updateMatrixWorld(true);
-  root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh) || !o.visible) return;
+  // only what is shown: a mesh under a hidden group raises nothing
+  root.traverseVisible((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
     box.setFromObject(o);
     if (box.isEmpty() || box.max.y <= G) return;
     const i0 = Math.max(0, Math.floor((box.min.x - x0) / cw)),

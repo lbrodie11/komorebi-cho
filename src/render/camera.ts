@@ -52,6 +52,12 @@ const BOUNDS_SETTLE_S = 0.15;
 /** How far past the town's outline the view may go, camera-plane units (right, up). */
 const SLACK_R = 1.5;
 const SLACK_U = 2;
+/**
+ * How much of the view Fit lets the town fill, across and up: 6% side margins, and room for the
+ * top bar and the dock. The pan bounds measure from the same top and bottom edges (see viewRange).
+ */
+const FIT_FILL_R = 0.94;
+const FIT_FILL_U = 0.84;
 /** The legacy scripted zoom indices (freeze({ zoom })) mean 1×, 2×, 3×. */
 const LEGACY_ZOOMS = [1, 2, 3] as const;
 
@@ -63,14 +69,31 @@ type Span = { r0: number; r1: number; u0: number; u1: number };
 
 /**
  * The allowed range for the view centre along one screen axis: content `lo..hi` seen through a
- * window `v` either side of the centre. Bigger than the window: every part reachable, `slack`
- * past its ends. Smaller: held centred (± slack). The two meet when the content fills the window,
- * so the range changes continuously with zoom and the view never jumps.
+ * window `v` either side of the centre, as maps and canvas apps bound a view ("don't lose the
+ * content"), not as image viewers do ("centre it while it fits"), so a zoom can always keep the
+ * point under the cursor still.
+ * - Smaller: it can move about until its edge reaches the window's edge less `inset` (the HUD's
+ *   room), and a quarter of a window past that.
+ * - Bigger: every part reachable, `slack` past its ends, and a quarter of a window of empty space
+ *   past its furthest point, growing to half a window as it overflows further. The town is a
+ *   diamond on screen, so a zoom toward a spot near a side corner needs that room.
+ * The quarter window is what lets a zoom keep the spot under the cursor where the content just
+ * fills the window: with none, the two cases would meet with no room at all, a pinch point where
+ * every off-centre zoom gets pulled back. The content is never lost: at most a quarter of the
+ * window's worth of it is ever off screen. `freedom` scales all of it (0 holds the content
+ * centred, ± slack). The range is continuous in zoom and in `freedom`, so it never makes the
+ * view jump.
  */
-export function viewRange(lo: number, hi: number, v: number, slack: number): [number, number] {
-  if (hi - lo >= 2 * v) return [lo + v - slack, hi - v + slack];
-  const mid = (lo + hi) / 2;
-  return [mid - slack, mid + slack];
+export function viewRange(lo: number, hi: number, v: number, slack: number, inset = 0, freedom = 0): [number, number] {
+  const half = (hi - lo) / 2,
+    mid = (lo + hi) / 2,
+    k = clamp(freedom, 0, 1);
+  if (half >= v) {
+    const extra = k * Math.max(v / 4, Math.min(2 * (half - v), v / 2));
+    return [lo + v - slack - extra, hi - v + slack + extra];
+  }
+  const free = k * (Math.max(0, v - inset - half) + v / 4);
+  return [mid - slack - free, mid + slack + free];
 }
 
 /** How a clamp treats the view: both targets to the bounds, only the goal (the view eases after it), or never further out. */
@@ -127,7 +150,8 @@ export class IsoCamera {
     this.rtHeight = rtHeight;
     this.margin = margin;
     this.updateProjection();
-    this.clampTarget('hard');
+    // only the goal: a resize, a photo or a journal capture must not cut a view that is easing
+    this.clampTarget('goal');
   }
 
   get viewAspect(): number {
@@ -155,13 +179,25 @@ export class IsoCamera {
     return clamp(i + dir, 0, ZOOM_STEPS.length - 1) !== i;
   }
 
-  /** One discrete step in or out, keeping the point under `anchor` (NDC; default the centre) in place. Instant. */
+  /**
+   * One discrete step in or out, keeping the point under `anchor` (NDC; default the centre) in
+   * place. Instant (the caller dissolves). Like a smooth zoom, it lands exactly on the anchor and
+   * the view then eases inside the bounds if it has to, rather than landing somewhere else.
+   */
   step(dir: 1 | -1, anchor?: { x: number; y: number }): void {
     if (!this.canStep(dir)) return;
     const i = this.stepIndex();
     const between = Math.abs(this.zoom - ZOOM_STEPS[i]!) > 1e-6;
     const next = dir < 0 && between ? i : clamp(i + dir, 0, ZOOM_STEPS.length - 1);
-    this.setZoomNow(ZOOM_STEPS[next]!, anchor);
+    this.zoomNow(ZOOM_STEPS[next]!, anchor ?? { x: 0, y: 0 });
+  }
+
+  /** Jump the zoom to `z` (clamped) about `anchor`, and leave the bounds to ease the view (see applyZoom). */
+  private zoomNow(z: number, anchor: { x: number; y: number }): void {
+    this.anchor = anchor;
+    this.zoomGoal = clamp(z, MIN_ZOOM, MAX_ZOOM);
+    this.applyZoom(this.zoomGoal);
+    this.anchor = null;
   }
 
   /** Multiply the zoom by `factor`. Continuous: eases there (instant under reduced motion). */
@@ -179,10 +215,7 @@ export class IsoCamera {
       return;
     }
     // a pinch takes over from any easing still running: start from what is on screen
-    this.anchor = anchor;
-    this.zoomGoal = clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
-    this.applyZoom(this.zoomGoal);
-    this.anchor = null;
+    this.zoomNow(this.zoom * factor, anchor);
   }
 
   /** Zoom to `z` (clamped), anchored. Continuous looks ease there; palette looks snap to the nearest step. */
@@ -222,6 +255,8 @@ export class IsoCamera {
    * orthographic, so every point on the anchor's line of sight stays put: shift the target by the
    * anchor's offset times the change in view size (no raycast, rooftops and ground alike).
    * Zooming in, the bounds wait (see update); zooming out, they tighten and the view eases inside.
+   * Under reduced motion nothing eases, so the view goes inside at once, in the same cut as the
+   * zoom, rather than jumping a moment later.
    */
   private applyZoom(z: number): void {
     const c = this.camera;
@@ -233,8 +268,9 @@ export class IsoCamera {
     this.updateProjection();
     const a = this.anchor;
     if (a) this.shiftView(a.x * (prevR - c.right), a.y * (prevT - c.top), true);
+    if (this.instant) this.clampTarget('hard');
     // pinching on against the 3× limit still counts as zooming in: the bounds keep waiting
-    if (z > prevZ + 1e-9 || (z >= MAX_ZOOM && a)) this.sinceZoomIn = 0;
+    else if (z > prevZ + 1e-9 || (z >= MAX_ZOOM && a)) this.sinceZoomIn = 0;
     else if (z < prevZ - 1e-9) this.clampTarget('goal');
   }
 
@@ -315,9 +351,26 @@ export class IsoCamera {
   }
 
   /**
-   * Keep the view over the town, per screen axis, from what of its outline is visible at this zoom
-   * and rotation (rooftops included, so a zoomed-in view can reach the tallest chimney): zoomed out,
-   * the town stays centred; zoomed in, you can reach every edge. Returns whether it moved anything.
+   * How freely a town that fits the view may move off centre (viewRange's `freedom`): none at the
+   * widest zoom, where it sits centred like a postcard, rising to full at the zoom where it just
+   * fills Fit's frame. Continuous in zoom, so zooming out past that point eases the town home
+   * instead of snapping it there.
+   */
+  private freedom(sp: Span): number {
+    const zFit = Math.min(
+      (this.baseHalfH * this.aspect * FIT_FILL_R) / Math.max((sp.r1 - sp.r0) / 2, 1e-3),
+      (this.baseHalfH * FIT_FILL_U) / Math.max((sp.u1 - sp.u0) / 2, 1e-3),
+    );
+    if (zFit <= MIN_ZOOM + 1e-6) return 1; // it never fits (a portrait phone): nothing to hold centred
+    return clamp((this.zoom - MIN_ZOOM) / (zFit - MIN_ZOOM), 0, 1);
+  }
+
+  /**
+   * Keep the town in view, per screen axis, from what of its outline is visible at this zoom and
+   * rotation (rooftops included, so a zoomed-in view can reach the tallest chimney). Zoomed in, you
+   * can reach every edge; while it fits, it can move about but is never lost (at most a quarter of
+   * a view of it off screen); at the widest zoom it is centred (see viewRange, freedom). Returns
+   * whether it moved anything.
    * - 'hard' puts both the view and its goal inside (rotation, steps, resize: the caller dissolves or relayouts);
    * - 'goal' moves only the goal, and the view eases after it;
    * - 'follow' (dragging, flinging) stops each at the bounds but never pulls one further in than it already is,
@@ -328,11 +381,16 @@ export class IsoCamera {
     if (!b || !b.length) return false;
     const sp = this.span(b, this.targetGoal.y);
     const sinP = Math.sin(this.pitch);
-    const [rLo, rHi] = viewRange(sp.r0, sp.r1, this.halfH * this.aspect, SLACK_R);
-    const [uLo, uHi] = viewRange(sp.u0, sp.u1, this.halfH, SLACK_U);
+    const vr = this.halfH * this.aspect,
+      vu = this.halfH;
+    const free = this.freedom(sp);
+    // nothing of the HUD sits at the sides, so across the screen the town may reach the very edge
+    const [rLo, rHi] = viewRange(sp.r0, sp.r1, vr, SLACK_R, 0, free);
+    const [uLo, uHi] = viewRange(sp.u0, sp.u1, vu, SLACK_U, (1 - FIT_FILL_U) * vu, free);
     const r = { x: Math.cos(this.yaw), z: -Math.sin(this.yaw) }; // screen right on the ground
     const f = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) }; // screen up on the ground (away from the camera)
-    let moved = false;
+    const hit = this.hit;
+    hit.r = hit.u = false;
     const fit = (v: THREE.Vector3, prev: THREE.Vector3 | null): void => {
       const a = v.x * r.x + v.z * r.z,
         c = (v.x * f.x + v.z * f.z) * sinP; // camera-plane units up
@@ -350,8 +408,11 @@ export class IsoCamera {
       }
       const a2 = clamp(a, lo, hi),
         c2 = clamp(c, lu, hu) / sinP;
-      if (Math.abs(a2 - a) < 1e-9 && Math.abs(c2 - c / sinP) < 1e-9) return;
-      moved = true;
+      const movedR = Math.abs(a2 - a) >= 1e-9,
+        movedU = Math.abs(c2 - c / sinP) >= 1e-9;
+      if (!movedR && !movedU) return;
+      hit.r ||= movedR;
+      hit.u ||= movedU;
       v.x = a2 * r.x + c2 * f.x;
       v.z = a2 * r.z + c2 * f.z;
     };
@@ -362,11 +423,13 @@ export class IsoCamera {
       fit(this.targetGoal, null);
       if (mode === 'hard') {
         fit(this.target, null);
-        this.glide.set(0, 0, 0); // a cut (rotation, step, resize) leaves nothing gliding
+        this.glide.set(0, 0, 0); // a cut (rotation, Fit, a scripted zoom) leaves nothing gliding
       }
     }
-    return moved;
+    return hit.r || hit.u;
   }
+  /** Which screen axes the last clamp moved something along (a fling stops only along those). */
+  private readonly hit = { r: false, u: false };
 
   /** The town's projected extent around `centre`: half-sizes and the offset of its middle, camera-plane units. */
   private extent(points: readonly THREE.Vector3[], centre: THREE.Vector3): { w: number; h: number; mx: number; my: number } {
@@ -395,8 +458,8 @@ export class IsoCamera {
    */
   fitZoom(points: readonly THREE.Vector3[], centre: THREE.Vector3): number {
     const e = this.extent(points, centre);
-    const zx = (this.baseHalfH * this.aspect * 0.94) / Math.max(e.w, 1e-3); // 6% side margin
-    const zy = (this.baseHalfH * 0.84) / Math.max(e.h, 1e-3); // room for the top bar and the dock
+    const zx = (this.baseHalfH * this.aspect * FIT_FILL_R) / Math.max(e.w, 1e-3);
+    const zy = (this.baseHalfH * FIT_FILL_U) / Math.max(e.h, 1e-3);
     const z = clamp(Math.min(zx, zy), MIN_ZOOM, MAX_ZOOM);
     if (this.continuous) return z;
     // palette looks: the largest step that still fits
@@ -442,9 +505,11 @@ export class IsoCamera {
       this.prevGoal.copy(this.targetGoal);
       this.prevTarget.copy(this.target);
       this.shiftView(this.fling.x * dt, this.fling.y * dt, true);
-      // hitting the bounds ends the coast there; the view never bounces through them
-      if (this.clampTarget('follow')) this.fling.set(0, 0);
-      else this.fling.multiplyScalar(Math.exp(-FLING_FRICTION * dt));
+      // the bounds end the coast along the axis they stop, so a diagonal flick slides along an edge
+      this.clampTarget('follow');
+      if (this.hit.r) this.fling.x = 0;
+      if (this.hit.u) this.fling.y = 0;
+      this.fling.multiplyScalar(Math.exp(-FLING_FRICTION * dt));
       if (this.fling.length() < FLING_STOP) this.fling.set(0, 0);
     }
     // the bounds wait for a zoom in (and for fingers) to settle, then the view eases back inside

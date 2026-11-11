@@ -264,6 +264,21 @@ describe('dragging and flinging', () => {
     expect(c.coasting).toBe(false);
   });
 
+  it('a diagonal flick along an edge slides along it instead of stopping dead', () => {
+    const c = make(16 / 9, true);
+    c.instant = false;
+    c.bounds = OUTLINE;
+    c.setZoomNow(3);
+    c.panScreen(0, 8000, 540); // up against the top bound
+    for (let f = 0; f < 90; f++) c.update(1 / 60);
+    c.grab();
+    const start = c.target.clone();
+    const across = () => (c.target.x - start.x) * Math.cos(c.yaw) - (c.target.z - start.z) * Math.sin(c.yaw);
+    c.release(-900, 900, 540); // up (into the bound) and to the right
+    for (let f = 0; f < 60; f++) c.update(1 / 60);
+    expect(across()).toBeGreaterThan(2); // the sideways part of the flick carried on
+  });
+
   it('stops a drag or a fling at the bounds without ever jumping the view', () => {
     const c = make(16 / 9, true);
     c.instant = false;
@@ -292,10 +307,10 @@ describe('camera framing', () => {
     return { a, u };
   }
 
-  it('keeps the town centred when zoomed out, and lets you reach the edges when zoomed in', () => {
+  it('keeps the town centred at the widest zoom, and lets you reach the edges when zoomed in', () => {
     const c = make();
     c.bounds = OUTLINE;
-    c.setZoomNow(0.8);
+    c.setZoomNow(MIN_ZOOM);
     c.panScreen(-4000, -4000, 540);
     const p1 = onScreen(c, c.targetGoal);
     c.panScreen(8000, 8000, 540);
@@ -318,7 +333,8 @@ describe('camera framing', () => {
       c.update(0);
       const top = OUTLINE[OUTLINE.length - 1]!.clone().project(c.camera);
       expect(top.y, `${z}×`).toBeLessThan(1); // the chimney top is on screen
-      expect(top.y, `${z}×`).toBeGreaterThan(0.6); // near the top edge: the bound is not loose either
+      // and not loose either: at most half a view of sky above the tallest point (plus the slack)
+      expect(top.y, `${z}×`).toBeGreaterThanOrEqual(0.5 - 2 / c.halfH - 2 / 540);
     }
   });
 
@@ -397,6 +413,118 @@ describe('camera framing', () => {
     }
     expect(viewRange(-10, 30, 5, 1)).toEqual([-6, 26]);
     expect(viewRange(-10, 30, 50, 1)).toEqual([9, 11]);
+    // continuous across the switch whatever the inset and freedom, with room there (no pinch point)
+    for (const free of [0, 0.5, 1]) {
+      const below = viewRange(-9.999, 9.999, 10, 1.5, 2, free),
+        above = viewRange(-10.001, 10.001, 10, 1.5, 2, free);
+      expect(Math.abs(below[0] - above[0]) + Math.abs(below[1] - above[1]), `${free}`).toBeLessThan(0.01);
+      expect(above[1], `${free}`).toBeCloseTo(1.5 + (free * 10) / 4, 2);
+    }
+    const a = viewRange(-10, 30, 50, 1, 5, 0.3),
+      b = viewRange(-10, 30, 50, 1, 5, 0.3001);
+    expect(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1])).toBeLessThan(0.01);
+  });
+
+  it('lets a town that fits move about, but never loses it (maps, not image viewers)', () => {
+    for (const aspect of [16 / 9, 1.6, 4 / 3]) {
+      const c = make(aspect, true);
+      c.bounds = OUTLINE;
+      c.setZoomNow(c.fitZoom(OUTLINE, CENTRE)); // the town fills Fit's frame on one axis and fits the other
+      let roam = 0;
+      for (const [dx, dy] of [
+        [4000, 0],
+        [-4000, 0],
+        [0, 4000],
+        [0, -4000],
+        [4000, 4000],
+        [-4000, -4000],
+      ] as const) {
+        c.targetGoal.copy(CENTRE);
+        c.panScreen(dx, dy, 540);
+        c.target.copy(c.targetGoal);
+        c.update(0);
+        roam = Math.max(roam, Math.hypot(c.target.x - CENTRE.x, c.target.z - CENTRE.z));
+        // no part of the town goes further than a quarter of the view past the screen edge across, or past
+        // the HUD's edge (Fit's 84%) up and down, give or take the slack
+        const vr = c.halfH * c.viewAspect,
+          vu = c.halfH;
+        for (const p of OUTLINE) {
+          const v = p.clone().project(c.camera); // no overscan here: NDC ±1 is the screen edge
+          const px = 2 / 540; // the texel snap moves the camera by up to half a render pixel
+          expect(Math.abs(v.x), `${aspect} x`).toBeLessThanOrEqual(1.25 + 1.5 / vr + px);
+          expect(Math.abs(v.y), `${aspect} y`).toBeLessThanOrEqual(0.84 + 0.25 + 2 / vu + px);
+        }
+      }
+      expect(roam, `${aspect}`).toBeGreaterThan(3); // it really moves: it is not held centred
+    }
+  });
+
+  it('lands every palette zoom step on the spot under the cursor, and the spot stays there', () => {
+    let landed = 0,
+      stayed = 0,
+      tried = 0;
+    // 16:10 and 4:3 too: each has its own zoom where the town just fits across, which is where a pinch point would bite
+    for (const aspect of [16 / 9, 1.6, 4 / 3])
+      for (let ax = -0.6; ax <= 0.6 + 1e-9; ax += 0.1)
+        for (let ay = -0.5; ay <= 0.5 + 1e-9; ay += 0.1) {
+          const c = make(aspect, false);
+          c.instant = false;
+          c.bounds = OUTLINE;
+          c.fit(OUTLINE, CENTRE);
+          const a = { x: ax, y: ay };
+          const p0 = groundUnder(c, a);
+          if (p0.x < GROUND.x0 || p0.x > GROUND.x1 || p0.z < GROUND.z0 || p0.z > GROUND.z1) continue; // aim at the town
+          tried++;
+          while (c.canStep(1)) {
+            const p = groundUnder(c, a);
+            c.step(1, a);
+            landed = Math.max(landed, groundUnder(c, a).distanceTo(p)); // the step itself: exactly on the spot
+            for (let f = 0; f < 60; f++) c.update(1 / 60); // then a full second for the bounds
+            // across the middle 80% of the screen the rules have room for any spot on the town, so nothing eases at all
+            if (Math.abs(ax) <= 0.4 + 1e-9 && Math.abs(ay) <= 0.4 + 1e-9) stayed = Math.max(stayed, groundUnder(c, a).distanceTo(p0));
+          }
+        }
+    expect(tried).toBeGreaterThan(40);
+    expect(landed).toBeLessThan(0.15);
+    // before: a step landed recentred, up to several world units from where it was aimed
+    expect(stayed).toBeLessThan(0.2);
+  });
+
+  it('eases the town home as it zooms out past Fit, with no jump', () => {
+    const c = make(16 / 9, true);
+    c.instant = false;
+    c.bounds = OUTLINE;
+    c.setZoomNow(c.fitZoom(OUTLINE, CENTRE));
+    c.panScreen(4000, 2000, 540); // to the edge of the room it has
+    for (let f = 0; f < 60; f++) c.update(1 / 60);
+    const off = Math.hypot(c.target.x, c.target.z);
+    expect(off).toBeGreaterThan(3);
+    c.zoomTo(MIN_ZOOM);
+    let prev = c.target.clone(),
+      step = 0;
+    for (let f = 0; f < 120; f++) {
+      c.update(1 / 60);
+      step = Math.max(step, c.target.distanceTo(prev));
+      prev = c.target.clone();
+    }
+    expect(step).toBeLessThan(0.15 * off); // a glide over many frames, not a cut
+    const home = c.target.clone();
+    c.clampTarget('hard');
+    expect(c.target.distanceTo(home)).toBeLessThan(1e-3); // and it ends inside the (centred) bounds
+  });
+
+  it('under reduced motion, a zoom lands inside the bounds in the same cut (no delayed jump)', () => {
+    for (const continuous of [true, false]) {
+      const c = make(16 / 9, continuous);
+      c.bounds = OUTLINE;
+      c.setZoomNow(1);
+      const a = { x: 0.95, y: 0.9 }; // the sky in a corner: the bounds must move the view
+      if (continuous) c.zoomTo(3, a);
+      else c.step(1, a);
+      const after = c.target.clone();
+      for (let f = 0; f < 30; f++) c.update(1 / 60);
+      expect(c.target.distanceTo(after), `${continuous}`).toBeLessThan(1e-9);
+    }
   });
 
   it('fits the whole town on a wide screen, and gives a portrait phone the widest view instead of a tiny town', () => {
@@ -429,5 +557,43 @@ describe('town outline', () => {
       expect(p.x).toBeGreaterThanOrEqual(GROUND.x0 - 1e-9);
       expect(p.x).toBeLessThanOrEqual(GROUND.x1 + 1e-9);
     }
+  });
+
+  it('ignores anything that is not shown, including meshes inside a hidden group', () => {
+    const root = new THREE.Group();
+    const hidden = new THREE.Group();
+    hidden.visible = false;
+    const mast = new THREE.Mesh(new THREE.BoxGeometry(1, 30, 1));
+    mast.position.set(0, 15, 0);
+    hidden.add(mast);
+    root.add(hidden);
+    expect(Math.max(...townOutline(root).map((p) => p.y))).toBeCloseTo(G, 9);
+  });
+});
+
+describe('relayouts mid-ease', () => {
+  it('a resize, photo or journal capture never cuts a view that is easing back into the bounds', () => {
+    const c = make(16 / 9, true);
+    c.instant = false;
+    c.bounds = OUTLINE;
+    c.setZoomNow(1);
+    c.zoomTo(3, { x: 0.95, y: 0.9 }); // into the sky in a corner: the bounds will want the view back
+    for (let f = 0; f < 20; f++) c.update(1 / 60);
+    const before = c.target.clone();
+    c.setViewport(1920, 1080); // what captureFrame and every resize do
+    expect(c.target.distanceTo(before)).toBeLessThan(1e-9); // the view on screen didn't move
+    c.setViewport(960, 540);
+    expect(c.target.distanceTo(before)).toBeLessThan(1e-9);
+    let prev = c.target.clone(),
+      step = 0;
+    for (let f = 0; f < 120; f++) {
+      c.update(1 / 60);
+      step = Math.max(step, c.target.distanceTo(prev));
+      prev = c.target.clone();
+    }
+    const end = c.target.clone();
+    c.clampTarget('hard');
+    expect(c.target.distanceTo(end)).toBeLessThan(1e-3); // it still eased back inside
+    expect(step).toBeLessThan(0.5); // gradually
   });
 });

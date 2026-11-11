@@ -408,6 +408,8 @@ const OVERSCAN = 1;
 let layout: CanvasLayout = canvasLayout(devW, devH, window.devicePixelRatio || 1, pixel, OVERSCAN);
 /** The canvas's current sub-pixel shift (CSS px), so it is only rewritten when it changes. */
 let shown = { x: NaN, y: NaN };
+/** The shift the last on-screen frame was rendered for, for present() to apply (CSS px). */
+let pending = { x: 0, y: 0 };
 
 /**
  * Lay out the canvas. At 0% Film Diffusion the drawing buffer is the internal render
@@ -446,7 +448,7 @@ function resize(): void {
  * what makes pans, glides and smooth zooms move in device pixels rather than whole art pixels.
  */
 function present(): void {
-  const o = presentOffset(iso.subpixel, layout, window.devicePixelRatio || 1);
+  const o = pending; // the shift the frame just rendered was told about (renderFrame)
   if (o.x === shown.x && o.y === shown.y) return;
   shown = o;
   canvas.style.transform = o.x || o.y ? `translate(${o.x}px, ${o.y}px)` : '';
@@ -469,11 +471,11 @@ function captureFrame(w: number, h: number): string | null {
   post.setOutputSize(outW, outH);
   if (post.setDiffusion(renderer, diffusion, l.scale)) {
     renderer.setSize(outW, outH, false);
-    renderFrame(0);
+    renderFrame(0, l, false);
     return canvas.toDataURL('image/png'); // same task as the render: the drawing buffer is still intact
   }
   renderer.setSize(l.rw, l.rh, false);
-  renderFrame(0);
+  renderFrame(0, l, false);
   const up = document.createElement('canvas');
   up.width = outW;
   up.height = outH;
@@ -500,8 +502,9 @@ const ro = new ResizeObserver(([entry]) => {
   let box = entry?.devicePixelContentBoxSize?.[0];
   const dpr = window.devicePixelRatio || 1;
   // Emulated DPR (DevTools device mode, headless test browsers) reports this box in CSS pixels,
-  // which would lay the canvas out at 1/dpr of the screen. A real one is within a pixel of CSS × dpr.
-  if (box && Math.abs(box.inlineSize - app.clientWidth * dpr) > 2) box = undefined;
+  // which would lay the canvas out at 1/dpr of the screen. A real one is within clientWidth's rounding
+  // (whole CSS pixels, so up to dpr/2 device pixels) of CSS × dpr; an emulated one is off by about half the width.
+  if (box && Math.abs(box.inlineSize - app.clientWidth * dpr) > dpr + 1) box = undefined;
   exactDeviceBox = !!box;
   devW = box ? box.inlineSize : Math.round(app.clientWidth * dpr);
   devH = box ? box.blockSize : Math.round(app.clientHeight * dpr);
@@ -994,8 +997,19 @@ let wasRaining = world.weather.rain > 0.3;
 /** The zoom the photo slider last showed. */
 let sliderZoom = NaN;
 
-function renderFrame(dt: number): void {
+/**
+ * Advance the camera and render. `l` is the layout being drawn: the screen's (whose canvas is then
+ * shifted by present()) or a capture's (no overscan, no shift). The post pass is told where the
+ * screen sits in the render target, so the sky backdrop stays still under the shift.
+ */
+function renderFrame(dt: number, l: CanvasLayout = layout, onScreen = true): void {
   iso.update(dt);
+  if (onScreen) {
+    const dpr = window.devicePixelRatio || 1;
+    pending = presentOffset(iso.subpixel, l, dpr);
+    // the shift present() will apply, in render pixels; the target's y runs up, the page's down
+    post.setSkyFrame(l.margin - (pending.x * dpr) / l.sx, l.margin + (pending.y * dpr) / l.sy, l.rw, l.rh);
+  } else post.setSkyFrame(l.margin, l.margin, l.rw, l.rh);
   post.render(renderer, world.scene, iso.camera, time, world.weather.wind, dt);
 }
 
