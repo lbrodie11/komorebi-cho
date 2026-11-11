@@ -43,6 +43,8 @@ Working method:
 5. **Companion mode** (web): a compact layout option, a slim strip view (camera auto-frames a slice of the street), no HUD, gentle sound. Make it the default for the desktop wrapper in prompt 14.
 6. **Budgets file.** Write `docs/PERF.md` with targets and a method (which devices, which scene, how to measure), and a CI perf smoke test using headless Chrome with SwiftShader frame-time sampling, used as a regression signal.
 
+7. **Audio idle cost.** With sound off or the tab hidden, the audio context is suspended and no audio timers run (prompt 04 task 8 did the first version; measure it here). Count live audio nodes over a 30-minute session: flat.
+
 ## Acceptance criteria
 - Under 250 draw calls and under 8 ms GPU on the reference laptop at the default view, at night with rain.
 - Idle at noon: under 3% CPU in Chrome's task manager.

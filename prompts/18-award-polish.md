@@ -32,10 +32,10 @@ The last 10% that people remember.
 
 ## Tasks
 1. **The first 90 seconds, scripted beat by beat.** Write it down, then make it true:
-   - 0–10 s: the island fades up, golden hour, sound prompt
+   - 0–10 s (16:36): the island fades up, golden hour, sound prompt
    - 10–30 s: the eye lands on the kissaten window, a cat stretches
    - 30–60 s: the bench hint, placement pop, a resident notices
-   - 60–90 s: the bell rings, lamps flicker on one by one down the lane
+   - 54–90 s: lamps start to come on (17:30); the evening bell rings at about 84 s (18:00); blue hour follows at about 2 min 40 s (19:15)
 
    Time it with three strangers.
 2. **Juice audit.** List every animation and sound and rate each one. Cut what's noise and amplify what carries meaning.

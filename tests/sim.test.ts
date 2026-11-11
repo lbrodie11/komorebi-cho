@@ -63,7 +63,7 @@ describe('NavGrid', () => {
 describe('smart objects and personas', () => {
   it('every work spot is reachable', () => {
     const grid = makeGrid();
-    for (const p of PERSONAS) if (p.work) expect(grid.findPath(-4, 2, p.work.spot[0], p.work.spot[1]), p.name).not.toBeNull();
+    for (const p of PERSONAS) if (p.work) expect(grid.findPath(-4, 2, p.work.spot[0], p.work.spot[1]), p.id).not.toBeNull();
   });
   it('reservations are exclusive and released per resident', () => {
     const r = new SmartRegistry();

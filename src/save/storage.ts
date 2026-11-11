@@ -3,6 +3,7 @@ import type { WeatherMode } from '../world/weather';
 import type { PlaceableKind } from '../world/props';
 import { DEFAULT_PIXEL, PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
 import { LEGACY_DIFFUSION_DEFAULT, sanitizeDiffusion } from '../render/diffusion';
+import { isKey, LANGS, type Lang, type Msg, type Params } from '../i18n';
 
 export const SAVE_VERSION = 2;
 const KEY = 'komorebi-cho/save';
@@ -22,6 +23,10 @@ export interface SaveData {
   weather: WeatherMode;
   placed: PlacedRecord[];
   memory: Record<string, string[]>;
+  /** First-minutes hints already done ('place', 'react', 'meet'). */
+  tutorial: string[];
+  /** The Notes panel: the last story lines, oldest first. */
+  notes: { msg: Msg; day: number; minutes: number }[];
   settings: {
     pixel: PixelPreset;
     music: number;
@@ -33,7 +38,33 @@ export interface SaveData {
      * the rest clamp to range. An optional field needs no version bump.
      */
     diffusion: number;
+    effects: number;
+    captions: boolean;
+    /** HUD text scale: 1, 1.25 or 1.5. */
+    textScale: number;
+    /** 'auto' follows the browser. */
+    lang: Lang | 'auto';
   };
+}
+
+const TEXT_SCALES = [1, 1.25, 1.5];
+const NOTES_MAX = 50;
+
+/** A saved message: a known key and plain params (nested messages allowed, a few levels deep). */
+function sanitizeMsg(v: unknown, depth = 0): Msg | null {
+  if (!isObj(v) || typeof v.key !== 'string' || !isKey(v.key) || depth > 3) return null;
+  if (v.params === undefined) return { key: v.key };
+  if (!isObj(v.params)) return null;
+  const params: Params = {};
+  for (const [k, p] of Object.entries(v.params)) {
+    if (typeof p === 'string' || finite(p)) params[k] = p;
+    else {
+      const m = sanitizeMsg(p, depth + 1);
+      if (!m) return null;
+      params[k] = m;
+    }
+  }
+  return { key: v.key, params };
 }
 
 /** Forward-only migrations keyed by the version they upgrade *from*. */
@@ -68,6 +99,13 @@ export function sanitize(d: Record<string, unknown>): SaveData {
   if (isObj(d.memory)) {
     for (const [who, ids] of Object.entries(d.memory)) if (Array.isArray(ids)) memory[who] = ids.filter((x): x is string => typeof x === 'string');
   }
+  const notes: SaveData['notes'] = [];
+  if (Array.isArray(d.notes))
+    for (const n of d.notes.slice(-NOTES_MAX)) {
+      if (!isObj(n) || !finite(n.day) || !finite(n.minutes)) continue;
+      const m = sanitizeMsg(n.msg);
+      if (m) notes.push({ msg: m, day: Math.max(0, Math.floor(n.day)), minutes: Math.max(0, n.minutes) });
+    }
   return {
     version: SAVE_VERSION,
     minutes: finite(d.minutes) && d.minutes >= 0 ? d.minutes : DEFAULT_MINUTES,
@@ -75,6 +113,9 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     weather: (WEATHER_MODES as readonly unknown[]).includes(d.weather) ? (d.weather as WeatherMode) : 'auto',
     placed: placed.map(({ id, kind, x, z, ry }) => ({ id, kind, x, z, ry: ry % (Math.PI * 2) })),
     memory,
+    // a save from before the hints existed belongs to a returning player: they never need them
+    tutorial: Array.isArray(d.tutorial) ? d.tutorial.filter((x): x is string => typeof x === 'string') : ['meet', 'place', 'react'],
+    notes,
     settings: {
       // an unknown preset would break the canvas layout; fall back to the default look
       pixel: (PIXEL_PRESETS as readonly unknown[]).includes(settings.pixel) ? (settings.pixel as PixelPreset) : DEFAULT_PIXEL,
@@ -82,6 +123,10 @@ export function sanitize(d: Record<string, unknown>): SaveData {
       ambience: unit(settings.ambience, 0.6),
       reducedMotion: settings.reducedMotion === true,
       diffusion: sanitizeDiffusion(settings.diffusion, LEGACY_DIFFUSION_DEFAULT),
+      effects: unit(settings.effects, 0.6),
+      captions: settings.captions === true,
+      textScale: TEXT_SCALES.includes(settings.textScale as number) ? (settings.textScale as number) : 1,
+      lang: settings.lang === 'auto' || (LANGS as readonly unknown[]).includes(settings.lang) ? (settings.lang as Lang | 'auto') : 'auto',
     },
   };
 }
@@ -108,11 +153,16 @@ export function load(): SaveData | null {
   }
 }
 
-export function save(d: SaveData): void {
+/** The localStorage key, for other tabs' `storage` events. */
+export const SAVE_KEY = KEY;
+
+/** Returns false when the browser won't store it (private mode, sandboxed frames, full): the game runs fine without. */
+export function save(d: SaveData): boolean {
   try {
     localStorage.setItem(KEY, JSON.stringify(d));
+    return true;
   } catch {
-    /* storage may be unavailable (private mode, sandboxed frames): the game runs fine without it */
+    return false;
   }
 }
 

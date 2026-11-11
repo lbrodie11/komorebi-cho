@@ -45,6 +45,9 @@ Confidence to change anything without fear.
 6. **Accessibility:** run axe in CI, plus a manual screen-reader pass (VoiceOver and NVDA) over the menus.
 7. **Bug-bash template** and a triage guide.
 
+8. **Keep the UI audit.** `scripts/ui-audit.mjs` (from the 2026-11-11 button audit) clicks every control and checks the real game state. Run it in CI against `vite preview`, and extend it whenever a control is added.
+9. **Real-device pass**, recorded in `docs/QA.md`: iPhone Safari, Android Chrome, an Intel/AMD integrated-GPU Windows laptop, a 4K monitor, macOS Safari. On each: pinch, twist, tap-twice placement, the More fold, Sound on then lock and unlock the phone, and frame rate at the default zoom at 21:00 in rain.
+
 ## Acceptance criteria
 - CI runs unit, visual, replay and fuzz suites in under 15 minutes, and all are green.
 - A known bug injected into nav, AI or post is caught by at least one suite (show this).

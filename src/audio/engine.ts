@@ -1,9 +1,14 @@
+import { Rng, stream } from '../core/rng';
+
 /**
  * Audio graph. Everything you hear is synthesised at runtime: no audio files.
  *
- *   music  -> lofi (lowpass + gentle saturation) -+-> reverb -+
- *   ambience ------------------------------------+           +-> compressor -> master -> out
- *   sfx --------------------------------------------------- -+
+ *   music  -> lofi (lowpass + gentle saturation) -> musicVerb -+-> reverb -+
+ *   ambience -----------------------------------------------------+-> fxVerb +-> compressor -> master -> out
+ *   sfx ----------------------------------------------------------+
+ *
+ * Music and effects have separate reverb sends, so the music's seasonal reverb never
+ * changes how a placed bench or the temple bell sounds.
  */
 export class AudioEngine {
   readonly ctx: AudioContext;
@@ -11,10 +16,17 @@ export class AudioEngine {
   readonly music: GainNode;
   readonly ambience: GainNode;
   readonly sfx: GainNode;
-  readonly reverbSend: GainNode;
+  /** Reverb send for the music only (the composer moves it with season and hour). */
+  readonly musicVerb: GainNode;
+  /** Reverb send for effects and ambience one-shots (fixed). */
+  readonly fxVerb: GainNode;
   readonly lofi: BiquadFilterNode;
   private readonly noiseBuf: AudioBuffer;
   private readonly pinkBuf: AudioBuffer;
+  /** End times of the one-shot voices still sounding (see claim()). */
+  private voices: number[] = [];
+  /** Noise and impulse buffers come from a named stream, so the audio is reproducible. */
+  private readonly rng: Rng = stream('audio/engine');
 
   constructor() {
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -35,8 +47,11 @@ export class AudioEngine {
     const wet = c.createGain();
     wet.gain.value = 0.55;
     reverb.connect(wet).connect(comp);
-    this.reverbSend = c.createGain();
-    this.reverbSend.connect(reverb);
+    this.musicVerb = c.createGain();
+    this.musicVerb.connect(reverb);
+    this.fxVerb = c.createGain();
+    this.fxVerb.gain.value = 0.6;
+    this.fxVerb.connect(reverb);
 
     this.lofi = c.createBiquadFilter();
     this.lofi.type = 'lowpass';
@@ -49,7 +64,7 @@ export class AudioEngine {
     this.music.gain.value = 0.55;
     this.music.connect(this.lofi);
     sat.connect(comp);
-    sat.connect(this.reverbSend);
+    sat.connect(this.musicVerb);
 
     this.ambience = c.createGain();
     this.ambience.gain.value = 0.6;
@@ -57,7 +72,7 @@ export class AudioEngine {
     this.sfx = c.createGain();
     this.sfx.gain.value = 0.6;
     this.sfx.connect(comp);
-    this.sfx.connect(this.reverbSend);
+    this.sfx.connect(this.fxVerb);
 
     this.noiseBuf = this.makeNoise(false);
     this.pinkBuf = this.makeNoise(true);
@@ -67,13 +82,54 @@ export class AudioEngine {
     return this.ctx.currentTime;
   }
 
-  async resume(): Promise<void> {
-    if (this.ctx.state !== 'running') await this.ctx.resume();
-    this.master.gain.cancelScheduledValues(this.now);
-    this.master.gain.setTargetAtTime(0.9, this.now, 0.8);
+  /** Is the context actually producing sound? (Mobile browsers can leave it "interrupted".) */
+  get running(): boolean {
+    return this.ctx.state === 'running';
   }
-  suspend(): void {
-    this.master.gain.setTargetAtTime(0, this.now, 0.25);
+
+  /** Start the context. Rejects, or resolves with running false, when the browser won't (no gesture, a phone call). */
+  async resume(): Promise<boolean> {
+    if (this.ctx.state !== 'running') await this.ctx.resume();
+    return this.running;
+  }
+
+  /** Stop the context's processing entirely: no CPU while sound is off or the tab is hidden. */
+  async suspend(): Promise<void> {
+    if (this.ctx.state === 'running') await this.ctx.suspend();
+  }
+
+  /** Fade the master in from wherever it is: no loud first transient. */
+  fadeIn(): void {
+    const g = this.master.gain;
+    g.cancelScheduledValues(this.now);
+    g.setValueAtTime(g.value, this.now);
+    g.setTargetAtTime(0.9, this.now, 0.8);
+  }
+
+  /** Fade the master out; resolves once it is effectively silent, so a suspend after it never clicks. */
+  fadeOut(): Promise<void> {
+    const g = this.master.gain;
+    g.cancelScheduledValues(this.now);
+    g.setValueAtTime(g.value, this.now);
+    g.setTargetAtTime(0, this.now, FADE_OUT / 4);
+    return new Promise((res) => setTimeout(res, FADE_OUT * 1000));
+  }
+
+  /**
+   * Ask for a one-shot voice lasting `seconds`. False when the budget is full: the caller
+   * skips the sound (a busy moment thins out rather than piling up).
+   */
+  claim(seconds: number): boolean {
+    const now = this.now;
+    this.voices = this.voices.filter((t) => t > now);
+    if (this.voices.length >= VOICE_BUDGET) return false;
+    this.voices.push(now + seconds);
+    return true;
+  }
+
+  /** A random start offset into the 4-second noise buffers. */
+  noiseOffset(): number {
+    return this.rng.range(0, 3);
   }
 
   noise(pink = false, loop = true): AudioBufferSourceNode {
@@ -92,7 +148,7 @@ export class AudioEngine {
       const d = buf.getChannelData(ch);
       for (let i = 0; i < len; i++) {
         const t = i / len;
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay) * (i < rate * 0.01 ? i / (rate * 0.01) : 1);
+        d[i] = (this.rng.next() * 2 - 1) * Math.pow(1 - t, decay) * (i < rate * 0.01 ? i / (rate * 0.01) : 1);
       }
     }
     return buf;
@@ -111,7 +167,7 @@ export class AudioEngine {
       b5 = 0,
       b6 = 0;
     for (let i = 0; i < len; i++) {
-      const w = Math.random() * 2 - 1;
+      const w = this.rng.next() * 2 - 1;
       if (!pink) {
         d[i] = w * 0.5;
         continue;
@@ -129,6 +185,11 @@ export class AudioEngine {
     return buf;
   }
 }
+
+/** Seconds the master takes to fade to silence before the context is suspended. */
+export const FADE_OUT = 0.6;
+/** Most one-shot voices (sfx and ambient creatures) sounding at once. Music voices are not counted. */
+export const VOICE_BUDGET = 24;
 
 function softClip(amount: number) {
   const n = 1024;

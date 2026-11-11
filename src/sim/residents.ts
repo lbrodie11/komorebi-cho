@@ -10,12 +10,14 @@ import type { NavGrid } from './grid';
 import { PERSONAS, type Persona } from './personas';
 import type { Pose, Slot, SmartKind, SmartObject, SmartRegistry } from './smart';
 import { bubbleMaterial, type BubbleIcon } from './bubbles';
+import { msg, type Msg, type MsgKey } from '../i18n';
 
 type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger';
 
 interface Task {
   kind: TaskKind;
-  label: string;
+  /** What the card says they are doing. */
+  label: Msg;
   goal: [number, number];
   dwell: number; // game minutes once arrived
   pose: Pose;
@@ -199,12 +201,16 @@ export class Agent {
 }
 
 export interface ResidentInfo {
-  name: string;
-  role: string;
-  blurb: string;
-  doing: string;
+  /** Persona id: the HUD words name, role and blurb from `persona.<id>.*`. */
+  id: string;
+  doing: Msg;
   knows: number;
 }
+
+/** A neighbour as a message parameter: their short name, in the reader's language. */
+export const who = (id: string): Msg => ({ key: `persona.${id}.short` as MsgKey });
+/** A smart object's noun (`noun.<label>`) as a message parameter. */
+export const thing = (label: string): Msg => ({ key: `noun.${label}` as MsgKey });
 
 /**
  * The resident simulation. Layers (cheap versions of the research plan):
@@ -241,19 +247,17 @@ export class Residents {
 
   info(a: Agent): ResidentInfo {
     return {
-      name: a.p.name,
-      role: a.p.role,
-      blurb: a.p.blurb,
-      doing: a.hidden ? this.hiddenLabel(a) : (a.task?.label ?? 'Thinking about what to do'),
+      id: a.p.id,
+      doing: a.hidden ? this.hiddenLabel(a) : (a.task?.label ?? msg('task.thinking')),
       knows: a.known.size,
     };
   }
 
-  private hiddenLabel(a: Agent): string {
-    if (a.task?.kind === 'commute') return a.p.kid ? 'At school' : 'Out at work';
-    if (a.task?.kind === 'inside') return 'Busy inside';
-    if (a.task?.kind === 'home') return a.task.dwell > 30 ? 'Asleep' : 'At home';
-    return 'Elsewhere';
+  private hiddenLabel(a: Agent): Msg {
+    if (a.task?.kind === 'commute') return msg(a.p.kid ? 'task.atSchool' : 'task.atWork');
+    if (a.task?.kind === 'inside') return msg('task.busyInside');
+    if (a.task?.kind === 'home') return msg(a.task.dwell > 30 ? 'task.asleep' : 'task.atHome');
+    return msg('task.elsewhere');
   }
 
   /** Is anyone standing within r of (x,z)? Used to refuse placing things on people. */
@@ -300,12 +304,12 @@ export class Residents {
     if (a.hidden && !asleep && !commuting) this.emerge(a);
 
     if (asleep)
-      return this.assign(a, { kind: 'home', label: 'Going home', goal: this.homePoint(a), dwell: 45, pose: 'stand', hide: true, interruptible: true });
+      return this.assign(a, { kind: 'home', label: msg('task.goingHome'), goal: this.homePoint(a), dwell: 45, pose: 'stand', hide: true, interruptible: true });
     if (commuting) {
       const out: [number, number] = [...this.rng(a).pick(EXITS)] as [number, number];
       return this.assign(a, {
         kind: 'commute',
-        label: p.kid ? 'Walking to school' : 'Heading to the station',
+        label: msg(p.kid ? 'task.toSchool' : 'task.toStation'),
         goal: out,
         dwell: 30,
         pose: 'stand',
@@ -319,7 +323,7 @@ export class Residents {
         const d = DOORS[w.door]!;
         return this.assign(a, {
           kind: 'inside',
-          label: 'Busy inside',
+          label: msg('task.busyInside'),
           goal: [d.x, d.z],
           dwell: a.rng.range(8, 22),
           pose: 'stand',
@@ -329,7 +333,7 @@ export class Residents {
       }
       return this.assign(a, {
         kind: 'work',
-        label: w.label,
+        label: msg(`work.${p.id}` as MsgKey),
         goal: w.spot,
         dwell: a.rng.range(6, 14),
         pose: w.action === 'sweep' ? 'sweep' : w.action === 'crouch' ? 'crouch' : 'stand',
@@ -362,7 +366,7 @@ export class Residents {
     const dPen = (o: { x: number; z: number }) => 1 / (1 + dist(o) / 22);
     const rainPen = 1 - rain * 0.7;
 
-    const useOpt = (kind: SmartKind, base: number, label: (o: SmartObject) => string, dwell: [number, number], bubble?: BubbleIcon) => {
+    const useOpt = (kind: SmartKind, base: number, label: (o: SmartObject) => Msg, dwell: [number, number], bubble?: BubbleIcon) => {
       for (const o of this.smart.available(kind, hour)) {
         if (o.placed && !a.known.has(o.id)) continue;
         if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
@@ -372,20 +376,20 @@ export class Residents {
       }
     };
     const isKid = !!p.kid;
-    useOpt('bench', (0.25 + a.needs.fatigue * 0.8 + like('bench')) * rainPen, () => 'Sitting for a while', [8, 20], 'note');
-    useOpt('vending', a.needs.thirst * 1.1 + like('vending') * 0.5, () => 'Buying a drink', [1.2, 2], 'cup');
+    useOpt('bench', (0.25 + a.needs.fatigue * 0.8 + like('bench')) * rainPen, () => msg('task.sitting'), [8, 20], 'note');
+    useOpt('vending', a.needs.thirst * 1.1 + like('vending') * 0.5, () => msg('task.drink'), [1.2, 2], 'cup');
     if (!night) {
-      useOpt('shop', 0.25 + like('shop'), (o) => `Browsing the ${o.label}`, [3, 7]);
-      useOpt('view', (0.3 + like('view')) * rainPen, () => 'Watching the koi from the bridge', [3, 8], 'sparkle');
-      useOpt('shrine', 0.15 + like('shrine'), () => 'Praying at the little shrine', [1.5, 3]);
-      useOpt('temple', 0.12 + like('temple'), () => 'Visiting the temple', [2, 4]);
-      useOpt('cafe', (0.25 + like('cafe') + rain * 0.2) * (isKid ? 0.1 : 1), () => 'Coffee at the kissaten', [12, 30], 'cup');
-      useOpt('garden', like('garden'), () => 'Pottering in the allotment', [8, 16]);
-      useOpt('admire', (0.35 + like('admire')) * rainPen, (o) => `Admiring the ${o.label}`, [2, 5], 'heart');
-      useOpt('catbowl', like('catbowl'), () => 'Feeding the cats', [5, 10], 'heart');
+      useOpt('shop', 0.25 + like('shop'), (o) => msg('task.browsing', { thing: thing(o.label) }), [3, 7]);
+      useOpt('view', (0.3 + like('view')) * rainPen, () => msg('task.koi'), [3, 8], 'sparkle');
+      useOpt('shrine', 0.15 + like('shrine'), () => msg('task.shrine'), [1.5, 3]);
+      useOpt('temple', 0.12 + like('temple'), () => msg('task.temple'), [2, 4]);
+      useOpt('cafe', (0.25 + like('cafe') + rain * 0.2) * (isKid ? 0.1 : 1), () => msg('task.coffee'), [12, 30], 'cup');
+      useOpt('garden', like('garden'), () => msg('task.allotment'), [8, 16]);
+      useOpt('admire', (0.35 + like('admire')) * rainPen, (o) => msg('task.admiring', { thing: thing(o.label) }), [2, 5], 'heart');
+      useOpt('catbowl', like('catbowl'), () => msg('task.cats'), [5, 10], 'heart');
       if (isKid) {
-        useOpt('swing', 0.6 + like('swing'), () => 'On the swings', [6, 12], 'note');
-        useOpt('sand', 0.5 + like('sand'), () => 'Building something in the sandpit', [8, 15]);
+        useOpt('swing', 0.6 + like('swing'), () => msg('task.swings'), [6, 12], 'note');
+        useOpt('sand', 0.5 + like('sand'), () => msg('task.sand'), [8, 15]);
       }
     }
     // wandering the park
@@ -393,7 +397,7 @@ export class Residents {
       score: (0.3 + like('wander')) * rainPen,
       make: () => {
         const pt = this.grid.randomOpenIn(() => a.rng.next(), -7.5, 7.8, -3.5, 8.2);
-        return pt ? { kind: 'wander', label: 'Strolling through the park', goal: pt, dwell: a.rng.range(0.5, 2), pose: 'stand', interruptible: true } : null;
+        return pt ? { kind: 'wander', label: msg('task.stroll'), goal: pt, dwell: a.rng.range(0.5, 2), pose: 'stand', interruptible: true } : null;
       },
     });
     if (like('jog') > 0 && !night && rain < 0.4) opts.push({ score: like('jog'), make: () => this.jogTask(a) });
@@ -405,7 +409,7 @@ export class Residents {
           const d = DOORS[a.rng.pick(ids)]!;
           return {
             kind: 'deliver',
-            label: 'Making a delivery',
+            label: msg('task.delivery'),
             goal: [d.x, d.z],
             dwell: a.rng.range(0.6, 1.4),
             pose: 'stand',
@@ -419,7 +423,7 @@ export class Residents {
       score: 0.08 + rain * 0.5 + (night ? 0.8 : 0),
       make: () => ({
         kind: 'home',
-        label: 'Heading home',
+        label: msg('task.headingHome'),
         goal: this.homePoint(a),
         dwell: a.rng.range(10, 30),
         pose: 'stand',
@@ -449,10 +453,10 @@ export class Residents {
       [9.2, 9.5],
     ];
     const i = a.rng.int(0, 3);
-    return { kind: 'jog', label: 'Jogging laps', goal: loop[i]!, dwell: 0.2, pose: 'stand', interruptible: true };
+    return { kind: 'jog', label: msg('task.jogging'), goal: loop[i]!, dwell: 0.2, pose: 'stand', interruptible: true };
   }
 
-  private useTask(a: Agent, o: SmartObject, label: string, dwell: number, bubble?: BubbleIcon): Task | null {
+  private useTask(a: Agent, o: SmartObject, label: Msg, dwell: number, bubble?: BubbleIcon): Task | null {
     const slot = this.smart.reserve(o, a.p.id);
     if (!slot) return null;
     return {
@@ -473,16 +477,9 @@ export class Residents {
         const key = `${a.p.id}|${o.id}`;
         if (o.placed && this.storyCooldown <= 0 && !this.toldUse.has(key)) {
           this.toldUse.add(key);
-          const who = a.p.name.split(' ')[0];
-          const line =
-            o.kind === 'bench'
-              ? `${who} tries out the new bench.`
-              : o.kind === 'vending'
-                ? `${who} buys a drink from the new vending machine.`
-                : o.kind === 'catbowl'
-                  ? `${who} fills the new cat bowl.`
-                  : `${who} stops to admire the new ${o.label}.`;
-          this.story(line);
+          const line: MsgKey =
+            o.kind === 'bench' ? 'story.useBench' : o.kind === 'vending' ? 'story.useVending' : o.kind === 'catbowl' ? 'story.useCatbowl' : 'story.useOther';
+          this.story(msg(line, { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
         }
       },
     };
@@ -513,7 +510,7 @@ export class Residents {
       const t = a.task;
       if (t.obj) a.avoid.set(t.obj.id, this.minutes + 90);
       this.endTask(a, 'question');
-      a.task = { kind: 'linger', label: 'Looking for another way round', goal: [a.x, a.z], dwell: a.rng.range(1, 2.5), pose: 'stand', interruptible: true };
+      a.task = { kind: 'linger', label: msg('task.anotherWay'), goal: [a.x, a.z], dwell: a.rng.range(1, 2.5), pose: 'stand', interruptible: true };
       a.arrived = true;
       a.dwellLeft = a.task.dwell;
       return;
@@ -625,12 +622,18 @@ export class Residents {
   }
 
   // ── Reactions to the player's edits ────────────────────────────────────
+  /**
+   * The next placement is guaranteed a visible reaction (the first-minutes hint uses this, so a
+   * new player's first bench never goes unnoticed). Cleared once someone reacts.
+   */
+  guaranteeNext = false;
+
   onPlaced(ev: WorldEditEvent, o: SmartObject, hour: number): void {
-    const candidates = this.agents
+    const free = this.agents
       .filter((a) => !a.hidden && a.task?.interruptible !== false && a.task?.kind !== 'inspect' && a.task?.kind !== 'home' && a.task?.kind !== 'commute')
       .map((a) => ({ a, d: Math.hypot(a.x - ev.x, a.z - ev.z) }))
-      .filter((c) => c.d < 15)
       .sort((x, y) => x.d - y.d);
+    const candidates = free.filter((c) => c.d < 15);
     let reacted = 0;
     for (const { a, d } of candidates) {
       if (o.inspectors >= 2 || reacted >= 3) break;
@@ -640,7 +643,20 @@ export class Residents {
       reacted++;
       this.inspect(a, o, ev, hour);
     }
-    if (reacted === 0) this.story(`A new ${o.label} appears. Nobody has noticed yet.`);
+    if (reacted === 0 && this.guaranteeNext) {
+      // the most curious of the three nearest people who are out and about (however far), so it lands every time
+      const near = this.grid.nearestOpen(ev.x, ev.z, 4);
+      const pick = free
+        .filter((c) => near && this.grid.findPath(c.a.x, c.a.z, near[0], near[1]))
+        .slice(0, 3)
+        .sort((x, y) => y.a.p.curiosity - x.a.p.curiosity)[0];
+      if (pick) {
+        reacted++;
+        this.inspect(pick.a, o, ev, hour);
+      }
+    }
+    if (reacted > 0) this.guaranteeNext = false;
+    if (reacted === 0) this.story(msg('story.unnoticed', { thing: thing(o.label) }));
   }
 
   private inspect(a: Agent, o: SmartObject, ev: WorldEditEvent, _hour: number): void {
@@ -657,7 +673,7 @@ export class Residents {
     a.say('notice', 1.2);
     this.assign(a, {
       kind: 'inspect',
-      label: `Looking at the new ${o.label}`,
+      label: msg('task.looking', { thing: thing(o.label) }),
       goal: spot,
       dwell: a.rng.range(2.5, 4.5),
       pose: 'stand',
@@ -666,10 +682,9 @@ export class Residents {
       bubble: reaction,
       interruptible: true,
     });
-    const first = a.p.name.split(' ')[0];
-    this.story(
-      this.rngLine(a, [`${first} stops to look at the new ${o.label}.`, `${first} noticed the ${o.label}.`, `${first} wanders over to the new ${o.label}.`]),
-    );
+    const line = a.rng.pick(['story.notice1', 'story.notice2', 'story.notice3'] as const);
+    this.story(msg(line, { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
+    this.bus.emit('noticed', { who: a.p.id, id: o.id });
   }
 
   /** Passing close to a placed object you haven't seen yet: chance to notice it. */
@@ -697,13 +712,9 @@ export class Residents {
     }
   }
 
-  private rngLine(a: Agent, lines: string[]): string {
-    return a.rng.pick(lines);
-  }
-
-  private story(text: string): void {
+  private story(m: Msg, whoId?: string): void {
     this.storyCooldown = 2;
-    this.bus.emit('story', { text });
+    this.bus.emit('story', { msg: m, who: whoId });
   }
 
   /** Persistable snapshot of what residents remember. */

@@ -4,7 +4,7 @@ import type { Materials } from '../render/materials';
 import { BUILDABLE, G } from '../world/layout';
 import { groundHeight, inPond, onBridge, onIslet, regionAt } from '../world/terrain';
 import { PLACEABLES, type LightRef, type PlaceableKind } from '../world/props';
-import { crowdFactors } from '../world/crowd';
+import { clusterLights, crowdFactors } from '../world/crowd';
 import type { NavGrid } from '../sim/grid';
 import { benchSlots, frontSlot, type SmartObject, type SmartRegistry, type Slot } from '../sim/smart';
 import type { Residents } from '../sim/residents';
@@ -12,12 +12,35 @@ import type { PlacedRecord } from '../save/storage';
 
 export type ToolMode = 'view' | 'build' | 'remove';
 
+/** A ring cut into `dashes` arcs: the "can't place here" ring, readable without colour. */
+function dashedRingGeometry(inner: number, outer: number, dashes: number): THREE.BufferGeometry {
+  const parts: number[] = [];
+  const idx: number[] = [];
+  const seg = 3;
+  for (let d = 0; d < dashes; d++) {
+    const a0 = (d / dashes) * Math.PI * 2;
+    const a1 = a0 + (Math.PI * 2) / dashes / 2; // half on, half off
+    const base = parts.length / 3;
+    for (let k = 0; k <= seg; k++) {
+      const a = a0 + ((a1 - a0) * k) / seg;
+      parts.push(Math.cos(a) * inner, Math.sin(a) * inner, 0, Math.cos(a) * outer, Math.sin(a) * outer, 0);
+    }
+    for (let k = 0; k < seg; k++) {
+      const i = base + k * 2;
+      idx.push(i, i + 1, i + 2, i + 1, i + 3, i + 2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(parts, 3));
+  g.setIndex(idx);
+  return g;
+}
+
 interface Placed extends PlacedRecord {
   object: THREE.Object3D;
   /** Materials made for this object alone (shared ones are left alone on removal). */
   owned: Set<THREE.Material>;
   radius: number;
-  light?: LightRef;
 }
 
 /** A runtime-built object owns its geometry (placeables never share it) and the materials `own()` captured. */
@@ -42,8 +65,11 @@ export class BuildTool {
   /** Skip the placement "pop" (Settings → Reduced motion). */
   reducedMotion = false;
   private readonly ring: THREE.Mesh;
+  /** Valid spots get a solid green ring, invalid ones a dashed red ring: the shape says it, not only the colour. */
   private readonly okMat = new THREE.MeshBasicMaterial({ color: '#86b45a' });
   private readonly badMat = new THREE.MeshBasicMaterial({ color: '#d0402a' });
+  private readonly solidRing = new THREE.RingGeometry(0.5, 0.62, 20);
+  private readonly dashedRing = dashedRingGeometry(0.5, 0.62, 10);
   private hover: { x: number; z: number; ok: boolean } | null = null;
   private hoverRemove: Placed | null = null;
   private counter = 0;
@@ -58,7 +84,7 @@ export class BuildTool {
     private readonly hourNow: () => number,
     private readonly lightPool: LightRef[] = [],
   ) {
-    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 20), this.okMat);
+    this.ring = new THREE.Mesh(this.solidRing, this.okMat);
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.visible = false;
     root.add(this.ring);
@@ -134,7 +160,7 @@ export class BuildTool {
       g.position.set(x, groundHeight(x, z), z);
       g.rotation.y = this.ry;
       this.ring.visible = true;
-      this.ring.material = ok ? this.okMat : this.badMat;
+      this.setRing(ok);
       this.ring.position.set(x, groundHeight(x, z) + 0.03, z);
       const s = PLACEABLES[this.kind].radius / 0.55;
       this.ring.scale.setScalar(s);
@@ -151,18 +177,36 @@ export class BuildTool {
       this.hoverRemove = best;
       this.ring.visible = !!best;
       if (best) {
-        this.ring.material = this.badMat;
+        this.setRing(false); // "this goes": the same dashed red as "can't go here"
         this.ring.position.set(best.x, groundHeight(best.x, best.z) + 0.03, best.z);
         this.ring.scale.setScalar(best.radius / 0.55 + 0.2);
       }
     }
   }
 
+  private setRing(ok: boolean): void {
+    this.ring.material = ok ? this.okMat : this.badMat;
+    this.ring.geometry = ok ? this.solidRing : this.dashedRing;
+  }
+
+  /** Is there a valid spot under the pointer (or keyboard cursor) right now? */
+  get canCommit(): boolean {
+    return this.mode === 'build' ? !!this.hover?.ok : this.mode === 'remove' ? !!this.hoverRemove : false;
+  }
+
+  /** Hide the preview (the keyboard cursor left, or the tool changed). */
+  clearPreview(): void {
+    this.hover = null;
+    this.hoverRemove = null;
+    this.ring.visible = false;
+    if (this.ghost) this.ghost.object.visible = false;
+  }
+
   click(): boolean {
     if (this.mode === 'build' && this.hover?.ok) {
       this.place({ id: `p${Date.now().toString(36)}${this.counter++}`, kind: this.kind, x: this.hover.x, z: this.hover.z, ry: this.ry }, true);
       this.hover.ok = false;
-      this.ring.material = this.badMat;
+      this.setRing(false);
       return true;
     }
     if (this.mode === 'remove' && this.hoverRemove) {
@@ -194,24 +238,15 @@ export class BuildTool {
     const o = this.smart.add({
       id: rec.id,
       kind: this.smartKind(rec.kind),
-      label: def.label.toLowerCase(),
+      label: rec.kind,
       x: rec.x,
       z: rec.z,
       slots: this.slots(rec),
       placed: true,
       createdAt: performance.now(),
     });
-    let light: LightRef | undefined;
-    if (def.glow) {
-      light = this.lightPool.find((l) => l.base === 0);
-      if (light) {
-        light.base = def.glow.base;
-        light.light.color.set(def.glow.color);
-        light.light.position.set(rec.x, groundHeight(rec.x, rec.z) + def.glow.y, rec.z);
-      }
-    }
-    this.placed.set(rec.id, { ...rec, object, owned, radius: def.radius, light });
-    if (light) this.reshareLights();
+    this.placed.set(rec.id, { ...rec, object, owned, radius: def.radius });
+    if (def.glow) this.relight();
     if (announce && !this.reducedMotion) {
       // a little "pop": scale in over a few frames
       object.scale.setScalar(0.01);
@@ -240,23 +275,45 @@ export class BuildTool {
     this.smart.remove(id);
     this.grid.stamp({ x: p.x, z: p.z, r: p.radius }, -1);
     dispose(p.object, p.owned, this.m);
-    if (p.light) {
-      p.light.base = 0;
-      p.light.crowd = 1;
-      p.light.light.intensity = 0;
-      p.light.light.position.set(0, -20, 0);
-    }
     this.placed.delete(id);
-    if (p.light) this.reshareLights();
+    if (PLACEABLES[p.kind].glow) this.relight();
     this.bus.emit('sfx', { name: 'remove', x: p.x, z: p.z });
     this.bus.emit('objectRemoved', { id, kind: p.kind, x: p.x, z: p.z, novelty: 0 });
   }
 
-  /** Clustered lights share brightness instead of stacking into a floodlight. */
-  private reshareLights(): void {
-    const lit = this.lightPool.filter((l) => l.base > 0);
-    const f = crowdFactors(lit.map((l) => ({ x: l.light.position.x, z: l.light.position.z })));
-    lit.forEach((l, i) => (l.crowd = f[i]));
+  /**
+   * Hand the pooled point lights to the placed lights. With more placed lights than the pool
+   * holds, nearby ones of the same colour share one light at their centre, √n as bright, so
+   * every lantern still lights the ground. Clustered lights share brightness instead of
+   * stacking into a floodlight.
+   */
+  private relight(): void {
+    const glowing = [...this.placed.values()].filter((p) => PLACEABLES[p.kind].glow);
+    for (const l of this.lightPool) {
+      l.base = 0;
+      l.crowd = 1;
+      l.light.intensity = 0;
+      l.light.position.set(0, -20, 0);
+    }
+    const clusters = clusterLights(
+      glowing.map((p) => ({ x: p.x, z: p.z, tag: PLACEABLES[p.kind].glow!.color })),
+      this.lightPool.length,
+    );
+    const centres = clusters.map((members) => {
+      const x = members.reduce((s, i) => s + glowing[i]!.x, 0) / members.length;
+      const z = members.reduce((s, i) => s + glowing[i]!.z, 0) / members.length;
+      return { x, z };
+    });
+    const f = crowdFactors(centres);
+    clusters.forEach((members, i) => {
+      const l = this.lightPool[i]!;
+      const glow = PLACEABLES[glowing[members[0]!]!.kind].glow!;
+      const { x, z } = centres[i]!;
+      l.base = glow.base * Math.sqrt(members.length);
+      l.crowd = f[i];
+      l.light.color.set(glow.color);
+      l.light.position.set(x, groundHeight(x, z) + glow.y, z);
+    });
   }
 
   records(): PlacedRecord[] {

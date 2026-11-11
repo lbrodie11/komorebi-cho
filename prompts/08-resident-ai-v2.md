@@ -56,6 +56,13 @@ Residents who feel like *people with lives*, and whose adaptation to the player'
    - Exaggerated reaction animations: a little hop, head tilt, pointing.
 8. Persist relationships, favourites and diaries in the save.
 
+9. **Start with the thin slice (pulled ahead of prompts 05–07).** Before the full system, ship the cheapest version that makes three people recognisable: Mitsuko, Haru and Rin.
+   - `favourite` place memory with decay, and a utility bonus for favourites.
+   - Two or three story templates per stage. Mitsuko and a new bench: day 1 she notices it; day 2 she *chooses* it at her afternoon slot over the pond bench ("Mitsuko tries the new bench again"); day 3+ it's her favourite.
+   - A "Favourite spot: the bench under the sakura" line on the card.
+   - A cat prefers sitting within 2 m of Mitsuko while she's there.
+   - Unit tests for each stage. Accessories such as a bag of cat treats are animation work (prompt 09), not this slice.
+
 ## Acceptance criteria
 - Place a vending machine near the school route. Within one in-game afternoon, Kenta changes his route to pass it, and his diary mentions it.
 - Remove Mitsuko's favourite bench. She looks for it the next day (`?` bubble), then adopts another one, and her diary says so.

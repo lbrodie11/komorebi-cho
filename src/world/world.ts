@@ -146,6 +146,7 @@ export class World {
       const showCrops = clock.season === 'spring' || clock.season === 'summer';
       for (const c of this.nature.crops) c.visible = showCrops;
     }
+    this.weather.still = this.reducedMotion;
     this.weather.update(dt, gameMinutes, time, hour, clock.season);
 
     // light rig

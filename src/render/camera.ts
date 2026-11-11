@@ -31,6 +31,8 @@ export class IsoCamera {
   halfH = this.baseHalfH;
   readonly target = new THREE.Vector3(0, 3.9, 0);
   readonly targetGoal = new THREE.Vector3(0, 3.9, 0);
+  /** Reduced motion: pans jump straight to their goal instead of gliding. */
+  instant = false;
   private aspect = 1;
   private rtHeight = 220;
   private readonly right = new THREE.Vector3();
@@ -84,9 +86,12 @@ export class IsoCamera {
   }
 
   update(dt: number): void {
-    this.target.x = damp(this.target.x, this.targetGoal.x, 8, dt);
-    this.target.y = damp(this.target.y, this.targetGoal.y, 8, dt);
-    this.target.z = damp(this.target.z, this.targetGoal.z, 8, dt);
+    if (this.instant) this.target.copy(this.targetGoal);
+    else {
+      this.target.x = damp(this.target.x, this.targetGoal.x, 8, dt);
+      this.target.y = damp(this.target.y, this.targetGoal.y, 8, dt);
+      this.target.z = damp(this.target.z, this.targetGoal.z, 8, dt);
+    }
 
     const r = 160;
     const c = this.camera;

@@ -1,7 +1,7 @@
 import type { AudioEngine } from './engine';
 import { mtof } from './engine';
 import { PROGRESSIONS, keyForHour, snapToScale, voiceChord, type ChordStep } from './theory';
-import { Rng } from '../core/rng';
+import { Rng, stream } from '../core/rng';
 import type { Season } from '../core/clock';
 
 export interface MusicState {
@@ -92,7 +92,7 @@ export class Music {
     const drumLevel = this.night || s.rain > 0.6 || s.season === 'winter' ? 0 : 0.5;
     this.drums.gain.setTargetAtTime(drumLevel, this.a.now, 2);
     this.a.lofi.frequency.setTargetAtTime(s.rain > 0.5 ? 2200 : this.night ? 2800 : s.season === 'summer' ? 4600 : 3800, this.a.now, 3);
-    this.a.reverbSend.gain.setTargetAtTime(s.season === 'winter' ? 1.2 : this.night ? 0.9 : 0.6, this.a.now, 3);
+    this.a.musicVerb.gain.setTargetAtTime(s.season === 'winter' ? 1.2 : this.night ? 0.9 : 0.6, this.a.now, 3);
     this.makeMotif();
   }
 
@@ -220,7 +220,7 @@ export class Music {
     hg.gain.setValueAtTime(vel * 0.05, t);
     hg.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
     h.connect(hb).connect(hg).connect(out);
-    h.start(t, Math.random() * 3, 0.05);
+    h.start(t, this.a.noiseOffset(), 0.05);
   }
 
   private bass(midi: number, t: number, dur: number): void {
@@ -279,7 +279,7 @@ export class Music {
     g.gain.linearRampToValueAtTime(0.16, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
     n.connect(bp).connect(g).connect(this.drums);
-    n.start(t, Math.random() * 3, 0.25);
+    n.start(t, this.a.noiseOffset(), 0.25);
   }
   private hat(t: number, v: number): void {
     const c = this.a.ctx;
@@ -291,7 +291,7 @@ export class Music {
     g.gain.setValueAtTime(0.05 * v, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
     n.connect(hp).connect(g).connect(this.drums);
-    n.start(t, Math.random() * 3, 0.06);
+    n.start(t, this.a.noiseOffset(), 0.06);
   }
 
   private crackleBuffer(): AudioBuffer {
@@ -299,10 +299,11 @@ export class Music {
     const len = c.sampleRate * 3;
     const b = c.createBuffer(1, len, c.sampleRate);
     const d = b.getChannelData(0);
+    const r = stream('audio/crackle');
     for (let i = 0; i < len; i++) {
-      d[i] = (Math.random() * 2 - 1) * 0.015;
-      if (Math.random() < 0.0004) {
-        const amp = Math.random() * 0.8;
+      d[i] = (r.next() * 2 - 1) * 0.015;
+      if (r.next() < 0.0004) {
+        const amp = r.next() * 0.8;
         for (let k = 0; k < 30 && i + k < len; k++) d[i + k] = (d[i + k] ?? 0) + amp * Math.exp(-k / 4) * (k % 2 ? -1 : 1);
       }
     }

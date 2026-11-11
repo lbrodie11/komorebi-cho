@@ -30,31 +30,54 @@ Working method:
 ## Goal
 A UI that disappears into the diorama, a first 90 seconds that teaches the hook without text walls, and full accessibility.
 
+## Already done (2026-11-11 button audit, `docs/REVIEW-2026-11-11.md`)
+Don't redo these; build on them and keep `scripts/ui-audit.mjs` green.
+- Pinch zoom, two-finger twist, tap-to-preview then tap-to-confirm, `pointercancel`.
+- Esc closes one layer per press; dialog roles, `aria-expanded`, `aria-pressed`; focus moves into panels and back.
+- Saved volumes, reduced motion and look show on load; new players inherit the OS reduced-motion setting.
+- On phones and short screens, time, weather and season fold behind **More**; the palette sits above the toolbar.
+- Corrupt saves fall back field by field; the build ghost and removed objects free their GPU resources.
+
 ## Tasks
-1. **Fonts.** Self-host Pixelify Sans (SIL OFL 1.1) and, if Japanese UI text is used, a subset of Noto Sans JP. Ship `public/fonts/LICENSE-OFL.txt` and remove the Google Fonts link. Subset with `pyftsubset` to the glyphs actually used.
-2. **First 90 seconds** (no modal tutorial):
-   - Start at 16:40 in spring with sound off. A single quiet prompt: "Turn on sound".
+1. **Fonts.** Self-host Pixelify Sans (SIL OFL 1.1) and, if Japanese UI text is used, a subset of Noto Sans JP. Ship `public/fonts/LICENSE-OFL.txt` and remove the Google Fonts link. Subset with `pyftsubset` to the glyphs actually used (the Japanese subset from the strings in `src/i18n/ja.ts`).
+2. **First 90 seconds** (no modal tutorial). Follow the beat sheet in prompt 18:
+   - Start at **16:36** in spring with sound off (`DEFAULT_MINUTES`). This is deliberate: the evening bell lands about 84 s in and the lamps come on over the first two minutes. Don't move the start to dusk. If playtesters drift off before the bell, try 17:00.
+   - A single quiet prompt: "Turn on sound".
    - After 10 s an in-world hint appears: a sparkle on an empty grass spot plus "Try placing a bench here" (B).
    - When the player places it, guarantee one reaction: the nearest curious resident walks over, shows the bubbles, and the story log names them.
    - Then: "Click someone to meet them."
    - Hints never repeat once done, and the progress is saved.
 3. **HUD polish.**
-   - Pixel-art icons drawn from string bitmaps (like `wordmark.ts`) for every toolbar button, with text labels as tooltips.
-   - The toolbar auto-hides after 6 s without input and comes back on mouse move.
+   - Pixel-art icons drawn from string bitmaps (like `wordmark.ts`) for every toolbar button, with text labels as tooltips and accessible names.
+   - The toolbar auto-hides after 6 s without input and comes back on mouse move. Never while building, while a control has focus, or on touch screens.
    - The story log fades.
    - The resident card follows its resident with a small leader line.
-4. **Touch and mobile.** One-finger pan, pinch zoom (stepped), two-finger rotate (90° steps), long-press to inspect, and placement by tap-preview-then-tap-confirm. Test on iOS Safari and Android Chrome.
+   - **Notes:** a panel that keeps the last ~50 story lines with in-game day and time, saved. The feed is ephemeral (16 s); Notes is where you catch up, and phones get the full history.
+4. **Touch and mobile.** One-finger pan, pinch zoom (stepped), two-finger rotate (90° steps), **long-press to inspect** a resident, and placement by tap-preview-then-tap-confirm. Test on iOS Safari and Android Chrome.
 5. **Accessibility.**
-   - Keyboard-complete, with a visible focus ring and logical tab order.
+   - Keyboard-complete, with a visible focus ring and logical tab order. **Placement by keyboard:** in build or remove mode the arrow keys move the ghost on the ground and Enter places or removes.
+   - **Neighbours list:** the 14 residents by name, each opening the same card (screen readers can't click the canvas).
    - ARIA labels, and an `aria-live` region mirroring the story log.
-   - "Reduced motion" also disables the camera damping and particle drift.
+   - "Reduced motion" also disables the camera damping, the camera dissolve and particle drift (rain and snow fall straight, no petals or leaves drifting).
    - Caption toggle for sounds ("[temple bell]", "[rain begins]", "[cicadas]").
    - Text scale setting.
    - Validity ring colours that are colour-blind safe: add a shape cue, a solid ring for valid and a dashed ring for invalid.
-6. **i18n scaffolding.** Move all strings into `src/i18n/en.ts` and `ja.ts` with ICU-style placeholders. Persona blurbs are localisable. Diegetic signage stays Japanese.
+6. **i18n scaffolding.** Move all strings into `src/i18n/en.ts` and `ja.ts` with ICU-style placeholders. Persona blurbs are localisable. Diegetic signage stays Japanese. A language choice in Settings, defaulting to the browser language.
 7. **Settings persistence** for every setting, plus a "Reset tutorial" option.
+8. **Audio comfort and lifecycle** (pulled forward from prompt 11, phase 1, because captions and the volume settings depend on it):
+   - Turning sound off fades, stops scheduling, then really suspends the `AudioContext`. Ambience timers stop too.
+   - A hidden tab fades to silence and suspends; it resumes cleanly when visible again. `resume()` can reject or stay "interrupted" on mobile: handle both.
+   - Separate **Effects** volume beside Music and Ambience. Music and effects get separate reverb sends.
+   - No `Math.random()` in audio: named `Rng` streams, so audio is reproducible in tests.
+   - A global voice budget for one-shots.
+9. **Small fairness fixes found in the audit:**
+   - A 9th placed lantern or vending machine gets no light (only 8 pooled lights). Share the pool so every placed light glows, dimmer when crowded.
+   - Two open tabs overwrite each other's saves. Detect the other tab and stop this one autosaving, with a quiet note.
+   - If storage is unavailable, say "Not saving in this browser" in Settings.
 
 ## Acceptance criteria
 - A new player places something and sees a reaction within 60 s, without reading more than 12 words (test with 3 people).
-- An axe-core scan has no serious violations, and the game is fully playable with keyboard only.
+- An axe-core scan has no serious violations, and the game is fully playable with keyboard only, including placing and removing.
 - It works on a phone in landscape at 60 fps (or 30 in battery saver).
+- `scripts/ui-audit.mjs` passes, extended to cover every new control.
+- Sound off or a hidden tab leaves the `AudioContext` suspended (check `ctx.state`).

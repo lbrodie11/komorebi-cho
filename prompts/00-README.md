@@ -31,6 +31,8 @@ These prompts take the scaffold in `komorebi-cho/` to a polished, free, web rele
 | 17 | Launch | Landing page, press kit, trailer capture, devlog plan |
 | 18 | Award polish | First-90-seconds script, juice audit, consistency audit, bug bash |
 
+**Recommended order after 04** (from the 2026-11-11 review, `docs/REVIEW-2026-11-11.md`): do task 9 of prompt 08 (favourites for Mitsuko, Haru and Rin) and task 7 of prompt 10 (lighting gaps) before 05–07. Prompts 05–07 grow the world; those two grow attachment, which is the weakest link today. Then playtest with people who haven't seen it before going wider.
+
 `_PREAMBLE.md` holds the shared context and is already embedded at the top of every prompt. `RESEARCH-NOTES.md` lists the verified facts behind the design decisions.
 
 ## Rules of thumb

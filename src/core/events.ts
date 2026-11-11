@@ -1,3 +1,5 @@
+import type { Msg } from '../i18n';
+
 /** Minimal typed event bus. Systems talk through events, never through each other's internals. */
 export type Handler<T> = (payload: T) => void;
 
@@ -33,7 +35,10 @@ export interface WorldEditEvent {
 export type GameEvents = {
   objectPlaced: WorldEditEvent;
   objectRemoved: WorldEditEvent;
-  story: { text: string; who?: string };
+  /** A line for the story feed and Notes; `who` is the persona it is about, if any. */
+  story: { msg: Msg; who?: string; /** A greeting, not an event: shown in the feed, not kept in Notes. */ fleeting?: boolean };
+  /** A placed object was used, or inspected, by a resident (drives the first-minutes hints). */
+  noticed: { who: string; id: string };
   bell: { hour: number };
   sfx: { name: 'place' | 'remove' | 'flap' | 'meow' | 'click' | 'shutter'; x?: number; z?: number };
 };

@@ -21,6 +21,7 @@ export interface Slot {
 export interface SmartObject {
   id: string;
   kind: SmartKind;
+  /** Noun id: the words are `noun.<label>` in the language tables. */
   label: string;
   x: number;
   z: number;
@@ -84,12 +85,12 @@ export function frontSlot(x: number, z: number, ry: number, d: number, pose: Pos
 
 export function registerStaticObjects(r: SmartRegistry): void {
   for (const b of BENCHES) r.add({ id: b.id, kind: 'bench', label: 'bench', x: b.x, z: b.z, slots: benchSlots(b.x, b.z, b.ry) });
-  VENDING.forEach((v, i) => r.add({ id: `vending-${i}`, kind: 'vending', label: 'vending machine', x: v.x, z: v.z, slots: [frontSlot(v.x, v.z, 0, 0.85)] }));
+  VENDING.forEach((v, i) => r.add({ id: `vending-${i}`, kind: 'vending', label: 'vending', x: v.x, z: v.z, slots: [frontSlot(v.x, v.z, 0, 0.85)] }));
   const shops: [string, string, number, [number, number]][] = [
-    ['ramen', 'ramen shop', -2, [11, 23]],
+    ['ramen', 'ramen', -2, [11, 23]],
     ['bakery', 'bakery', 1.5, [7, 19]],
-    ['florist', 'flower shop', 4.7, [9, 18]],
-    ['books', 'bookshop', 7.6, [10, 20]],
+    ['florist', 'florist', 4.7, [9, 18]],
+    ['books', 'books', 7.6, [10, 20]],
   ];
   for (const [id, label, z, hours] of shops)
     r.add({
@@ -116,7 +117,7 @@ export function registerStaticObjects(r: SmartRegistry): void {
   r.add({
     id: 'islet-shrine',
     kind: 'shrine',
-    label: 'Benzaiten shrine',
+    label: 'shrine',
     x: ISLET.x,
     z: ISLET.z,
     slots: [{ x: ISLET.x - 0.3, z: ISLET.z, face: Math.PI / 2, pose: 'pray', takenBy: null }],

@@ -28,37 +28,60 @@ Working method:
 ---
 
 ## Goal
-A score people leave running for hours, as Quack's site does with "the game's endless lo-fi piano", and a soundscape that makes the place real. Still 100% synthesised.
+A score people leave running for hours, and a soundscape that makes the place real even when the music stops. Still 100% synthesised: no samples, no recordings, no one-shots made outside the code (non-negotiable #1, so recording instruments on hardware is out).
 
-## Tasks
-1. **Composer v2** (`src/audio/music.ts` and `theory.ts`):
-   - **Form:** sections A/B/breakdown/outro over 32–64 bars, and modulations by fourth/fifth or relative minor at section boundaries, driven by time of day.
-   - **Melody memory:** motifs recur across sections with development: inversion, rhythmic displacement, sequence up a step.
-   - **Humanisation:** timing jitter of ±8 ms, velocity curves per phrase, occasional "wrong-but-right" passing tones, sustain pedal simulation (longer releases, sympathetic shimmer).
-   - **Instrument palette:**
-     - Rhodes (FM: 2-op bell plus tremolo)
-     - nylon guitar (Karplus–Strong)
-     - soft pad (detuned saws, LPF)
-     - music box (inharmonic sines)
-     - upright bass (filtered saw plus body)
+The direction (from the 2026-11-11 audio review): **algorithmically arranged, intentionally composed music**, not more random notes. One beautiful melody heard in three forms beats twenty melodies nobody remembers. Silence is part of the score.
 
-     Season and hour choose the ensemble.
-   - **Ambient-only mode** for focus listening.
-2. **Performance.** Move voice synthesis to an `AudioWorklet` if node churn shows in profiles. Pool voices and keep polyphony under 24.
-3. **Spatial emitters.** Positional sources that follow the camera's focus and zoom (StereoPanner plus distance gain; HRTF is optional):
-   - ramen kitchen clatter and steam hiss
-   - kissaten radio jazz bleeding from the door (a filtered version of the music)
-   - sento water, the waterfall, the shrine bell rope, vending-machine compressor hum
-   - wind chimes you placed
-4. **Mix targets.**
-   - Integrated loudness around −18 LUFS for music + ambience (measure with an offline render). Peaks stay under −1 dBTP.
-   - Duck the music by 2–3 dB under one-shots.
-   - Fade everything to a whisper when the tab is hidden, and resume smoothly.
-5. **Captions.** Every ambient event has a caption string for the a11y caption mode from prompt 04.
-6. **Soundtrack export.** A dev page renders 30 minutes offline (`OfflineAudioContext`) with a seed, to WAV. Use it for the trailer and an optional free soundtrack release.
-7. **Tests.** Theory unit tests (voice leading never jumps more than an octave, the melody stays in scale or uses approved passing tones), plus a scheduler test for no drift over 10 simulated minutes.
+Prompt 04 task 8 already did phase 1 (lifecycle, buses, deterministic RNG, voice budget). Check it still holds before starting.
+
+## Tasks (in phases; review and listen after each)
+1. **One exceptional theme first: "The Last Train Home"** (68–74 BPM, nostalgic). Evaluate it as music on its own before making anything adaptive.
+   - An authored 8-bar melody in `src/audio/themes.ts` (data, not random steps), plus 2–3 written variations: an altered note, rhythmic displacement, sequence up a step.
+   - Harmony: maj7, maj9, m7, m9, 6/9, sus and the odd borrowed chord, with **voice leading** that minimises movement from the previous voicing.
+   - **Chord-aware melody:** every melody note is a chord tone, an approved passing tone, or in the section's chosen mode. The fixed `MELODY_SCALE` goes.
+   - **Groove templates per instrument**, not one swing ratio: kick near the grid, snare 10–25 ms late, hats lightly varied. Seeded, bounded humanisation; velocity curves per phrase.
+2. **Instruments: five good ones beat twenty.**
+   - Electric piano: FM (2-op, envelope-shaped index, velocity-dependent brightness, soft tremolo).
+   - Felt piano: soft transients, controlled decay.
+   - Bass: rounded, slight saturation, soft attack, stable low end.
+   - Drums: dry kick, gentle snare and rim, textured hats, brushes; better transient shaping.
+   - A short warm pluck (Karplus–Strong) for imperfect fragments.
+   - Vinyl crackle: sparse, quieter, optional (it tires the ear).
+3. **Music Director** (`src/audio/director.ts`): chooses a musical scene from time, weather, season and neighbourhood activity, and keeps continuity.
+   - **The music has its own clock.** Fast-forward never speeds it up; a jump from noon to midnight never changes chord mid-bar.
+   - Transitions only at 4-, 8- or 16-bar boundaries (by urgency), with a minimum dwell. Fast-forward updates the *desired* mood without queueing repeated transitions.
+   - Vertical layering for small changes (rain thins the drums and adds a pad; the melody stays). Horizontal resequencing for big ones (afternoon → evening theme at a phrase end).
+   - Deliberate rests: after a piece ends, a minute or two of only the soundscape, then a familiar phrase returns.
+4. **The full set**, sharing one recurring Komorebi-chō motif:
+   - Morning Light (64–72 BPM, EP, plucks, brushes, maj9 and 6/9)
+   - Afternoon on the Backstreet (72–80 BPM, the most hip-hop: boom-bap, muted guitar fragments)
+   - The Last Train Home (phase 1)
+   - Rain After Midnight (58–68 BPM, sparse piano, long silences, often no drums)
+   - Season shading: spring delicate; summer fuller bass; autumn muted and nostalgic; winter minimal with long chord tails.
+5. **Spatial soundscape.** A virtual listener at the camera's focus point (not the far-away ortho camera); pan from each source's projected screen position, gain and a low-pass from distance and zoom. Simple panning for most sources; HRTF only for a few if it sounds better.
+   - World emitters: the waterfall and pond, sento water, kissaten cups and the radio bleeding from the door (a filtered copy of the music), the ramen kitchen, vending-machine hum, placed wind chimes, the shrine bell rope.
+   - Animals from where they are: cats, pigeons, crows over the chimney.
+   - Replace random stereo placement with real positions everywhere.
+6. **Rain as several layers:** broad rainfall, roofs, leaves, eave and gutter drips, wet ground, the odd close drop. Rain fades first after it stops; drips and trickles carry on while the street is wet (matching the visible wetness).
+7. **Neighbourhood life from the sim.** Residents and shops cause sounds: the kissaten door and a cup on a saucer when Haru opens, shutters rolling at opening and closing, wetter footsteps in rain near the focus, a bench creak. **Event importance and a density budget** (Quiet / Balanced (default) / Lively) so a busy minute never piles up.
+8. **A distant commuter train**, rare, low and muffled, moving along a plausible offscreen line behind the buildings. Avoid tourist clichés (constant shamisen, frequent temple bells, market chatter).
+9. **Mix.**
+   - Buses: Music, Nature/Weather, Neighbourhood effects, Master (the UI already has Music, Ambience and Effects).
+   - Reverb by place: the kissaten enclosed, the park open. No global wash.
+   - Duck the music 2–3 dB under one-shots. Keep bass controlled (waterfall, wind and bass pile up). No arbitrary stereo motion.
+   - Loudness: about −23 LUFS integrated (±2 LU) over 30 minutes, true peak at most −1 dBTP. (The review cites WHO/ITU safe-listening guidance for games for these numbers; check the standard before relying on it.)
+10. **Captions.** Every ambient event and emitter has a caption string for the caption mode from prompt 04.
+11. **Soundtrack export.** A dev page renders 30 minutes offline (`OfflineAudioContext`) with a seed, to WAV. Use it for listening tests, the trailer and an optional free soundtrack release.
+12. **Tests.**
+    - Theory: voice leading never jumps more than an octave; melody notes are chord tones, approved passing tones or in mode; velocities bounded; groove offsets bounded.
+    - Scheduler: no drift over 10 simulated minutes; tempo independent of sim speed; transitions only on bar boundaries.
+    - Lifecycle: rapid mute/unmute leaves one engine and no duplicated voices; hidden tab suspends; an interrupted context recovers at a clean bar.
+    - Soundscape: season change leaves no stray layers; the event budget caps simultaneous voices.
 
 ## Acceptance criteria
-- A 60-minute listening session (playtest) where 3 of 3 listeners can't point to an obvious loop.
-- CPU for audio is under 5% on the reference laptop.
-- Measured loudness is within ±1 LU of the target.
+- "The Last Train Home" played alone for 5 minutes sounds like a piece of music to 3 of 3 listeners, before any adaptivity is added.
+- A 60-minute listening session (music alone, soundscape alone, full mix; on headphones, laptop speakers and a phone) where 3 of 3 listeners can't point to an obvious loop, and nothing becomes tiring.
+- Fast-forward, time jumps and weather changes never cause a mid-phrase cut or a tempo change.
+- Mono fold-down keeps every essential instrument and cue audible.
+- CPU for audio is under 5% on the reference laptop; one-shot voices stay under the budget.
+- Measured loudness within the target above.

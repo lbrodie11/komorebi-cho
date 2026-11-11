@@ -14,18 +14,26 @@ import { SmartRegistry, registerStaticObjects } from './sim/smart';
 import { Residents, type Agent } from './sim/residents';
 import { Animals } from './sim/animals';
 import { BuildTool, type ToolMode } from './ui/build';
-import { Hud } from './ui/hud';
+import { Hud, TEXT_SCALES, type LangSetting, type TextScale } from './ui/hud';
+import { Tutorial } from './ui/tutorial';
 import { DebugOverlay } from './ui/debug';
 import { Sound } from './audio/sound';
-import { load, save, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
+import { load, save, SAVE_KEY, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
 import { PLACEABLES, type PlaceableKind } from './world/props';
 import { parseLaunchParams, warmupStart } from './core/params';
 import { warmUp } from './sim/warmup';
 import { DEFAULT_DIFFUSION, diffusionOutputSize } from './render/diffusion';
+import { browserLang, msg, setLang, t, type MsgKey } from './i18n';
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const hudRoot = document.getElementById('hud') as HTMLElement;
+const params = parseLaunchParams(location.search);
+// Scripted (seeded) runs neither restore nor overwrite the player's save.
+const saved = params.scripted ? null : load();
+/** The player's language choice; 'auto' follows the browser. Set before anything shows words. */
+let langSetting: LangSetting = saved?.settings.lang ?? 'auto';
+setLang(langSetting === 'auto' ? browserLang() : langSetting);
 const WEBGL_RETRIES_KEY = 'komorebi-cho/webgl-retries';
 /**
  * Browsers occasionally lose the WebGL context while it is being created (seen intermittently in
@@ -45,10 +53,10 @@ function createRenderer(): THREE.WebGLRenderer {
     }
     if (tries < 2) setTimeout(() => location.reload(), 300);
     else {
-      const msg = document.createElement('p');
-      msg.className = 'webgl-failed';
-      msg.textContent = 'Komorebi-chō couldn’t start 3D graphics in this browser. Try reloading, or another browser.';
-      document.getElementById('app')?.append(msg);
+      const note = document.createElement('p');
+      note.className = 'webgl-failed';
+      note.textContent = t('error.webgl');
+      document.getElementById('app')?.append(note);
     }
     throw err;
   }
@@ -60,7 +68,6 @@ renderer.setPixelRatio(1);
 renderer.shadowMap.enabled = true;
 // One hard tap per pixel: shadow edges get their softness from the dither + palette snap, not PCF noise.
 renderer.shadowMap.type = THREE.BasicShadowMap;
-const params = parseLaunchParams(location.search);
 const debug = params.debug ? new DebugOverlay(document.getElementById('app') as HTMLElement, renderer) : null;
 
 const bus = new EventBus<GameEvents>();
@@ -93,8 +100,9 @@ let diffusion = params.diffusion ?? diffusionSetting;
 let photo = false;
 
 // ── Persistence ───────────────────────────────────────────────────────────
-// Scripted (seeded) runs neither restore nor overwrite the player's save.
-const saved = params.scripted ? null : load();
+let captions = false;
+let textScale: TextScale = 1;
+const tutorial = new Tutorial(params.scripted ? ['place', 'react', 'meet'] : (saved?.tutorial ?? []));
 if (saved) {
   clock.minutes = saved.minutes;
   clock.season = saved.season;
@@ -107,6 +115,9 @@ if (saved) {
   pixel = params.pixel ?? pixelSetting;
   sound.musicVolume = saved.settings.music;
   sound.ambienceVolume = saved.settings.ambience;
+  sound.effectsVolume = saved.settings.effects;
+  captions = saved.settings.captions;
+  textScale = (TEXT_SCALES as readonly number[]).includes(saved.settings.textScale) ? (saved.settings.textScale as TextScale) : 1;
   world.reducedMotion = saved.settings.reducedMotion;
   diffusionSetting = saved.settings.diffusion;
   diffusion = params.diffusion ?? diffusionSetting;
@@ -115,22 +126,49 @@ if (saved) {
 }
 let reducedMotion = world.reducedMotion;
 build.reducedMotion = reducedMotion;
+iso.instant = reducedMotion;
+residents.guaranteeNext = tutorial.wantsReaction;
+/**
+ * Another tab saved the town since this one loaded: two tabs autosaving would overwrite each other
+ * (a bench placed in one erased by the other's next save). The newest tab keeps the town; this one stops.
+ */
+let otherTab = false;
+window.addEventListener('storage', (e) => {
+  if (e.key !== SAVE_KEY || otherTab || params.scripted) return;
+  otherTab = true;
+  hud.setSaveStatus('otherTab');
+  bus.emit('story', { msg: msg('settings.otherTab') });
+});
 function persist(): void {
-  if (params.scripted) return;
-  save({
+  if (params.scripted || otherTab) return;
+  const ok = save({
     version: SAVE_VERSION,
     minutes: clock.minutes,
     season: clock.season,
     weather: world.weather.mode,
     placed: build.records(),
     memory: residents.memory(),
-    settings: { pixel: pixelSetting, music: sound.musicVolume, ambience: sound.ambienceVolume, reducedMotion, diffusion: diffusionSetting },
+    tutorial: tutorial.flags,
+    notes: hud.noteList,
+    settings: {
+      pixel: pixelSetting,
+      music: sound.musicVolume,
+      ambience: sound.ambienceVolume,
+      effects: sound.effectsVolume,
+      reducedMotion,
+      diffusion: diffusionSetting,
+      captions,
+      textScale,
+      lang: langSetting,
+    },
   });
+  hud.setSaveStatus(ok ? 'ok' : 'notSaving');
 }
 
 // ── UI ────────────────────────────────────────────────────────────────────
 const setTool = (m: ToolMode, k?: PlaceableKind) => {
   build.setMode(m, k);
+  kbCursor = null;
   hud.setTool(m, build.kind);
   canvas.classList.toggle('building', m !== 'view');
 };
@@ -148,7 +186,7 @@ const hud = new Hud(hudRoot, {
   },
   setSeason: (s: Season) => {
     clock.season = s;
-    bus.emit('story', { text: seasonLine(s) });
+    bus.emit('story', { msg: msg(`story.${s}` as MsgKey) });
   },
   setTool,
   rotateItem: () => build.rotate(),
@@ -173,15 +211,52 @@ const hud = new Hud(hudRoot, {
     hud.setPixel(p);
     resize();
   },
-  setVolumes: (m, a) => {
+  setVolumes: (m, a, fx) => {
     sound.musicVolume = m;
     sound.ambienceVolume = a;
+    sound.effectsVolume = fx;
     sound.applyVolumes();
   },
   setReducedMotion: (v) => {
     reducedMotion = v;
     world.reducedMotion = v;
     build.reducedMotion = v;
+    iso.instant = v;
+  },
+  setCaptions: (on) => {
+    captions = on;
+    hud.setCaptions(on);
+  },
+  setTextScale: (sc) => {
+    textScale = sc;
+    hud.setTextScale(sc);
+  },
+  setLang: (l) => {
+    langSetting = l;
+    setLang(l === 'auto' ? browserLang() : l);
+    hud.setLang(l);
+    hud.setClock(clock.label(), clock.day, clock.season);
+  },
+  meet: (id) => meet(id),
+  showMe: (id) => {
+    const a = residents.agents.find((g) => g.p.id === id);
+    if (a && !a.hidden) {
+      iso.targetGoal.set(a.x, iso.targetGoal.y, a.z);
+      if (reducedMotion) iso.target.copy(iso.targetGoal);
+    }
+  },
+  hintPressed: () => {
+    setTool('build', 'bench');
+    if (hintSpot) {
+      kbCursor = { x: hintSpot.x, z: hintSpot.z };
+      build.pointer(downRay(hintSpot.x, hintSpot.z));
+    }
+  },
+  resetTutorial: () => {
+    tutorial.reset();
+    residents.guaranteeNext = true;
+    hintSpot = null;
+    persist();
   },
   setDiffusion: (s) => {
     diffusionSetting = s;
@@ -194,11 +269,19 @@ const hud = new Hud(hudRoot, {
     // Save the reset state now (settings included) rather than deleting the save: deleting it would also
     // throw away the player's look and volumes until the next autosave.
     persist();
-    bus.emit('story', { text: 'The neighbourhood is as it was.' });
+    bus.emit('story', { msg: msg('story.reset') });
   },
 });
 hud.setSpeed(clock.speed, clock.paused);
-hud.setVolumes(sound.musicVolume, sound.ambienceVolume);
+hud.setVolumes(sound.musicVolume, sound.ambienceVolume, sound.effectsVolume);
+hud.setCaptions(captions);
+hud.setTextScale(textScale);
+hud.setLang(langSetting);
+if (saved) hud.restoreNotes(saved.notes);
+hud.setPeopleSource((id) => {
+  const a = residents.agents.find((g) => g.p.id === id);
+  return a ? residents.info(a) : null;
+});
 hud.setReducedMotion(reducedMotion);
 hud.setSeason(clock.season);
 hud.setWeather(world.weather.mode);
@@ -206,16 +289,21 @@ hud.setTool('view', build.kind);
 hud.setPixel(pixel);
 hud.setDiffusion(diffusion);
 
-function seasonLine(s: Season): string {
-  return {
-    spring: 'Sakura season. Petals in the gutters.',
-    summer: 'Summer. The cicadas have opinions.',
-    autumn: 'Autumn. The maples are showing off.',
-    winter: 'Winter. Quiet, and the bath smoke hangs low.',
-  }[s];
-}
+bus.on('story', ({ msg: m, fleeting }) => hud.story(m, clock.day, clock.minutes, fleeting));
+bus.on('noticed', () => tutorial.noticed());
+bus.on('objectPlaced', () => tutorial.placed());
+sound.onCaption = (k) => {
+  if (captions) hud.caption(t(`caption.${k}` as MsgKey));
+};
 
-bus.on('story', ({ text }) => hud.story(text));
+/** Open a neighbour's card (a click on them, a long press, or the People list). */
+function meet(id: string): void {
+  const a = residents.agents.find((g) => g.p.id === id);
+  if (!a) return;
+  hud.openCard(id, () => residents.info(a));
+  tutorial.met();
+  bus.emit('sfx', { name: 'click' });
+}
 bus.on('sfx', ({ name, x }) => sound.sfx(name, x !== undefined ? x / 18 : 0));
 
 // ── Sizing ────────────────────────────────────────────────────────────────
@@ -334,6 +422,17 @@ const touches = new Map<number, { x: number; y: number }>();
 let gesture: { d: number; a: number } | null = null;
 /** After a two-finger gesture, lifting the fingers must not count as a tap. */
 let gestured = false;
+/** Touch: pressing and holding on someone opens their card (a long press is not a tap). */
+let longPress: { timer: number; fired: boolean } | null = null;
+const LONG_PRESS_MS = 500;
+/** Build or remove by keyboard: a cursor on the ground that the arrow keys move and Enter commits. */
+let kbCursor: { x: number; z: number } | null = null;
+/** Where the bench hint sparkles (chosen once per hint, on open grass). */
+let hintSpot: { x: number; z: number } | null = null;
+/** A ray straight down onto (x, z): how the keyboard cursor and the hint drive the build preview. */
+function downRay(x: number, z: number): THREE.Ray {
+  return new THREE.Ray(new THREE.Vector3(x, 40, z), new THREE.Vector3(0, -1, 0));
+}
 function setNdc(e: { clientX: number; clientY: number }): void {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -365,7 +464,12 @@ function onGesture(): void {
     gesture.a = g.a;
   }
 }
+function cancelLongPress(): void {
+  if (longPress) window.clearTimeout(longPress.timer);
+  if (!longPress?.fired) longPress = null;
+}
 function endPointer(e: PointerEvent): void {
+  if (longPress) window.clearTimeout(longPress.timer);
   touches.delete(e.pointerId);
   if (touches.size < 2) gesture = null;
   if (touches.size === 0) gestured = false;
@@ -375,8 +479,10 @@ function endPointer(e: PointerEvent): void {
   }
 }
 canvas.addEventListener('pointerdown', (e) => {
+  kbCursor = null; // the pointer takes over from the keyboard cursor
   if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (touches.size >= 2) {
+    cancelLongPress();
     // second finger: stop panning, start a pinch/twist
     const g = twoFingers()!;
     gesture = { d: Math.max(1, g.d), a: g.a };
@@ -386,6 +492,21 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   drag = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
+  if (e.pointerType === 'touch' && build.mode === 'view' && !photo) {
+    const at = { clientX: e.clientX, clientY: e.clientY };
+    longPress = {
+      fired: false,
+      timer: window.setTimeout(() => {
+        if (!drag || drag.moved || touches.size !== 1) return;
+        setNdc(at);
+        const a = pickAgent();
+        if (a && longPress) {
+          longPress.fired = true;
+          meet(a.p.id);
+        }
+      }, LONG_PRESS_MS),
+    };
+  }
   try {
     canvas.setPointerCapture(e.pointerId);
   } catch {
@@ -407,6 +528,7 @@ canvas.addEventListener('pointermove', (e) => {
       dy = e.clientY - drag.y;
     if (drag.moved || Math.hypot(dx, dy) > 5) {
       drag.moved = true;
+      cancelLongPress();
       canvas.classList.add('dragging');
       iso.panScreen(dx, dy, canvas.clientHeight);
       drag.x = e.clientX;
@@ -420,8 +542,10 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', (e) => {
   const wasDrag = drag?.moved || gestured;
   const mine = drag?.id === e.pointerId; // a press that began on the HUD and was released here is not a click
+  const held = longPress?.fired;
   endPointer(e);
-  if (wasDrag || !mine) return;
+  longPress = null;
+  if (wasDrag || !mine || held) return;
   if (photo) return; // photo mode is for looking: no cards, no building
   setNdc(e);
   if (build.mode !== 'view') {
@@ -433,10 +557,8 @@ canvas.addEventListener('pointerup', (e) => {
     return;
   }
   const a = pickAgent();
-  if (a) {
-    hud.openCard(() => residents.info(a));
-    bus.emit('sfx', { name: 'click' });
-  } else hud.closeCard();
+  if (a) meet(a.p.id);
+  else hud.closeCard();
 });
 canvas.addEventListener(
   'wheel',
@@ -453,7 +575,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 /** Rotation and zoom are instant; the post pass dissolves from the old view so no frame shows geometry mid-slide. */
 function cameraStep(change: () => void): void {
-  if (!contextLost) post.beginDissolve(renderer);
+  if (!contextLost && !reducedMotion) post.beginDissolve(renderer); // reduced motion: a plain cut, no dissolve
   change();
 }
 function zoomStep(dir: 1 | -1, focus?: THREE.Vector3): void {
@@ -506,7 +628,29 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   // the HUD is hidden in photo mode: no building, and no help it can't show
-  if (photo && ['b', 'x', 'delete', 'r', 'h', '?'].includes(k)) return;
+  if (photo && ['b', 'x', 'delete', 'r', 'h', '?', 'n', 'l', 'enter'].includes(k)) return;
+  // Build or remove by keyboard: arrows move a cursor on the ground (screen-aligned), Enter commits
+  if (build.mode !== 'view' && (k.startsWith('arrow') || k === 'enter')) {
+    e.preventDefault();
+    if (k === 'enter') {
+      if (kbCursor) build.click();
+      return;
+    }
+    if (!kbCursor) kbCursor = { x: Math.round(iso.target.x * 2) / 2, z: Math.round(iso.target.z * 2) / 2 };
+    else {
+      const step = 0.5;
+      const sx = k === 'arrowleft' ? -1 : k === 'arrowright' ? 1 : 0;
+      const sy = k === 'arrowup' ? 1 : k === 'arrowdown' ? -1 : 0;
+      // screen right and screen up, flattened onto the ground for the current camera yaw
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(iso.camera.quaternion).setY(0).normalize();
+      const up = new THREE.Vector3(0, 0, -1).applyQuaternion(iso.camera.quaternion).setY(0).normalize();
+      kbCursor.x = Math.max(GROUND.x0, Math.min(GROUND.x1, kbCursor.x + (right.x * sx + up.x * sy) * step));
+      kbCursor.z = Math.max(GROUND.z0, Math.min(GROUND.z1, kbCursor.z + (right.z * sx + up.z * sy) * step));
+    }
+    build.pointer(downRay(kbCursor.x, kbCursor.z));
+    iso.targetGoal.set(kbCursor.x, iso.targetGoal.y, kbCursor.z); // keep the cursor in view
+    return;
+  }
   const pan = 40;
   if (k === 'q') cameraStep(() => iso.rotate(-1));
   else if (k === 'e') cameraStep(() => iso.rotate(1));
@@ -527,10 +671,16 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'm') void hud.toggleSound();
   else if (k === 'p') hud.togglePhoto(!photo);
   else if (k === 'h' || k === '?') hud.toggleHelp();
+  else if (k === 'n') hud.toggleNotes();
+  else if (k === 'l') hud.togglePeople();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) persist();
+  // a hidden tab goes quiet and stops all audio work; it comes back where it would be
+  void sound.setHidden(document.hidden);
 });
+// a gesture is the browser's permission to restart audio it interrupted (a phone call, the OS)
+window.addEventListener('pointerdown', () => sound.retry(), { passive: true });
 window.addEventListener('pagehide', persist);
 
 // ── Seeded start (?seed&hour&season&weather&freeze) ─────────────────────────
@@ -565,6 +715,47 @@ let wasRaining = world.weather.rain > 0.3;
 function renderFrame(dt: number): void {
   iso.update(dt);
   post.render(renderer, world.scene, iso.camera, time, world.weather.wind, dt);
+}
+
+// ── First-minutes hints and the card's leader line ──────────────────────
+/** Open grass near the pond where a first bench looks at home; the first that is free gets the sparkle. */
+const HINT_SPOTS: [number, number][] = [
+  [-2.5, 6.5],
+  [1.5, 6.8],
+  [-5, 4.5],
+  [4.5, 5.5],
+  [-1, -1.5],
+  [3, -2],
+];
+let hintStep: 'bench' | 'meet' | null = null;
+function updateHints(dt: number): void {
+  const step = photo ? null : tutorial.update(dt);
+  if (step === 'bench' && !hintSpot) {
+    const free = HINT_SPOTS.find(([x, z]) => build.canPlace('bench', x, z, { ignoreResidents: true }));
+    hintSpot = free ? { x: free[0], z: free[1] } : null;
+  }
+  if (step !== hintStep) {
+    hintStep = step;
+    hud.setHint(step);
+    if (step === 'bench') residents.guaranteeNext = true;
+  }
+}
+const tmpV = new THREE.Vector3();
+/** World point → HUD pixels, or null when it is off the canvas. */
+function toScreen(x: number, y: number, z: number): { x: number; y: number } | null {
+  tmpV.set(x, y, z).project(iso.camera);
+  if (tmpV.z > 1 || Math.abs(tmpV.x) > 1 || Math.abs(tmpV.y) > 1) return null;
+  const r = canvas.getBoundingClientRect(),
+    h = hudRoot.getBoundingClientRect();
+  return { x: r.left - h.left + ((tmpV.x + 1) / 2) * r.width, y: r.top - h.top + ((1 - tmpV.y) / 2) * r.height };
+}
+function placeOverlays(): void {
+  if (hintStep === 'bench') hud.placeHint(hintSpot ? toScreen(hintSpot.x, groundHeight(hintSpot.x, hintSpot.z) + 0.2, hintSpot.z) : null);
+  const id = hud.openCardId;
+  if (id) {
+    const a = residents.agents.find((g) => g.p.id === id);
+    hud.placeCard(a && !a.hidden ? toScreen(a.x, a.root.position.y + 2.05, a.z) : null);
+  }
 }
 
 // ── Context loss ──────────────────────────────────────────────────────────
@@ -634,26 +825,19 @@ function frame(now: number): void {
     sound.update(hour, rain, clock.season);
     hud.setClock(clock.label(), clock.day, clock.season);
     hud.refreshCard();
+    hud.renderPeople();
     const raining = rain > 0.3;
     if (raining !== wasRaining) {
       wasRaining = raining;
       const snow = clock.season === 'winter';
-      bus.emit('story', {
-        text: raining
-          ? snow
-            ? 'Snow begins to fall.'
-            : 'It starts to rain. Umbrellas bloom.'
-          : snow
-            ? 'The snow eases off.'
-            : 'The rain stops. Everything shines.',
-      });
+      bus.emit('story', { msg: msg(raining ? (snow ? 'story.snowStart' : 'story.rainStart') : snow ? 'story.snowStop' : 'story.rainStop') });
     }
   }
   // temple bell at 6:00 and 18:00
   for (const h of [6, 18]) {
     if (prevHour < h && hour >= h && hour - prevHour < 1) {
       sound.bell();
-      bus.emit('story', { text: h === 6 ? 'The temple bell rings in the morning.' : 'The evening bell. Time to head home.' });
+      bus.emit('story', { msg: msg(h === 6 ? 'story.bellMorning' : 'story.bellEvening') });
     }
   }
   prevHour = hour;
@@ -662,7 +846,9 @@ function frame(now: number): void {
     saveTimer = 0;
     persist();
   }
+  if (!frozen) updateHints(realDt);
   renderFrame(realDt);
+  placeOverlays();
   frames++;
   debug?.endFrame(now, performance.now() - t0, simMs, iso.camera, residents.agents);
   schedule();
@@ -675,7 +861,11 @@ try {
 } catch {
   /* storage unavailable */
 }
-if (!params.scripted) bus.emit('story', { text: 'Late afternoon in Komorebi-chō.' });
+if (!params.scripted) {
+  const h = clock.hour;
+  const when = h < 5 || h >= 21 ? 'night' : h < 7 ? 'dawn' : h < 11 ? 'morning' : h < 15 ? 'day' : h < 18.5 ? 'afternoon' : 'evening';
+  bus.emit('story', { msg: msg(`story.start.${when}` as MsgKey), fleeting: true });
+}
 
 /** What `__komorebi.freeze()` can pin. Anything left out keeps its current value. */
 interface FreezeSpec {

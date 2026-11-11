@@ -49,6 +49,8 @@ Let people keep, share and show their neighbourhoods with no servers.
    - An optional "8-bit print" filter (a reduced palette).
 4. **Privacy.** No analytics by default. If any telemetry is added later, it's opt-in, anonymous, and documented in `PRIVACY.md`.
 
+5. **Multiple tabs.** Prompt 04 stops a second tab from autosaving over the first. Replace that with a proper lock (`BroadcastChannel` or Web Locks), and let the player choose which tab keeps the town.
+
 ## Acceptance criteria
 - Round trips are byte-identical: export → import, and share code → visit → make it mine.
 - A share link for a town with 40 edits is under 2 KB.

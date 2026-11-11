@@ -19,3 +19,38 @@ export function crowdFactors(points: readonly { x: number; z: number }[], radius
     return 1 / Math.sqrt(Math.max(1, w));
   });
 }
+
+/**
+ * Group placed lights into at most `max` clusters, so every placed lantern or vending machine
+ * glows even when there are more of them than pooled point lights (a constant light count
+ * keeps three.js from recompiling shaders). Greedy agglomerative: repeatedly merge the two
+ * closest clusters, where lights of different `tag` (colour) count as `tagGap` metres further
+ * apart. Pure and deterministic: the same points in the same order give the same clusters.
+ * Returns member indices per cluster, in first-member order.
+ */
+export function clusterLights(points: readonly { x: number; z: number; tag?: string }[], max: number, tagGap = 6): number[][] {
+  const clusters = points.map((p, i) => ({ members: [i], x: p.x, z: p.z, tag: p.tag }));
+  while (clusters.length > max && clusters.length > 1) {
+    let bi = 0,
+      bj = 1,
+      bd = Infinity;
+    for (let i = 0; i < clusters.length; i++)
+      for (let j = i + 1; j < clusters.length; j++) {
+        const a = clusters[i]!,
+          b = clusters[j]!;
+        const d = Math.hypot(a.x - b.x, a.z - b.z) + (a.tag === b.tag ? 0 : tagGap);
+        if (d < bd) {
+          bd = d;
+          bi = i;
+          bj = j;
+        }
+      }
+    const a = clusters[bi]!,
+      b = clusters.splice(bj, 1)[0]!;
+    const n = a.members.length + b.members.length;
+    a.x = (a.x * a.members.length + b.x * b.members.length) / n;
+    a.z = (a.z * a.members.length + b.z * b.members.length) / n;
+    a.members.push(...b.members);
+  }
+  return clusters.map((c) => c.members);
+}

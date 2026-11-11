@@ -50,6 +50,12 @@ Weather and seasons that change **affordances**, not just colours, plus small fe
 5. **Calendar.** An optional "follow the real date" mode: the season comes from the device date and the time of day can follow the real clock (desktop-companion use). Show the day number and a tiny almanac line in the HUD ("Shōman · sakura falling").
 6. **Moon phases** in the post-pass sky, computed from the date.
 
+7. **Lighting gaps left by prompt 03** (each with screenshots at 19:15 clear and in rain):
+   - Light pools show in wet streets: a wet-only pool boost, or the mirrored pass extended to wet roads.
+   - The kissaten door gets one authored downward light (a single `SpotLight`, or a brighter authored pool), so the focal point reads first.
+   - Overlapping fixed pools share brightness (the kissaten's two front spills currently add up).
+   - A grayscale and silhouette check: `scripts/diffusion-shots.mjs` plus a desaturate step, so the value structure reads without colour.
+
 ## Acceptance criteria
 - A 30-minute fast-forward through a year shows all four seasons, at least five weather states and every festival, with no visual glitches.
 - Residents measurably change behaviour in rain (path heat-map comparison in the PR).

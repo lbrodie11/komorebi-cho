@@ -1,44 +1,99 @@
 import { AudioEngine } from './engine';
 import { Music } from './music';
-import { Ambience } from './ambience';
+import { Ambience, type CaptionKind } from './ambience';
+import { AudioLifecycle } from './lifecycle';
 import type { Season } from '../core/clock';
 
 export type SfxName = 'place' | 'remove' | 'flap' | 'meow' | 'click' | 'shutter';
+export type { CaptionKind };
 
 /**
  * Facade over the audio graph. Browsers only allow audio after a user gesture,
- * so nothing is created until `enable()` is called from a click.
+ * so nothing is created until sound is first turned on from a click or key.
+ *
+ * Off really is off: turning sound off (or hiding the tab) fades out, stops every
+ * scheduler and suspends the AudioContext, so a silent game costs no audio CPU.
  */
 export class Sound {
   private engine: AudioEngine | null = null;
   private music: Music | null = null;
   private ambience: Ambience | null = null;
-  enabled = false;
+  private readonly life: AudioLifecycle;
   musicVolume = 0.55;
   ambienceVolume = 0.6;
+  effectsVolume = 0.6;
+  /** Shown in caption mode: each sound worth naming, as it plays. */
+  onCaption: ((kind: CaptionKind) => void) | null = null;
+  private state: { hour: number; rain: number; season: Season } = { hour: 16.6, rain: 0, season: 'spring' };
 
-  async enable(): Promise<void> {
-    if (!this.engine) {
-      this.engine = new AudioEngine();
-      this.music = new Music(this.engine);
-      this.ambience = new Ambience(this.engine);
-    }
-    await this.engine.resume();
-    this.music!.start();
-    this.enabled = true;
-    this.applyVolumes();
+  constructor() {
+    this.life = new AudioLifecycle({
+      start: async () => {
+        if (!this.engine) this.build();
+        const e = this.engine!;
+        if (!(await e.resume())) return false;
+        this.applyVolumes();
+        this.music!.setState(this.state);
+        this.ambience!.setState(this.state);
+        e.fadeIn();
+        this.music!.start();
+        this.ambience!.start();
+        return true;
+      },
+      stop: async () => {
+        this.music?.stop();
+        this.ambience?.stop();
+        if (!this.engine) return;
+        await this.engine.fadeOut();
+        await this.engine.suspend();
+      },
+    });
   }
 
-  disable(): void {
-    this.enabled = false;
-    this.engine?.suspend();
-    this.music?.stop();
+  private build(): void {
+    const e = new AudioEngine();
+    this.engine = e;
+    this.music = new Music(e);
+    this.ambience = new Ambience(e);
+    this.ambience.onCaption = (k) => this.onCaption?.(k);
+    // a phone call or the OS taking the device suspends ("interrupted" on iOS) the context behind our back
+    e.ctx.addEventListener('statechange', () => {
+      if (this.life.active && !e.running) void this.life.interrupted();
+    });
   }
 
-  async toggle(): Promise<boolean> {
-    if (this.enabled) this.disable();
-    else await this.enable();
-    return this.enabled;
+  /** The player wants sound (it may still be paused while the tab is hidden). */
+  get enabled(): boolean {
+    return this.life.want;
+  }
+
+  /** Sound is actually playing now. */
+  get playing(): boolean {
+    return this.life.active;
+  }
+
+  /** Turn sound on or off; resolves with the resulting choice (false if the browser refused). */
+  setEnabled(on: boolean): Promise<boolean> {
+    return this.life.setWant(on);
+  }
+
+  toggle(): Promise<boolean> {
+    return this.setEnabled(!this.life.want);
+  }
+
+  /** Hidden tabs go quiet and stop all audio work; visible again, they come back where they would be. */
+  setHidden(hidden: boolean): Promise<void> {
+    return this.life.setHidden(hidden);
+  }
+
+  /** After any user gesture: restart audio the browser interrupted, if the player still wants it. */
+  retry(): void {
+    if (this.life.want && !this.life.active && !this.life.hidden) void this.life.retry();
+  }
+
+  /** The audio context, for tests and the debug overlay. */
+  get context(): AudioContext | null {
+    return this.engine?.ctx ?? null;
   }
 
   applyVolumes(): void {
@@ -46,21 +101,23 @@ export class Sound {
     const t = this.engine.now;
     this.engine.music.gain.setTargetAtTime(this.musicVolume, t, 0.2);
     this.engine.ambience.gain.setTargetAtTime(this.ambienceVolume, t, 0.2);
+    this.engine.sfx.gain.setTargetAtTime(this.effectsVolume, t, 0.2);
   }
 
   update(hour: number, rain: number, season: Season): void {
-    if (!this.enabled) return;
-    this.music?.setState({ hour, rain, season });
-    this.ambience?.setState({ hour, rain, season });
+    this.state = { hour, rain, season };
+    if (!this.playing) return;
+    this.music?.setState(this.state);
+    this.ambience?.setState(this.state);
   }
 
   bell(): void {
-    if (this.enabled) this.ambience?.bell();
+    if (this.playing) this.ambience?.bell();
   }
 
   sfx(name: SfxName, pan = 0): void {
     const e = this.engine;
-    if (!e || !this.enabled) return;
+    if (!e || !this.playing || !e.claim(0.7)) return; // off, or the one-shot budget is full
     const c = e.ctx;
     const t = e.now + 0.01;
     const p = c.createStereoPanner();
@@ -110,7 +167,7 @@ export class Sound {
           g.gain.linearRampToValueAtTime(0.12, s + 0.015);
           g.gain.exponentialRampToValueAtTime(0.0001, s + 0.06);
           n.connect(g).connect(p);
-          n.start(s, Math.random() * 3, 0.08);
+          n.start(s, e.noiseOffset(), 0.08);
         }
         break;
       case 'meow': {

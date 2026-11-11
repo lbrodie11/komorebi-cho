@@ -34,6 +34,8 @@ export class Weather {
   /** 0..1 surfaces wetness, lags `rain`. */
   wetness = 0;
   readonly wind = new THREE.Vector2();
+  /** Reduced motion: falling petals, leaves and snow drop straight, without drift. */
+  still = false;
   private target = 0;
   private timer = 90;
   private readonly rng: Rng;
@@ -222,6 +224,12 @@ export class Weather {
       const fromTrees = mode !== 'sky';
       for (let i = 0; i < count; i++) {
         const y = a[i * 3 + 1]! - dt * speed;
+        if (this.still) {
+          // reduced motion: particles fall straight down, no drift or flutter
+          if (y < this.airGround[i]!) this.spawnAir(a, i, mode, false);
+          else a[i * 3 + 1] = y;
+          continue;
+        }
         a[i * 3] = a[i * 3]! + Math.sin(time * 0.9 + i) * dt * 0.7 + dt * 0.3;
         if (fromTrees) {
           // flutter: leaves rock side to side as they fall

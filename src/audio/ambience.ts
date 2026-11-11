@@ -2,6 +2,9 @@ import type { AudioEngine } from './engine';
 import { Rng } from '../core/rng';
 import type { Season } from '../core/clock';
 
+/** What a caption names (shown in caption mode; the HUD words it). */
+export type CaptionKind = 'bell' | 'rain' | 'rainStops' | 'snowWind' | 'cicadas' | 'uguisu' | 'sparrows' | 'higurashi' | 'crickets' | 'crow' | 'bikeBell';
+
 export interface AmbienceState {
   hour: number;
   rain: number;
@@ -14,6 +17,9 @@ export interface AmbienceState {
  * for treating everyday sound as part of a place: temple bells, cicadas,
  * insects, water. All synthesised here.
  */
+/** The same kind of sound is captioned at most once in this many seconds. */
+const CAPTION_GAP = 30;
+
 export class Ambience {
   private readonly rng = new Rng(808);
   private readonly rainGain: GainNode;
@@ -22,7 +28,12 @@ export class Ambience {
   private readonly waterGain: GainNode;
   private readonly cicadaGain: GainNode;
   private state: AmbienceState = { hour: 9, rain: 0, season: 'spring' };
-  private timers: number[] = [];
+  private timer: number | null = null;
+  /** Called with each sound worth captioning, at most once per CAPTION_GAP seconds per kind. */
+  onCaption: ((kind: CaptionKind) => void) | null = null;
+  private lastCaption = new Map<CaptionKind, number>();
+  private wasRaining = false;
+  private wasCicadas = false;
   private nextBird = 0;
   private nextInsect = 0;
   private nextCrow = 0;
@@ -65,7 +76,24 @@ export class Ambience {
     this.cicadaGain.gain.value = 0;
     cic.connect(bp).connect(am).connect(this.cicadaGain).connect(a.ambience);
     cic.start();
-    this.timers.push(window.setInterval(() => this.tick(), 120));
+  }
+
+  /** Begin the little creatures (birds, insects, bells). Idempotent. */
+  start(): void {
+    if (this.timer === null) this.timer = window.setInterval(() => this.tick(), 120);
+  }
+
+  /** Stop scheduling creatures: nothing runs while sound is off or the tab is hidden. */
+  stop(): void {
+    if (this.timer !== null) window.clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  private caption(kind: CaptionKind): void {
+    const now = this.a.now;
+    if (now - (this.lastCaption.get(kind) ?? -Infinity) < CAPTION_GAP) return;
+    this.lastCaption.set(kind, now);
+    this.onCaption?.(kind);
   }
 
   setState(s: AmbienceState): void {
@@ -77,7 +105,13 @@ export class Ambience {
     this.hissGain.gain.setTargetAtTime(winter ? 0 : r * 0.1, t, 1.5);
     this.windGain.gain.setTargetAtTime(0.05 + (winter ? 0.18 : 0) + r * 0.12, t, 2);
     const day = s.hour > 8 && s.hour < 17.5;
-    this.cicadaGain.gain.setTargetAtTime(s.season === 'summer' && day && r < 0.3 ? 0.06 + Math.sin(t * 0.05) * 0.03 : 0, t, 3);
+    const cicadas = s.season === 'summer' && day && r < 0.3;
+    this.cicadaGain.gain.setTargetAtTime(cicadas ? 0.06 + Math.sin(t * 0.05) * 0.03 : 0, t, 3);
+    if (cicadas && !this.wasCicadas) this.caption('cicadas');
+    this.wasCicadas = cicadas;
+    const raining = r > 0.3;
+    if (raining !== this.wasRaining) this.caption(raining ? (winter ? 'snowWind' : 'rain') : 'rainStops');
+    this.wasRaining = raining;
   }
 
   private tick(): void {
@@ -88,22 +122,36 @@ export class Ambience {
     if (now > this.nextBird) {
       this.nextBird = now + this.rng.range(1.6, 6);
       if (day && rain < 0.3 && season !== 'winter') {
-        if (season === 'spring' && hour < 10.5 && this.rng.chance(0.25)) this.uguisu(now);
-        else this.sparrows(now);
+        if (season === 'spring' && hour < 10.5 && this.rng.chance(0.25)) {
+          this.uguisu(now);
+          this.caption('uguisu');
+        } else this.sparrows(now);
       }
     }
     if (now > this.nextInsect) {
       this.nextInsect = now + this.rng.range(2.5, 7);
-      if (season === 'summer' && hour > 17.4 && hour < 19.6) this.higurashi(now);
-      if ((season === 'autumn' || season === 'summer') && (hour > 19.5 || hour < 4) && rain < 0.3) this.suzumushi(now);
+      if (season === 'summer' && hour > 17.4 && hour < 19.6) {
+        this.higurashi(now);
+        this.caption('higurashi');
+      }
+      if ((season === 'autumn' || season === 'summer') && (hour > 19.5 || hour < 4) && rain < 0.3) {
+        this.suzumushi(now);
+        this.caption('crickets');
+      }
     }
     if (now > this.nextCrow) {
       this.nextCrow = now + this.rng.range(14, 40);
-      if (hour > 16.5 && hour < 18.8 && rain < 0.4) this.crow(now);
+      if (hour > 16.5 && hour < 18.8 && rain < 0.4) {
+        this.crow(now);
+        this.caption('crow');
+      }
     }
     if (now > this.nextBike) {
       this.nextBike = now + this.rng.range(20, 60);
-      if (hour > 7 && hour < 20 && rain < 0.3) this.bikeBell(now);
+      if (hour > 7 && hour < 20 && rain < 0.3) {
+        this.bikeBell(now);
+        this.caption('bikeBell');
+      }
     }
     if (rain > 0.2 && season !== 'winter' && now > this.nextDrip) {
       this.nextDrip = now + this.rng.range(0.08, 0.5) / rain;
@@ -113,6 +161,7 @@ export class Ambience {
 
   // ── Little synthesised creatures ─────────────────────────────────────────
   private chirp(t: number, f0: number, f1: number, dur: number, vol: number, pan: number): void {
+    if (!this.a.claim(t - this.a.now + dur)) return; // over the voice budget: this chirp is skipped
     const c = this.a.ctx;
     const o = c.createOscillator();
     o.frequency.setValueAtTime(f0, t);
@@ -208,6 +257,7 @@ export class Ambience {
 
   /** Temple bell (bonshō): inharmonic partials, beating, very long decay. */
   bell(): void {
+    this.caption('bell');
     const c = this.a.ctx;
     const t = this.a.now + 0.05;
     const f0 = 98;
@@ -227,13 +277,13 @@ export class Ambience {
       gg.gain.exponentialRampToValueAtTime(0.0001, t + dec);
       o.connect(gg);
       gg.connect(this.a.ambience);
-      gg.connect(this.a.reverbSend);
+      gg.connect(this.a.fxVerb);
       o.start(t);
       o.stop(t + dec + 0.1);
     }
   }
 
   dispose(): void {
-    this.timers.forEach((id) => window.clearInterval(id));
+    this.stop();
   }
 }
