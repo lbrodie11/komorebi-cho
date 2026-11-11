@@ -97,7 +97,12 @@ export class Ambience {
   /** Which emitters were loud enough to name last time (a caption when one comes within earshot). */
   private readonly heard = new Set<string>();
   private wasCicadas = false;
-  private next = { bird: 0, insect: 0, crow: 0, bike: 0, drip: 0, train: 0, closeDrop: 0 };
+  /** Where the birds you can see are (world x, z): their calls come from them. Null: not told yet. */
+  private birds: { sparrows: readonly (readonly [number, number])[]; crows: readonly (readonly [number, number])[] } | null = null;
+  /** The wind's gust, 0..1, easing toward a new strength every few seconds (never a steady hiss). */
+  private gust = 0.3;
+  private gustGoal = 0.3;
+  private next = { bird: 0, insect: 0, crow: 0, bike: 0, drip: 0, train: 0, closeDrop: 0, gust: 0 };
 
   constructor(private readonly a: AudioEngine) {
     const c = a.ctx;
@@ -218,6 +223,11 @@ export class Ambience {
     this.onCaption?.(kind);
   }
 
+  /** Where the sparrows and crows in sight are: they are what you hear, from where they are. */
+  setBirds(b: NonNullable<Ambience['birds']>): void {
+    this.birds = b;
+  }
+
   /** Where the camera is looking: every positioned source follows. */
   setListener(l: Listener): void {
     this.listener = l;
@@ -228,7 +238,9 @@ export class Ambience {
     this.state = s;
     const t = this.a.now;
     const L = (this.levels = scapeLevels({ hour: s.hour, rain: s.rain, wet: s.wet ?? s.rain, season: s.season }));
-    for (const k of Object.keys(this.beds) as (keyof typeof this.beds)[]) this.beds[k].gain.setTargetAtTime(L[k], t, k === 'rainfall' ? 1.2 : 2.5);
+    // (the wind and the leaves ride the gusts: tick() sets them)
+    for (const k of Object.keys(this.beds) as (keyof typeof this.beds)[])
+      if (k !== 'wind' && k !== 'leaves') this.beds[k].gain.setTargetAtTime(L[k], t, k === 'rainfall' ? 1.2 : 2.5);
     const night = s.hour >= 21 || s.hour < 6;
     const em = this.emitters;
     em.waterfall.level = 0.09;
@@ -300,18 +312,32 @@ export class Ambience {
     const { hour, rain, season } = this.state;
     const day = hour > 5.6 && hour < 18;
     const n = this.next;
-    // birds, from the trees
+    // the wind comes in gusts: a new strength every few seconds, eased to, and the leaves answer it
+    if (now > n.gust) {
+      n.gust = now + this.rng.range(4, 9);
+      this.gustGoal = this.rng.chance(0.25) ? this.rng.range(0.7, 1) : this.rng.range(0.05, 0.5);
+    }
+    this.gust += (this.gustGoal - this.gust) * 0.04;
+    this.beds.wind.gain.setTargetAtTime(this.levels.wind * (0.35 + 1.3 * this.gust), now, 0.6);
+    this.beds.leaves.gain.setTargetAtTime(this.levels.leaves + (season === 'winter' ? 0 : 0.035 * this.gust * this.gust), now, 0.6);
+    // birds: the sparrows you can see chirp from where they are (from a tree if nobody has said
+    // where they are); the bush warbler sings unseen from a tree on spring mornings
     if (now > n.bird) {
       n.bird = now + this.rng.range(1.6, 6);
-      if (day && rain < 0.3 && season !== 'winter') {
-        const tree = this.rng.pick(TREES);
-        const at = place(this.listener, tree.x, tree.z);
+      if (day && rain < 0.3) {
         if (season === 'spring' && hour < 10.5 && this.rng.chance(0.25)) {
+          const tree = this.rng.pick(TREES);
+          const at = place(this.listener, tree.x, tree.z);
           this.uguisu(now, at.pan, at.gain);
           this.caption('uguisu');
         } else {
-          this.sparrows(now, at.pan, at.gain);
-          if (this.rng.chance(0.2)) this.caption('sparrows');
+          const seen = this.birds?.sparrows;
+          const from = seen ? (seen.length ? this.rng.pick(seen) : null) : season !== 'winter' ? [this.rng.pick(TREES).x, this.rng.pick(TREES).z] : null;
+          if (from) {
+            const at = place(this.listener, from[0], from[1]);
+            this.sparrows(now, at.pan, at.gain);
+            if (at.gain > 0.3 && this.rng.chance(0.2)) this.caption('sparrows');
+          }
         }
       }
     }
@@ -331,7 +357,9 @@ export class Ambience {
     if (now > n.crow) {
       n.crow = now + this.rng.range(14, 40);
       if (hour > 16.5 && hour < 18.8 && rain < 0.4) {
-        const at = place(this.listener, CHIMNEY.x, CHIMNEY.z);
+        // from a crow in the air, if any are up; else from over the chimney where they gather
+        const up = this.birds?.crows.length ? this.rng.pick(this.birds.crows) : [CHIMNEY.x, CHIMNEY.z];
+        const at = place(this.listener, up[0], up[1]);
         this.crow(now, at.pan, Math.max(0.35, at.gain));
         this.caption('crow');
       }

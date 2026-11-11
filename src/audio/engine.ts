@@ -74,7 +74,19 @@ export class AudioEngine {
     this.music = c.createGain();
     this.music.gain.value = 0.55;
     this.ducker = c.createGain();
-    this.music.connect(this.ducker).connect(this.lofi);
+    // tape: the pitch drifts a few cents (wow, slow) and shivers a little (flutter, fast), from a
+    // delay line whose length two slow oscillators move. It is what makes a clean synth sound recorded.
+    const tape = c.createDelay(0.05);
+    tape.delayTime.value = 0.012;
+    for (const [hz, depth] of TAPE) {
+      const lfo = c.createOscillator();
+      lfo.frequency.value = hz;
+      const d = c.createGain();
+      d.gain.value = depth;
+      lfo.connect(d).connect(tape.delayTime);
+      lfo.start();
+    }
+    this.music.connect(this.ducker).connect(tape).connect(this.lofi);
     sat.connect(comp);
     sat.connect(this.musicVerb);
 
@@ -218,8 +230,16 @@ export class AudioEngine {
   }
 }
 
+/**
+ * Tape wow and flutter: [rate Hz, depth s]. Pitch deviation is depth × 2π × rate: about 5 cents of
+ * slow drift and 3 of flutter, under what reads as out of tune, enough to read as tape.
+ */
+export const TAPE: readonly (readonly [number, number])[] = [
+  [0.55, 0.0009],
+  [6.3, 0.00004],
+];
 /** The master level: set so the full mix measures about −23 LUFS integrated (src/dev/soundtrack.ts measures it). */
-export const MASTER = 0.4;
+export const MASTER = 0.46;
 /** The music's level under a one-shot (−2.5 dB). */
 export const DUCK = Math.pow(10, -2.5 / 20);
 /** Seconds the master takes to fade to silence before the context is suspended. */

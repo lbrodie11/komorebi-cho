@@ -124,3 +124,20 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
 - **Diversity:** in a 10-day soak with random edits, no resident appears in more than 25% of bond stories (1 − Σp² is reported).
 - **Cost:** the engine adds under 0.2 ms per tick (measured, in the PR).
 - **People:** 4 of 5 testers can say *which edit* made a friendship possible, after 15 minutes, without prompting.
+
+**Progress (2026-11-11):**
+- **Task 4, the ladder itself:** `src/sim/bonds.ts`, pure, with `tests/bonds.test.ts`.
+  - Rungs, with distinct days together (within three weeks) and fading shared moments as the two requirements.
+  - Passing alone stalls at a nod.
+  - One rung a day at most.
+  - Affinity priors and seeded pairs.
+  - Per-moment credit for placed things: an edit is credited when it carries half or more of the moments behind a rung.
+  - "Since removed" marking, gentle fading with floors, a ledger hash, and a sanitized save format.
+- **Not wired in yet:** nothing calls it. Next:
+  - count co-presence in `Residents.socialPass`;
+  - seed the authored pairs;
+  - make bows, waves and chats follow the rung;
+  - save the ledger.
+
+  Then tasks 1 to 3: the scoring split, the place field and triangulators.
+

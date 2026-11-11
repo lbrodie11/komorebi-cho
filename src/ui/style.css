@@ -324,7 +324,7 @@ button.px.warn {
   align-self: center;
 }
 .palette .hint {
-  font-size: calc(11px * var(--ts, 1));
+  font-size: calc(12px * var(--ts, 1));
   color: var(--muted);
   align-self: center;
   padding: 0 8px;
@@ -532,7 +532,7 @@ button.px.warn {
 }
 .journal .f12-cut {
   color: var(--amber);
-  font-size: calc(10px * var(--ts, 1));
+  font-size: calc(12px * var(--ts, 1));
 }
 .journal .mem-img img {
   display: block;
@@ -548,7 +548,7 @@ button.px.warn {
   outline: none;
 }
 .journal .mem-when {
-  font-size: calc(11px * var(--ts, 1));
+  font-size: calc(12px * var(--ts, 1));
   color: var(--muted);
 }
 .journal .mem-caption {
@@ -557,7 +557,7 @@ button.px.warn {
 }
 .journal .mem-older {
   margin-top: 8px;
-  font-size: calc(11px * var(--ts, 1));
+  font-size: calc(12px * var(--ts, 1));
 }
 .journal .mem-list {
   list-style: none;
@@ -577,7 +577,7 @@ button.px.warn {
 }
 .notes-list .when {
   display: block;
-  font-size: calc(11px * var(--ts, 1));
+  font-size: calc(12px * var(--ts, 1));
   color: var(--muted);
 }
 .people-list button.person {
@@ -590,7 +590,7 @@ button.px.warn {
   white-space: normal;
 }
 .people-list .doing {
-  font-size: calc(11px * var(--ts, 1));
+  font-size: calc(12px * var(--ts, 1));
   color: var(--muted);
 }
 .people-list button.person:hover .doing,
@@ -622,7 +622,7 @@ button.px.warn {
 }
 .settings .note {
   margin: 10px 0 4px;
-  font-size: calc(11px * var(--ts, 1));
+  font-size: calc(12px * var(--ts, 1));
   color: var(--muted);
   line-height: 1.4;
 }
@@ -767,7 +767,11 @@ button.px:disabled {
   transition: opacity 0.4s;
 }
 .zoom-box.idle {
-  opacity: 0.35;
+  opacity: 0.55;
+}
+/* turning and zooming are two things: a little air between the pairs */
+.zoom-box button:nth-child(2) {
+  margin-bottom: 6px;
 }
 .photo-bar input[type='range'] {
   width: 140px;
@@ -932,7 +936,13 @@ button.px:disabled {
   }
   .zoom-box {
     right: 8px;
-    bottom: 64px;
+    /* clear of the two-row dock, and a row, not a column: a column of five stood over the town's corner */
+    bottom: 100px;
+    flex-direction: row;
+  }
+  .zoom-box button:nth-child(2) {
+    margin-bottom: 0;
+    margin-right: 6px;
   }
   /* phones: the palette needs the width while building; pinch still zooms */
   #hud.building .zoom-box {
@@ -954,7 +964,7 @@ button.px:disabled {
     width: 170px;
   }
   .brand .tag {
-    font-size: calc(11px * var(--ts, 1));
+    font-size: calc(12px * var(--ts, 1));
   }
   .story {
     top: 104px;

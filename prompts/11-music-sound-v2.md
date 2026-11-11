@@ -106,3 +106,22 @@ Not verified (needs people): the listening acceptance criteria (the theme on its
 - **The Karplus–Strong pluck is in tune.** An allpass makes up the fractional period; it had been up to about 20 cents flat in the upper octave.
 
 Wind chimes as modal bells that ring only on gusts move to prompt 10, task 9.
+
+**Second pass (2026-11-11): an album, not a loop.**
+- **Eleven pieces** (seven new: Laundry Day, Sunday Café, Steam at Dusk, Paper Lanterns, First Light, The Shortcut Home, Puddles). Each time of day and weather has a pool, and no piece plays twice running. Every piece still opens with the town's motif, and every note is checked against its chord.
+- **Three lead and comping instruments:**
+  - the Rhodes, kept and improved (two pickups a few cents apart, an amp filter that opens with the strike);
+  - a rebuilt felt piano (stiff-string partials that die at their own rates, two strings beating);
+  - a nylon-string guitar (strummed for chords, palm-muted for boom-bap lines).
+- **Each piece has a shape** (`formFor`): keys and motif alone to open, drums easing in, a fill into each pass, a bare breakdown before the last return, keys alone to close.
+- **Feel:**
+  - chords pushed an eighth early now and then;
+  - a bass that slides into notes and steps up to the next root;
+  - ghost snares, and off-beat hats softer than the beats;
+  - the keys pumping about 2 dB under the kick;
+  - tape wow and flutter over the whole score.
+- **Soundscape:**
+  - sparrows and crows are heard from where the birds you can see actually are;
+  - the wind comes in gusts and the leaves answer it.
+- **HUD:** the story feed names each piece as it starts ("Now playing: The Last Train Home").
+- **Still unverified:** nobody has listened yet. The 60-minute listening test with three people is the real acceptance.

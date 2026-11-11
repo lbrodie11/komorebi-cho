@@ -37,14 +37,27 @@ export const MIN_DWELL = 16;
 /** Seconds of only the soundscape after a piece ends. */
 export const REST: readonly [number, number] = [60, 120];
 
-/** The piece a moment calls for. */
-export function sceneFor(m: Mood): PieceId {
+/**
+ * The pieces a moment calls for, the most fitting first. The director plays one, and after its rest
+ * another from the same pool (never the same twice running where there's a choice), so an afternoon
+ * has several tunes, not one on repeat. Pools for different parts of the day share nothing with
+ * their neighbours where a switch should be heard (morning against afternoon).
+ */
+export function scenePool(m: Mood): readonly PieceId[] {
   const night = m.hour >= 22 || m.hour < 5;
-  if (m.rain > 0.5 && (night || m.hour >= 19)) return 'rainMidnight';
-  if (night) return m.rain > 0.2 ? 'rainMidnight' : 'lastTrain';
-  if (m.hour < 10.5) return 'morning';
-  if (m.hour < 17) return m.rain > 0.6 ? 'lastTrain' : 'afternoon';
-  return 'lastTrain';
+  const winter = m.season === 'winter';
+  if (m.rain > 0.5 && (night || m.hour >= 19)) return ['rainMidnight', 'puddles'];
+  if (night) return m.rain > 0.2 ? ['rainMidnight', 'lanterns'] : winter ? ['lastTrain', 'lanterns', 'firstLight'] : ['lastTrain', 'lanterns'];
+  if (m.rain > 0.6) return ['puddles', 'lastTrain', 'kissaten'];
+  if (m.hour < 7) return ['firstLight', 'morning'];
+  if (m.hour < 10.5) return winter ? ['morning', 'firstLight', 'laundry'] : ['morning', 'laundry'];
+  if (m.hour < 17) return ['afternoon', 'kissaten', 'shortcut'];
+  return ['lastTrain', 'bathhouse', 'kissaten'];
+}
+
+/** The piece a moment calls for first (its pool's lead). */
+export function sceneFor(m: Mood): PieceId {
+  return scenePool(m)[0]!;
 }
 
 /** Vertical layering: the same piece, thinner or fuller with the weather, the season and the street. */
@@ -67,6 +80,43 @@ export function boundaryFor(from: PieceId, to: PieceId, m: Mood): 4 | 8 | 16 {
   return 8;
 }
 
+/** How a bar is played within its piece's shape. */
+export interface Form {
+  /** Drums and bass, 0..1 (0: they sit out). */
+  drums: number;
+  bass: number;
+  /** The last bar before the drums return or a new pass starts: a small fill. */
+  fill: boolean;
+  /** Where in the shape this bar is, for tests and the debug overlay. */
+  section: 'intro' | 'body' | 'breakdown' | 'outro';
+}
+
+/**
+ * A piece has a shape, like a record, not a loop (bars count from 0 across all its passes):
+ *  - intro: two bars of keys and the motif alone, then two with the drums coming in softly;
+ *  - body: the full band, with a small fill at the end of each 8-bar pass;
+ *  - breakdown: in pieces of three passes or more, the first four bars of the last pass drop the
+ *    drums and thin the bass, so the theme comes back bare before the band returns;
+ *  - outro: the last two bars are keys and melody alone, into the silence that follows.
+ * Pure: the same bar always plays the same way.
+ */
+export function formFor(piece: PieceId, bar: number): Form {
+  const passes = PIECES[piece].passes;
+  const total = passes * 8;
+  if (bar < 2) return { drums: 0, bass: 0, fill: false, section: 'intro' };
+  if (bar < 4) return { drums: 0.55, bass: 0.8, fill: false, section: 'intro' };
+  if (bar >= total - 2) return { drums: 0, bass: bar === total - 2 ? 0.7 : 0, fill: false, section: 'outro' };
+  const lastPass = (passes - 1) * 8;
+  if (passes >= 3 && bar >= lastPass && bar < lastPass + 4) {
+    // its last bar brings the drums back in under a fill
+    const back = bar === lastPass + 3;
+    return { drums: back ? 0.4 : 0, bass: 0.5, fill: back, section: 'breakdown' };
+  }
+  return { drums: 1, bass: 1, fill: bar % 8 === 7 && bar < total - 8, section: 'body' };
+}
+
+const REST_FORM: Form = { drums: 0, bass: 0, fill: false, section: 'outro' };
+
 export interface Bar {
   /** What to play this bar, or nothing (a rest: only the soundscape). */
   piece: PieceId | null;
@@ -74,6 +124,8 @@ export interface Bar {
   bar: number;
   variation: VariationId;
   layers: Layers;
+  /** Where this bar sits in the piece's shape (intro, body, breakdown, outro). */
+  form: Form;
 }
 
 export class Director {
@@ -92,10 +144,11 @@ export class Director {
    * The mood is whatever the world is now; only bar boundaries ever act on it.
    */
   nextBar(time: number, mood: Mood): Bar {
-    const want = sceneFor(mood);
+    const pool = scenePool(mood);
+    const want = pool[0]!;
     if (this.piece === null) {
       // resting: come back when the rest is over, with a theme people know
-      if (time >= this.restUntil) this.start(want, mood);
+      if (time >= this.restUntil) this.start(this.choose(pool), mood);
     } else {
       const p = PIECES[this.piece];
       const length = p.passes * 8;
@@ -103,22 +156,31 @@ export class Director {
         // the piece is over: silence for a while
         this.piece = null;
         this.restUntil = time + this.rng.range(REST[0], REST[1]);
-      } else if (want !== this.piece && this.bar >= MIN_DWELL && this.bar % boundaryFor(this.piece, want, mood) === 0) {
-        this.start(want, mood);
+      } else if (!pool.includes(this.piece) && this.bar >= MIN_DWELL && this.bar % boundaryFor(this.piece, want, mood) === 0) {
+        this.start(this.choose(pool), mood);
       }
     }
-    if (this.piece === null) return { piece: null, bar: 0, variation: 'theme', layers: this.layersNow(mood, null) };
+    if (this.piece === null) return { piece: null, bar: 0, variation: 'theme', layers: this.layersNow(mood, null), form: REST_FORM };
     const out: Bar = {
       piece: this.piece,
       bar: this.bar,
       variation: PASS_ORDER[Math.floor(this.bar / 8) % PASS_ORDER.length]!,
       layers: this.layersNow(mood, this.piece),
+      form: formFor(this.piece, this.bar),
     };
     this.bar++;
     return out;
   }
 
+  /** One of the pool, not the piece played last where there's another (seeded). */
+  private choose(pool: readonly PieceId[]): PieceId {
+    const fresh = pool.filter((p) => p !== this.last);
+    return this.rng.pick(fresh.length ? fresh : pool);
+  }
+  private last: PieceId | null = null;
+
   private start(piece: PieceId, mood: Mood): void {
+    this.last = piece;
     this.piece = piece;
     this.bar = 0;
     this.transitions++;

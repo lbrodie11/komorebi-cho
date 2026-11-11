@@ -26,6 +26,8 @@ export class Sound {
   effectsVolume = 0.6;
   /** Shown in caption mode: each sound worth naming, as it plays. */
   onCaption: ((kind: CaptionKind) => void) | null = null;
+  /** A piece of the score begins (its id: the HUD words it as `music.title.<id>`). */
+  onPiece: ((id: string) => void) | null = null;
   private state: { hour: number; rain: number; wet: number; season: Season; activity: number } = {
     hour: 16.6,
     rain: 0,
@@ -68,6 +70,8 @@ export class Sound {
     this.music = new Music(e);
     this.ambience = new Ambience(e);
     this.ambience.onCaption = (k) => this.onCaption?.(k);
+    // name the piece as its first bar sounds (it was scheduled a little ahead)
+    this.music.onPiece = (id, at) => window.setTimeout(() => this.playing && this.onPiece?.(id), Math.max(0, (at - e.now) * 1000));
     // a phone call or the OS taking the device suspends ("interrupted" on iOS) the context behind our back
     e.ctx.addEventListener('statechange', () => {
       if (this.life.active && !e.running) void this.life.interrupted();
@@ -128,6 +132,11 @@ export class Sound {
   setListener(l: Listener): void {
     this.listener = l;
     if (this.playing) this.ambience?.setListener(l);
+  }
+
+  /** Where the birds in sight are, so their calls come from them. */
+  setBirds(b: { sparrows: readonly (readonly [number, number])[]; crows: readonly (readonly [number, number])[] }): void {
+    if (this.playing) this.ambience?.setBirds(b);
   }
 
   /** How busy the neighbourhood's own sounds may get (Settings: Quiet / Balanced / Lively). */

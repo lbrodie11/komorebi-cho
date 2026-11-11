@@ -440,6 +440,8 @@ function meet(id: string): void {
 }
 bus.on('sfx', ({ name, x, z }) => sound.sfx(name, x !== undefined && z !== undefined ? { x, z } : undefined));
 world.onShutter = (x, z) => sound.event('shutter', x, z);
+// the score names each piece as it begins, in the story feed (not kept in Notes)
+sound.onPiece = (id) => bus.emit('story', { msg: msg('music.now', { title: { key: `music.title.${id}` as MsgKey } }), fleeting: true });
 bus.on('prayed', ({ x, z }) => sound.event('suzu', x, z));
 // the neighbourhood's own sounds, from where they happen: a bench taking someone's weight, a cup set down
 bus.on('used', ({ id }) => {
@@ -1335,6 +1337,12 @@ function frame(now: number): void {
     simMs += performance.now() - n0;
     sound.update(hour, rain, clock.season, residents.agents.filter((a) => !a.hidden).length / residents.agents.length, world.weather.wetness);
     if (sound.playing) {
+      // the birds you can see are the birds you hear
+      const spot = (b: { root: THREE.Object3D }) => [b.root.position.x, b.root.position.z] as const;
+      sound.setBirds({
+        sparrows: animals.birds.sparrows.filter((b) => b.root.visible).map(spot),
+        crows: animals.birds.crows.filter((b) => b.root.visible).map(spot),
+      });
       // cups at the kissaten while it has customers; footsteps on wet ground near where you're looking
       const cafe = residents.agents.find((a) => !a.hidden && a.arrived && a.task?.obj?.kind === 'cafe');
       if (cafe && chimeRng.chance(0.25)) sound.event('cup', cafe.x, cafe.z);

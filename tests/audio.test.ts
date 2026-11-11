@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GROOVE, bassNote, humanise, noteFits, phraseCurve, voiceLead, type Voice } from '../src/audio/theory';
 import { PASS_ORDER, PIECES, variation, type PieceId } from '../src/audio/themes';
-import { BarClock, Director, MIN_DWELL, layersFor, sceneFor, type Mood } from '../src/audio/director';
+import { BarClock, Director, MIN_DWELL, formFor, layersFor, sceneFor, scenePool, type Mood } from '../src/audio/director';
 import { Rng } from '../src/core/rng';
 
 const ids = Object.keys(PIECES) as PieceId[];
@@ -181,5 +181,60 @@ describe('the pluck (prompt 11)', () => {
         const heard = rate / period(data, rate / f);
         expect(Math.abs(1200 * Math.log2(heard / f))).toBeLessThan(4);
       }
+  });
+});
+
+describe('the album (eleven pieces, each with a shape)', () => {
+  const m = (hour: number, rain = 0, season: Mood['season'] = 'spring'): Mood => ({ hour, rain, season, activity: 0.5 });
+
+  it('has at least ten pieces, every one reachable from some hour, weather or season', () => {
+    expect(ids.length).toBeGreaterThanOrEqual(10);
+    const heard = new Set<string>();
+    for (const season of ['spring', 'summer', 'autumn', 'winter'] as const)
+      for (let h = 0; h < 24; h += 0.5) for (const rain of [0, 0.4, 0.9]) for (const p of scenePool(m(h, rain, season))) heard.add(p);
+    expect([...heard].sort()).toEqual([...ids].sort());
+  });
+
+  it('keeps the Rhodes on some pieces, and gives the others a felt piano or a guitar', () => {
+    const using = (i: string) => ids.filter((id) => PIECES[id].comp === i || PIECES[id].lead === i).length;
+    expect(using('rhodes')).toBeGreaterThanOrEqual(4);
+    expect(using('piano')).toBeGreaterThanOrEqual(4);
+    expect(using('guitar')).toBeGreaterThanOrEqual(4);
+    expect(ids.filter((id) => PIECES[id].comp !== 'rhodes' && PIECES[id].lead !== 'rhodes').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('never plays the same piece twice running where the hour offers another', () => {
+    const d = new Director(new Rng(11));
+    const played: string[] = [];
+    let last: string | null = null;
+    for (let i = 0, t = 0; i < 1200; i++, t += 3.2) {
+      const b = d.nextBar(t, m(14));
+      if (b.piece && b.bar === 0) played.push(b.piece);
+      last = b.piece;
+    }
+    expect(last).not.toBeUndefined();
+    expect(played.length).toBeGreaterThan(4);
+    for (let i = 1; i < played.length; i++) expect(played[i]).not.toBe(played[i - 1]);
+    expect(new Set(played).size).toBe(3); // the whole afternoon pool, in time
+  });
+
+  it('shapes a piece like a record: keys alone to open, a fill into each pass, a bare breakdown, keys alone to close', () => {
+    for (const id of ids) {
+      const total = PIECES[id].passes * 8;
+      expect(formFor(id, 0)).toMatchObject({ drums: 0, bass: 0, section: 'intro' });
+      expect(formFor(id, 2).drums).toBeGreaterThan(0);
+      expect(formFor(id, 2).drums).toBeLessThan(1);
+      expect(formFor(id, total - 1)).toMatchObject({ drums: 0, section: 'outro' });
+      expect(formFor(id, 5)).toMatchObject({ drums: 1, bass: 1, section: 'body' });
+      if (PIECES[id].passes >= 3) {
+        const lp = (PIECES[id].passes - 1) * 8;
+        expect(formFor(id, 7).fill).toBe(true);
+        expect(formFor(id, lp)).toMatchObject({ drums: 0, section: 'breakdown' });
+        expect(formFor(id, lp + 3).fill).toBe(true); // the fill that brings the band back
+        expect(formFor(id, lp + 4).drums).toBe(1);
+      }
+      // the same bar always plays the same way
+      expect(formFor(id, 9)).toEqual(formFor(id, 9));
+    }
   });
 });
