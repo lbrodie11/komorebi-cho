@@ -210,7 +210,25 @@ export class NavGrid {
    */
   nearestMain(x: number, z: number, maxRing = 8): [number, number] | null {
     this.label();
-    return this.mainComp === -1 ? null : this.nearestInRegion(x, z, this.mainComp, maxRing);
+    if (this.mainComp === -1) return null;
+    // ground at their own level first (never over the terrace wall), any level only if there's none
+    const y = this.surfaceAt(x, z);
+    return (
+      this.spiral(x, z, maxRing, (i, j) => this.comp[j * this.cols + i] === this.mainComp && Math.abs(this.heightAt(i, j) - y) <= MAX_STEP) ??
+      this.nearestInRegion(x, z, this.mainComp, maxRing)
+    );
+  }
+
+  /** The nearest open cell to (x, z) at the level of `from` (a step away for someone there, not over a wall). */
+  nearestOpenLevel(x: number, z: number, maxRing = 8, from: readonly [number, number] = [x, z]): [number, number] | null {
+    const y = this.surfaceAt(from[0], from[1]);
+    return this.spiral(x, z, maxRing, (i, j) => this.open(i, j) && Math.abs(this.heightAt(i, j) - y) <= MAX_STEP);
+  }
+
+  /** The ground height of the cell under a point. */
+  private surfaceAt(x: number, z: number): number {
+    const [i, j] = this.cellOf(x, z);
+    return this.inBounds(i, j) ? this.heightAt(i, j) : 0;
   }
 
   /** The nearest open cell centre of region `region` within `maxRing` cells of a point. */

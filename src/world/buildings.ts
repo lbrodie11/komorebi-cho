@@ -31,14 +31,14 @@ export function buildBuildings(k: Kit): BuildingsOut {
   const shutters: Shutter[] = [];
   const parasols: THREE.Object3D[] = [];
 
-  const lantern = (x: number, y: number, z: number, r = 0.26, mat: THREE.Material = m.lantern) => {
-    const l = k.mesh(new THREE.SphereGeometry(r, 8, 6), mat, x, y, z);
+  const lantern = (b: Kit, x: number, y: number, z: number, r = 0.26, mat: THREE.Material = m.lantern) => {
+    const l = b.mesh(new THREE.SphereGeometry(r, 8, 6), mat, x, y, z);
     l.scale.y = 1.4;
     lanterns.push(l);
     return l;
   };
-  const shutter = (x: number, y: number, z: number, ry: number, w: number, h: number, hours: [number, number]) => {
-    const s = k.plane(w, h, m.tex2('shutter', '#adb2b8', 1, 3, 0.6), x, y, z, ry);
+  const shutter = (b: Kit, x: number, y: number, z: number, ry: number, w: number, h: number, hours: [number, number]) => {
+    const s = b.plane(w, h, m.tex2('shutter', '#adb2b8', 1, 3, 0.6), x, y, z, ry);
     s.translateZ(0.03);
     shutters.push({ mesh: s, open: 0, hours, baseY: y, height: h });
   };
@@ -47,7 +47,7 @@ export function buildBuildings(k: Kit): BuildingsOut {
   // original build order: Kit's window jitter is seeded by order.
   const hooks = {
     shutter,
-    lantern: (x: number, y: number, z: number, r: number, mat: THREE.Material) => void lantern(x, y, z, r, mat),
+    lantern: (b: Kit, x: number, y: number, z: number, r: number, mat: THREE.Material) => void lantern(b, x, y, z, r, mat),
     parasol: (g: THREE.Object3D) => void parasols.push(g),
   };
   evaluate(k, planSento(SENTO), hooks);

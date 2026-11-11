@@ -609,6 +609,8 @@ function flingVelocity(now: number): { x: number; y: number } {
 }
 /** The last mouse or pen position over the canvas, to refresh the build preview when the camera moves under it. */
 let lastPointer: { clientX: number; clientY: number } | null = null;
+/** Why the spot under the cursor won't take what's being placed or carried, in words (or null). */
+const reasonText = (): string | null => (build.reason ? t(`reason.${build.reason}` as MsgKey) : null);
 function setNdc(e: { clientX: number; clientY: number }): void {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -727,7 +729,7 @@ canvas.addEventListener('pointermove', (e) => {
   freePlace = e.altKey;
   if (build.mode !== 'view') {
     build.pointer(ray.ray, freePlace);
-    hud.setReason(build.reason ? t(`reason.${build.reason}` as MsgKey) : null, e.clientX, e.clientY);
+    hud.setReason(reasonText(), e.clientX, e.clientY);
   } else canvas.classList.toggle('pointing', pickAgent() !== null);
 });
 canvas.addEventListener('pointerleave', () => hud.setReason(null, 0, 0));
@@ -959,8 +961,11 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'b') setTool(build.mode === 'build' ? 'view' : 'build');
   else if (k === 'x' || k === 'delete') setTool(build.mode === 'remove' ? 'view' : 'remove');
   else if (k === 'r') build.rotate(e.shiftKey ? -1 : 1);
-  else if ((k === '[' || k === ']') && build.carryingShop) build.resizeShop(k === ']' ? 1 : -1);
-  else if (k === 'v') setTool(build.mode === 'move' ? 'view' : 'move');
+  else if ((k === '[' || k === ']') && build.carryingShop) {
+    build.resizeShop(k === ']' ? 1 : -1);
+    // the ghost changed under a still cursor: so may the reason beside it
+    if (lastPointer) hud.setReason(reasonText(), lastPointer.clientX, lastPointer.clientY);
+  } else if (k === 'v') setTool(build.mode === 'move' ? 'view' : 'move');
   else if (k === 'm') void hud.toggleSound();
   else if (k === 'p') hud.togglePhoto(!photo);
   else if (k === 'h' || k === '?') hud.toggleHelp();

@@ -2,10 +2,14 @@ import * as THREE from 'three';
 import type { Kit } from '../kit';
 import type { MatRef, Part } from './types';
 
-/** Hooks for parts the world tracks after building: shutters (opening hours), lanterns (sway, dusk), parasols (rain). */
+/**
+ * Hooks for parts the world tracks after building: shutters (opening hours), lanterns (sway, dusk),
+ * parasols (rain). They get the Kit doing the building, so what they make lands in that build's
+ * group (a rebuilt shop's shutters go out with the shop).
+ */
 export interface EvaluateHooks {
-  shutter(x: number, y: number, z: number, ry: number, w: number, h: number, hours: [number, number]): void;
-  lantern(x: number, y: number, z: number, r: number, mat: THREE.Material): void;
+  shutter(k: Kit, x: number, y: number, z: number, ry: number, w: number, h: number, hours: [number, number]): void;
+  lantern(k: Kit, x: number, y: number, z: number, r: number, mat: THREE.Material): void;
   parasol(group: THREE.Object3D): void;
 }
 
@@ -79,13 +83,13 @@ export function evaluate(k: Kit, parts: readonly Part[], hooks: EvaluateHooks): 
         k.sign(p.sign, p.x, p.y, p.z, p.ry, p.glow);
         break;
       case 'shutter':
-        hooks.shutter(p.x, p.y, p.z, p.ry, p.w, p.h, [p.hours[0], p.hours[1]]);
+        hooks.shutter(k, p.x, p.y, p.z, p.ry, p.w, p.h, [p.hours[0], p.hours[1]]);
         break;
       case 'ac':
         k.ac(p.x, p.y, p.z, p.ry);
         break;
       case 'lantern':
-        hooks.lantern(p.x, p.y, p.z, p.r ?? 0.26, p.mat ? material(k, p.mat) : k.m.lantern);
+        hooks.lantern(k, p.x, p.y, p.z, p.r ?? 0.26, p.mat ? material(k, p.mat) : k.m.lantern);
         break;
       case 'blob': {
         const b = k.blob(p.x, p.y, p.z, p.r);

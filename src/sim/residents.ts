@@ -928,7 +928,8 @@ export class Residents {
       if (d > r + 0.3) continue;
       const ang = d > 1e-3 ? Math.atan2(a.x - x, a.z - z) : a.rng.range(0, Math.PI * 2);
       const want = r + 0.4;
-      const spot = this.grid.nearestOpen(x + Math.sin(ang) * want, z + Math.cos(ang) * want, 3) ?? this.grid.nearestOpen(a.x, a.z, 4);
+      // at their own level: a step aside never goes over the terrace wall
+      const spot = this.grid.nearestOpenLevel(x + Math.sin(ang) * want, z + Math.cos(ang) * want, 3, [a.x, a.z]) ?? this.grid.nearestOpenLevel(a.x, a.z, 4);
       if (!spot) continue;
       const len = Math.hypot(spot[0] - a.x, spot[1] - a.z);
       if (a.arrived || a.pose !== 'stand') this.endTask(a, 'question');

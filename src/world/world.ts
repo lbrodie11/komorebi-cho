@@ -185,11 +185,16 @@ export class World {
     const root = this.scene.children[0]!;
     const street = this.buildings.street;
     const before = new Set(this.buildings.shutters);
-    const { removed, added, nav } = street.setExtent({ root, kit: this.kit }, id, z0, z1);
+    const { removed, added, restored, nav } = street.setExtent({ root, kit: this.kit }, id, z0, z1);
     for (const s of this.buildings.shutters) if (!before.has(s)) s.fresh = true;
     for (const w of removed) if (w.pool !== undefined) this.pools.retire(w.pool);
     for (const w of added) {
       w.index = this.nextWindowIndex++;
+      this.kit.windows.push(w);
+      this.addWindowPool(this.pools, w);
+    }
+    // a first build back (an undo): its windows keep their own indices, so they light as they did
+    for (const w of restored) {
       this.kit.windows.push(w);
       this.addWindowPool(this.pools, w);
     }

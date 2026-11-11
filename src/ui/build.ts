@@ -163,6 +163,8 @@ export class BuildTool {
     cells.forEach(([x, z], i) => this.islandDots.setMatrixAt(i, m.makeTranslation(x, groundHeight(x, z) + 0.04, z)));
     this.islandDots.count = cells.length;
     this.islandDots.instanceMatrix.needsUpdate = true;
+    // three culls an InstancedMesh by a sphere computed once: recompute it, or new dots can be culled
+    this.islandDots.computeBoundingSphere();
   }
 
   /** Show the shop ghost over z0..z1 (a hover highlight, or where a carried shop would go). */
