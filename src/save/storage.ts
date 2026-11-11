@@ -35,6 +35,8 @@ export interface SaveData extends SaveStamp {
   diaries?: Record<string, { day: number; msg: Msg }[]>;
   /** What each resident knows of places: familiarity and favourites (prompt 08). Optional on disk. */
   places?: Record<string, unknown>;
+  /** The bond ladder: who knows whom, and how well (prompt 09b; sim/bonds.ts checks it field by field). Optional on disk. */
+  bonds?: Record<string, unknown>;
   /** First-minutes hints already done ('place', 'react', 'meet'). */
   tutorial: string[];
   /** Journal memories (sim/memories.ts), oldest first. Optional on disk. */
@@ -68,7 +70,7 @@ export interface SaveData extends SaveStamp {
 const TEXT_SCALES = [1, 1.25, 1.5, 2];
 /** The shopping street as first laid out: saved shop extents are checked against it. */
 const SHOP_ROW_BASE = SHOPS.map(({ id, z0, z1 }) => ({ id, z0, z1 }));
-const MEMORY_KINDS = ['noticed', 'favorite', 'together', 'rainy', 'routine'];
+const MEMORY_KINDS = ['noticed', 'favorite', 'together', 'rainy', 'routine', 'bond'];
 const POSES = ['stand', 'sit', 'pray', 'crouch', 'sweep'];
 const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
@@ -205,6 +207,7 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     diaries: sanitizeDiaries(d.diaries),
     // per resident, per place: checked field by field when restored (sim/places.ts)
     places: isObj(d.places) ? d.places : {},
+    bonds: isObj(d.bonds) ? d.bonds : {},
     // a save from before the hints existed belongs to a returning player: they never need them
     tutorial: Array.isArray(d.tutorial) ? d.tutorial.filter((x): x is string => typeof x === 'string') : ['meet', 'place', 'react'],
     notes,

@@ -7,7 +7,7 @@ import { PostPass } from './render/post';
 import { PALETTE } from './render/palette';
 import { skyAt, type SkyState } from './render/sky';
 import { World } from './world/world';
-import { G, GROUND, PLINTH, TG } from './world/layout';
+import { DOORS, G, GROUND, PLINTH, TG } from './world/layout';
 import { groundHeight } from './world/terrain';
 import { townGrid } from './sim/town';
 import { SmartRegistry, registerStaticObjects } from './sim/smart';
@@ -128,6 +128,7 @@ if (saved) {
   residents.minutes = clock.minutes;
   residents.restorePlaces(saved.places ?? {});
   residents.restoreDiaries(saved.diaries ?? {});
+  residents.restoreBonds(saved.bonds ?? {});
   pixelSetting = saved.settings.pixel;
   pixel = params.pixel ?? pixelSetting;
   sound.musicVolume = saved.settings.music;
@@ -191,6 +192,7 @@ function persist(): void {
     memory: residents.memory(),
     places: residents.placesData(),
     diaries: residents.diariesData(),
+    bonds: residents.bondsData(),
     tutorial: tutorial.flags,
     memories: [...memories.memories],
     memoryStats: memories.stats(),
@@ -328,11 +330,12 @@ const hud = new Hud(hudRoot, {
   meet: (id) => meet(id),
   follow: (id) => setFollow(id),
   showMe: (id) => {
-    const a = residents.agents.find((g) => g.p.id === id);
-    if (a && !a.hidden) {
-      iso.targetGoal.set(a.x, iso.targetGoal.y, a.z);
-      if (reducedMotion) iso.target.copy(iso.targetGoal);
-    }
+    const at = whereIs(id);
+    if (!at) return;
+    lookCloser();
+    iso.targetGoal.set(at[0], iso.targetGoal.y, at[1]);
+    if (reducedMotion) iso.target.copy(iso.targetGoal);
+    schedule();
   },
   hintPressed: () => {
     setTool('build', 'bench');
@@ -422,6 +425,12 @@ bus.on('used', ({ who, id, with: others }) => {
 });
 bus.on('routine', ({ who, id }) => {
   if (!params.scripted) announce(memories.routine(who, id, worldView()));
+});
+// the hook, in the Journal: two neighbours on at least greeting terms because of something the player placed
+bus.on('bond', ({ a, b, to, credited }) => {
+  if (params.scripted || to === 'familiar' || to === 'nod') return;
+  const id = credited.find((c) => smart.objects.has(c));
+  if (id) announce(memories.bond(a, b, id, worldView()));
 });
 bus.on('objectRemoved', ({ id }) => memories.removed(id));
 hud.setMemorySource({ list: () => memories.memories, render: (m, cut) => renderMemory(m, cut) });
@@ -674,25 +683,45 @@ function setFollow(id: string | null): void {
   hud.setFollowing(id);
   if (id) followFrame(true);
 }
+/** Where a neighbour is: themselves if they're out, or the door they went in by (their home's, failing that). */
+function whereIs(id: string): [number, number] | null {
+  const a = residents.agents.find((g) => g.p.id === id);
+  if (!a) return null;
+  if (!a.hidden) return [a.x, a.z];
+  if (a.hiddenAt) return [a.hiddenAt[0], a.hiddenAt[1]];
+  const d = a.p.home === 'exit' ? null : DOORS[a.p.home];
+  return d ? [d.x, d.z] : null;
+}
+/** Show me and Follow need to be near enough to see someone: from a wide view, come in to 1.5×. */
+const CLOSE_ZOOM = 1.5;
+function lookCloser(): void {
+  if (iso.zoomGoal >= CLOSE_ZOOM - 1e-6) return;
+  if (iso.continuous) iso.zoomTo(CLOSE_ZOOM);
+  else cameraStep(() => iso.zoomTo(CLOSE_ZOOM));
+  hud.setZoom(iso.zoomGoal);
+}
 function followFrame(start = false): void {
   if (!followId) return;
   const g = iso.targetGoal;
   if (
     !start &&
     followSet &&
-    (Math.abs(g.x - followSet.x) > 1e-3 || Math.abs(g.z - followSet.z) > 1e-3 || iso.zoom !== followSet.zoom || iso.yaw !== followSet.yaw)
+    // (the zoom's goal, not the zoom: following eases in closer by itself at the start)
+    (Math.abs(g.x - followSet.x) > 1e-3 || Math.abs(g.z - followSet.z) > 1e-3 || iso.zoomGoal !== followSet.zoom || iso.yaw !== followSet.yaw)
   )
     return setFollow(null); // the player took the camera
-  const a = residents.agents.find((x) => x.p.id === followId);
-  if (a && !a.hidden) {
-    const v = new THREE.Vector3(a.x, a.root.position.y + 1, a.z).project(iso.camera);
+  // indoors, the camera waits at the door they went in by: they'll come out of it
+  const at = whereIs(followId);
+  if (at) {
+    if (start) lookCloser();
+    const v = new THREE.Vector3(at[0], groundHeight(at[0], at[1]) + 1, at[1]).project(iso.camera);
     // only near the edge (or at the start): bring them back toward the middle
     if (start || Math.abs(v.x) > 0.6 || Math.abs(v.y) > 0.6) {
-      g.set(a.x, g.y, a.z);
+      g.set(at[0], g.y, at[1]);
       if (reducedMotion) iso.target.copy(g);
     }
   }
-  followSet = { x: g.x, z: g.z, zoom: iso.zoom, yaw: iso.yaw };
+  followSet = { x: g.x, z: g.z, zoom: iso.zoomGoal, yaw: iso.yaw };
 }
 /** The carried shop, narrower or wider ([ / ], or the Narrower / Wider buttons). */
 function resizeShop(dir: 1 | -1): void {

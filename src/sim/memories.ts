@@ -8,6 +8,7 @@
  *   - together:  two residents used the same placed object at the same time (one per pair per object)
  *   - rainy:     a resident used the same placed object while it rained, on RAINY_DAYS different days
  *   - routine:   a placed object became a resident's favourite place of its kind (a new routine)
+ *   - bond:      two residents came to know each other better, and a placed object was behind it (prompt 09b)
  * Captions are message templates, like the story feed. Memories are capped per in-game day, so
  * fast-forward can't flood the journal, and the journal keeps the newest MEMORIES_MAX.
  *
@@ -18,7 +19,7 @@
  */
 import type { Season } from '../core/clock';
 
-export type MemoryKind = 'noticed' | 'favorite' | 'together' | 'rainy' | 'routine';
+export type MemoryKind = 'noticed' | 'favorite' | 'together' | 'rainy' | 'routine' | 'bond';
 
 export interface SnapshotObject {
   id: string;
@@ -177,6 +178,11 @@ export class MemoryRecorder {
   /** A placed object became someone's favourite of its kind: a new routine. */
   routine(who: string, objectId: string, w: WorldView): Memory | null {
     return this.add('routine', [who], objectId, w);
+  }
+
+  /** Two neighbours climbed a rung of the bond ladder, thanks to a placed object (once per pair per object). */
+  bond(a: string, b: string, objectId: string, w: WorldView): Memory | null {
+    return this.add('bond', [a, b].sort(), objectId, w);
   }
 
   /** A placed object was removed: its use counts go (the memories stay; their snapshots hold it). */

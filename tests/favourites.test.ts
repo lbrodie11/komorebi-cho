@@ -91,7 +91,9 @@ describe('Mitsuko and the new bench (prompt 08 thin slice)', () => {
     expect(residents.favouriteOf(m, 'bench')).not.toBeNull();
     expect(m.missing.size).toBe(0);
     // no line told twice in a row
-    for (let i = 1; i < told.length; i++) expect(`${told[i]!.key}|${told[i]!.thing}`).not.toBe(`${told[i - 1]!.key}|${told[i - 1]!.thing}`);
+    // (bond lines are about a pair, not a thing: two different pairs may nod on the same day)
+    const about = told.filter((x) => !x.key.startsWith('story.bond.'));
+    for (let i = 1; i < about.length; i++) expect(`${about[i]!.key}|${about[i]!.thing}`).not.toBe(`${about[i - 1]!.key}|${about[i - 1]!.thing}`);
     // her diary tells the same story, a line a day, never the same line twice running
     const { fmt } = await import('../src/i18n');
     const lines = m.diary.entries.map((e) => fmt(e.msg));

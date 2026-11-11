@@ -133,11 +133,24 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
   - Affinity priors and seeded pairs.
   - Per-moment credit for placed things: an edit is credited when it carries half or more of the moments behind a rung.
   - "Since removed" marking, gentle fading with floors, a ledger hash, and a sanitized save format.
-- **Not wired in yet:** nothing calls it. Next:
-  - count co-presence in `Residents.socialPass`;
-  - seed the authored pairs;
-  - make bows, waves and chats follow the rung;
-  - save the ledger.
-
-  Then tasks 1 to 3: the scoring split, the place field and triangulators.
-
+- **Wired in (2026-11-11, second step):**
+  - **Starting point:** authored affinities become priors. The kids start as friends, old neighbors on greeting terms, a few pairs at a nod, and everyone else as strangers.
+  - **Days together:** a game minute within 4 m counts as a day together, once a day.
+  - **Shared moments so far** (once a day per pair per kind):
+    - looking over the same new thing;
+    - sitting side by side on one bench (credited to the bench if the player placed it);
+    - waiting out the rain under one shelter.
+  - **Greetings follow the rung:** strangers walk on, a familiar face gets a glance, then a nod, then a bow. Waves and bench chats start at greeting terms.
+  - **Choices read the rung:** crowding and the pull of company use closeness from the ladder.
+  - **What the player sees:**
+    - a story line for each promotion, naming the placed thing behind it;
+    - a "Because of you" Journal memory when a placed thing brought a pair to greeting terms or closer;
+    - a Neighbors list on the card.
+  - **Saved** with the town. Tests: `tests/bonds-sim.test.ts`.
+- **Still to do:**
+  - Task 1, the scoring split and the "Why?" view.
+  - Task 2, the place field.
+  - Task 3, real triangulators with attention profiles (wind chimes, cats, festivals). Today's three moments are a start.
+  - Task 5, the real but-for check. Credit is currently given to the bench or object the moment happened at, which is right for those cases but is not yet the masked re-evaluation.
+  - The three-panel bond sheet and the "while you were away" line.
+  - The acceptance run: the hook test, the metamorphic tests and the soak.

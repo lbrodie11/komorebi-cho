@@ -8,7 +8,7 @@
 }
 :root {
   --ink: #0b0a12;
-  --panel: rgba(11, 10, 18, 0.78);
+  --panel: rgba(11, 10, 18, 0.9);
   --panel-solid: #16141f;
   --line: #3f3a58;
   --cream: #f6efe0;
@@ -461,8 +461,8 @@ button.px.warn {
 .help,
 .notes,
 .people {
-  /* short landscape phones: scroll inside the panel instead of running off the screen */
-  max-height: calc(100vh - 90px);
+  /* stop above the dock (and scroll inside) instead of running under it or off the screen */
+  max-height: calc(100vh - 150px);
   overflow-y: auto;
 }
 .settings:focus,
@@ -766,6 +766,10 @@ button.px:disabled {
   padding: 3px;
   transition: opacity 0.4s;
 }
+/* an open panel comes down the right-hand side (and fills a phone's width): the zoom box would sit on its last rows */
+#hud:has(.settings.open, .notes.open, .people.open) .zoom-box {
+  display: none;
+}
 .zoom-box.idle {
   opacity: 0.55;
 }
@@ -946,10 +950,6 @@ button.px:disabled {
   }
   /* phones: the palette needs the width while building; pinch still zooms */
   #hud.building .zoom-box {
-    display: none;
-  }
-  /* phones: an open panel fills the width, and the zoom box would sit on top of its last rows */
-  #hud:has(.settings.open, .notes.open, .people.open, .help.open) .zoom-box {
     display: none;
   }
   .meet-hint {

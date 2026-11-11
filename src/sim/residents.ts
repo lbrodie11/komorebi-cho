@@ -6,6 +6,7 @@ import { Passage } from './passage';
 import { PlaceMemory, type PlaceMemoryData } from './places';
 import { curve, pick, score } from './utility';
 import { Diary, type DiaryEntry } from './diary';
+import { Bonds, type Promotion, type Rung } from './bonds';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
 import { DOORS, EXITS, PASSAGES, SHELTERS } from '../world/layout';
@@ -68,10 +69,15 @@ const BOW_SECONDS = 0.8;
 const GREET_EVERY = 60;
 const CHAT_TURN = 2.4;
 
-/** How close two neighbours are (0..1): either side's word counts. */
+/** How readily two neighbours take to each other (0..1, authored; either side's word counts): a prior, not a fact. */
 export function friendship(a: { p: Persona }, b: { p: Persona }): number {
   return Math.max(a.p.friends?.[b.p.id] ?? 0, b.p.friends?.[a.p.id] ?? 0);
 }
+/** How close a pair on each rung of the bond ladder is, 0..1 (what choices and crowding read). */
+export const CLOSENESS: Record<Rung, number> = { unseen: 0, familiar: 0.1, nod: 0.25, greeting: 0.5, chat: 0.75, friends: 1 };
+/** People within this distance (m) are in the same place; a game minute of it in a day is a day together. */
+const TOGETHER_RADIUS = 4;
+const TOGETHER_MINUTES = 1;
 
 /** People within this distance (m) of something make it feel crowded. */
 const CROWD_RADIUS = 2;
@@ -424,6 +430,8 @@ export interface ResidentInfo {
   diary: Msg[];
   /** Something the player placed that changed their day, in the last in-game day. */
   changed: Msg | null;
+  /** Who they know best (at least to nod to), closest first: persona id and rung. */
+  neighbors: { id: string; rung: Rung }[];
 }
 
 /** A neighbour as a message parameter: their short name, in the reader's language. */
@@ -497,6 +505,7 @@ export class Residents {
       scene.add(a.root);
       this.pickables.push(a.body);
     }
+    this.seedBonds();
   }
 
   get bodies(): THREE.Object3D[] {
@@ -510,6 +519,10 @@ export class Residents {
       knows: a.known.size,
       favorite: this.topFavourite(a),
       changed: this.minutes - a.changedAt < DAY ? a.changedThing : null,
+      neighbors: this.bonds
+        .known(a.p.id, 'nod')
+        .slice(0, 4)
+        .map((k) => ({ id: k.other, rung: k.rung })),
       diary: a.diary.entries
         .slice(-2)
         .reverse()
@@ -951,6 +964,11 @@ export class Residents {
   /** Midnight: everyone who was out writes yesterday's line. Otherwise note the weather they're out in. */
   private diaryDay(rain: number): void {
     const day = Math.floor(this.minutes / 1440);
+    if (this.diaryOn !== -1 && day !== this.diaryOn) {
+      // a new day: bonds nobody renewed slip a little; yesterday's moments can happen again
+      this.bonds.newDay(day);
+      this.momentsToday.clear();
+    }
     if (this.diaryOn !== -1 && day !== this.diaryOn)
       for (const a of this.agents) {
         let r = this.diaryRng.get(a.p.id);
@@ -981,8 +999,59 @@ export class Residents {
   /** Friends at a place make it more inviting, more so the more they want company (kids play together). */
   private socialFactor(a: Agent, o: SmartObject): number {
     let pull = 0;
-    for (const b of this.agents) if (b !== a && !b.hidden && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) pull += friendship(a, b);
+    for (const b of this.agents) if (b !== a && !b.hidden && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) pull += this.closeness(a, b);
     return 1 + pull * (0.4 + a.needs.social);
+  }
+
+  /**
+   * The bond ladder (prompt 09b): who knows whom, and how well. It starts from the authored
+   * affinities (a few pairs part-way up, so day one isn't cold) and grows from days in the same
+   * place and from shared moments.
+   */
+  bonds = new Bonds();
+  /** Minutes each pair has spent near each other today (`${pair}` → [day, minutes]). */
+  private readonly near = new Map<string, [number, number]>();
+  /** Shared moments already counted today, by pair and what it was. */
+  private readonly momentsToday = new Set<string>();
+
+  /** The authored starting point: affinities for everyone, and a rung for those who already knew each other. */
+  private seedBonds(): void {
+    for (let i = 0; i < this.agents.length; i++)
+      for (let j = i + 1; j < this.agents.length; j++) {
+        const a = this.agents[i]!,
+          b = this.agents[j]!;
+        const f = friendship(a, b);
+        if (f <= 0) continue;
+        this.bonds.setAffinity(a.p.id, b.p.id, f);
+        const rung: Rung | null = f >= 0.9 ? 'friends' : f >= 0.5 ? 'greeting' : f >= 0.3 ? 'nod' : null;
+        if (rung && this.bonds.rung(a.p.id, b.p.id) === 'unseen') this.bonds.seed(a.p.id, b.p.id, rung, Math.floor(this.minutes / DAY));
+      }
+  }
+
+  /** How close two neighbours are now, 0..1, from the rung they stand on. */
+  closeness(a: Agent, b: Agent): number {
+    return CLOSENESS[this.bonds.rung(a.p.id, b.p.id)];
+  }
+
+  /**
+   * Two people shared a moment (looked at the same new thing, sat on the same bench, waited out the
+   * rain under one awning): once a day per pair per kind. `madeBy` is the placed thing behind it, if any.
+   */
+  private sharedMoment(a: Agent, b: Agent, what: string, madeBy?: SmartObject): void {
+    const dayF = this.minutes / DAY;
+    const key = `${a.p.id < b.p.id ? `${a.p.id}|${b.p.id}` : `${b.p.id}|${a.p.id}`}|${what}|${Math.floor(dayF)}`;
+    if (this.momentsToday.has(key)) return;
+    this.momentsToday.add(key);
+    this.promoted(this.bonds.moment(a.p.id, b.p.id, dayF, madeBy?.placed ? { [madeBy.id]: 1 } : {}));
+  }
+
+  /** A pair climbed a rung: a line in the feed (naming the thing the player placed, if it was behind it), and an event. */
+  private promoted(p: Promotion | null): void {
+    if (!p) return;
+    const made = p.credited.map((id) => this.smart.objects.get(id)).find((o) => o);
+    const key = `story.bond.${p.to}${made ? '.because' : ''}` as MsgKey;
+    if (p.to !== 'familiar') this.story(msg(key, { a: who(p.a), b: who(p.b), ...(made ? { thing: thing(made.label) } : {}) }), p.a);
+    this.bus.emit('bond', { a: p.a, b: p.b, to: p.to, credited: p.credited });
   }
 
   /** When each pair last greeted (game minutes), and the chats already told today. */
@@ -1002,21 +1071,45 @@ export class Residents {
           b = out[j]!;
         const d = Math.hypot(a.x - b.x, a.z - b.z);
         if (d > 7) continue;
-        const f = friendship(a, b);
+        const key = a.p.id < b.p.id ? `${a.p.id}|${b.p.id}` : `${b.p.id}|${a.p.id}`;
+        // in the same place: a minute of it in a day is a day together (the ladder's first requirement)
+        if (d < TOGETHER_RADIUS) {
+          const day = Math.floor(this.minutes / DAY);
+          const n = this.near.get(key);
+          if (!n || n[0] !== day) this.near.set(key, [day, gm]);
+          else if (n[1] < TOGETHER_MINUTES && (n[1] += gm) >= TOGETHER_MINUTES) this.promoted(this.bonds.together(a.p.id, b.p.id, this.minutes / DAY));
+          // shared moments: looking over the same new thing; waiting out the rain together
+          const ta = a.task,
+            tb = b.task;
+          if (ta?.kind === 'inspect' && tb?.kind === 'inspect' && ta.obj && ta.obj === tb.obj && a.arrived && b.arrived)
+            this.sharedMoment(a, b, 'look', ta.obj);
+          if (ta?.kind === 'shelter' && tb?.kind === 'shelter' && a.arrived && b.arrived && d < 2.5) this.sharedMoment(a, b, 'shelter');
+        }
+        const rung = this.bonds.rung(a.p.id, b.p.id);
         const seated = (x: Agent) => x.arrived && x.pose === 'sit';
-        if (seated(a) && seated(b) && a.task?.obj && a.task.obj === b.task?.obj && f >= 0.2) {
-          this.chat(a, b, gm);
+        if (seated(a) && seated(b) && a.task?.obj && a.task.obj === b.task?.obj) {
+          // side by side on one bench is a moment whoever they are; they talk once they're on greeting terms
+          // (side by side: at the café, people at different tables aren't sharing one)
+          if (d < 1.6) this.sharedMoment(a, b, 'seat', a.task.obj);
+          if (CLOSENESS[rung] >= CLOSENESS.greeting) this.chat(a, b, gm);
           continue;
         }
         const walking = (x: Agent) => !x.arrived && x.path.length > 0 && !x.shuffle;
         if (!walking(a) && !walking(b)) continue;
-        const key = a.p.id < b.p.id ? `${a.p.id}|${b.p.id}` : `${b.p.id}|${a.p.id}`;
         if ((this.greeted.get(key) ?? -Infinity) + GREET_EVERY > this.minutes) continue;
         if (d < 1.6 && !seated(a) && !seated(b)) {
-          // passing on the lane: a small bow each (everyone here knows everyone)
+          // passing on the lane, each according to how well they know each other: strangers walk on,
+          // a familiar face gets a glance, then a nod, and from greeting terms a small bow
+          if (rung === 'unseen') continue;
           this.greeted.set(key, this.minutes);
-          a.bowT = b.bowT = BOW_SECONDS;
-        } else if (d > 3 && f >= 0.5 && !seated(a) && !seated(b) && this.closestApproach(a, b) > 2) {
+          if (rung === 'familiar') {
+            a.gestureTo('glance', Math.atan2(b.x - a.x, b.z - a.z));
+            b.gestureTo('glance', Math.atan2(a.x - b.x, a.z - b.z));
+          } else if (rung === 'nod') {
+            a.gestureTo('nod');
+            b.gestureTo('nod');
+          } else a.bowT = b.bowT = BOW_SECONDS;
+        } else if (d > 3 && CLOSENESS[rung] >= CLOSENESS.greeting && !seated(a) && !seated(b) && this.closestApproach(a, b) > 2) {
           // friends across the lane, not about to pass each other (then they'll bow): a wave
           this.greeted.set(key, this.minutes);
           a.say('wave', 1.4);
@@ -1062,7 +1155,7 @@ export class Residents {
   private crowdFactor(a: Agent, o: SmartObject): number {
     let n = 0;
     // friends there aren't a crowd: they're a reason to go (socialFactor)
-    for (const b of this.agents) if (b !== a && !b.hidden && friendship(a, b) < 0.3 && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) n++;
+    for (const b of this.agents) if (b !== a && !b.hidden && this.closeness(a, b) < 0.3 && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) n++;
     const density = n / Math.max(1, o.soft ?? o.slots.length);
     return 1 / (1 + density * (a.p.crowdAversion ?? 1));
   }
@@ -1397,6 +1490,7 @@ export class Residents {
   guaranteeNext = false;
 
   onPlaced(ev: WorldEditEvent, o: SmartObject, hour: number): void {
+    this.bonds.restored(o.id); // back again (an undo, a move): its credit is no longer "since removed"
     const free = this.agents
       .filter((a) => !a.hidden && a.task?.interruptible !== false && a.task?.kind !== 'inspect' && a.task?.kind !== 'home' && a.task?.kind !== 'commute')
       .map((a) => ({ a, d: Math.hypot(a.x - ev.x, a.z - ev.z) }))
@@ -1576,6 +1670,7 @@ export class Residents {
   }
 
   onRemoved(id: string): void {
+    this.bonds.removed(id); // any bond it helped stays; its credit reads "since removed"
     for (const a of this.agents) {
       a.known.delete(id);
       if (a.task?.obj?.id === id) {
@@ -1622,6 +1717,19 @@ export class Residents {
         if (f) a.favs.set(kind, f);
       }
     }
+  }
+
+  /** The bond ladder, for the save. */
+  bondsData(): Record<string, unknown> {
+    return this.bonds.toJSON();
+  }
+  /** Restore the ladder (anything malformed is dropped), then lay the authored priors over it. */
+  restoreBonds(d: unknown): void {
+    this.bonds = Bonds.from(
+      d,
+      this.agents.map((a) => a.p.id),
+    );
+    this.seedBonds();
   }
 
   /** Persistable snapshot of what residents remember. */

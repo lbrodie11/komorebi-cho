@@ -114,4 +114,12 @@ describe('neighborhood memories', () => {
     expect(s).toEqual({ uses: { 'nana|b1': { n: 2, days: [1, 3] } }, rainy: { 'nana|b1': [4] } });
     expect(sanitizeStats(null)).toEqual({ uses: {}, rainy: {} });
   });
+
+  it('remembers a bond a placed thing made possible, once per pair and thing', () => {
+    const r = new MemoryRecorder();
+    const m = r.bond('nana', 'genzo', 'b1', view(600));
+    expect(m).toMatchObject({ kind: 'bond', who: ['genzo', 'nana'], objectId: 'b1' });
+    expect(r.bond('genzo', 'nana', 'b1', view(DAY + 600))).toBeNull(); // told once, whichever way round
+    expect(r.bond('nana', 'genzo', 'gone', view(700))).toBeNull(); // nothing to show for a thing that isn't there
+  });
 });

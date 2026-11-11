@@ -41,6 +41,8 @@ export type GameEvents = {
   noticed: { who: string; id: string };
   /** Something the player placed became a resident's favourite of its kind (drives a Memory). */
   routine: { who: string; id: string };
+  /** Two neighbours climbed a rung of the bond ladder; `credited` are the placed things that made it possible. */
+  bond: { a: string; b: string; to: string; credited: string[] };
   /** A resident used a placed object; `with` are the others using it at the same moment (drives Memories). */
   used: { who: string; id: string; with: string[] };
   /** Someone rang the shrine's bell rope (they came to pray), at (x, z): for the soundscape. */

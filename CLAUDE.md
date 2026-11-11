@@ -48,7 +48,7 @@ src/save      storage (versioned localStorage + migrations + validation), tabs (
 tests/        vitest: core, sim, audio, render maths (lut, shadow, pixel scale), art (glyphs, weathering, leaves, sky keys)
 prompts/      the roadmap: numbered work orders, done in order
 docs/         ARCHITECTURE, COLOR, CONTRIBUTING, NAV (navigation numbers and decisions), VERSIONS, PLAYTEST (the people-and-phones script)
-scripts/      diffusion-shots.mjs (reproducible reference screenshots), ui-audit.mjs (every control, touch, two tabs), a11y-scan.mjs (axe over every HUD state), compare-builds.mjs (two builds: pixels + scene graph),
+scripts/      diffusion-shots.mjs (reproducible reference screenshots), ui-audit.mjs (every control, touch, two tabs), people-journal-audit.mjs (every neighbor's card, Show me, Follow, the Journal), a11y-scan.mjs (axe over every HUD state), compare-builds.mjs (two builds: pixels + scene graph),
               subset-fonts.sh; Playwright and axe-core installed --no-save, in one command (a second --no-save install prunes the first)
 ```
 

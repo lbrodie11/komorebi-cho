@@ -887,8 +887,9 @@ export class Hud {
         const li = el('li');
         const b = el('button', 'px');
         b.type = 'button';
-        b.textContent = `${w.title} · ${w.when}`;
-        b.title = w.caption;
+        // what happened, then when: titles alone ("Something new") can't tell two memories apart
+        b.textContent = `${w.caption} · ${w.when}`;
+        b.title = w.title;
         b.addEventListener('click', () => {
           this.memoryOpen = m.id;
           this.renderMemories(true);
@@ -1369,6 +1370,18 @@ export class Hud {
       this.cardBody.append(fav);
     }
     this.cardBody.append(knows);
+    if (i.neighbors.length) {
+      const n = el('div', 'diary neighbors');
+      const h4 = el('h4');
+      h4.textContent = t('card.neighbors');
+      n.append(h4);
+      for (const k of i.neighbors) {
+        const line = el('p');
+        line.textContent = t(`card.bond.${k.rung}` as MsgKey, { who: t(`persona.${k.id}.short` as MsgKey) });
+        n.append(line);
+      }
+      this.cardBody.append(n);
+    }
     if (i.diary.length) {
       const d = el('div', 'diary');
       const h4 = el('h4');
