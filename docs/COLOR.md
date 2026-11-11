@@ -63,3 +63,11 @@ The palette's darkest entry is `#16141f`, a deep violet. The old `#0b0a12` was c
 
 - `?lutOff` swaps the LUT for the reference loop; diff the two with the seeded screenshot URL (`docs/CONTRIBUTING.md`).
 - To audit textures, search for `CanvasTexture`/`DataTexture` and confirm each sets a colour space on purpose.
+
+## Colour direction (2026-11-11)
+The palette is the identity: violet shadows instead of black, walnut and earth materials, amber light, a few seasonal accents. What changed is how it's used.
+- **Colour script.** Each sky key in `src/render/sky.ts` says what its hour should make the player feel (dawn: the town waking; 17:30: nostalgia; 19:15: quiet wonder, the benchmark), beside the numbers that do it.
+- **Night silhouettes.** `#2e2a42` roofs on a `#1f2c45` night sky are 1.01:1 by luminance, and the outline pass used to darken edges into the sky. Where an edge meets a dark sky it now gets a faint cool moonlit rim instead; by day the dark outline stays. One rule in the shared post pass covers all four looks.
+- **Accent budget.** `ACCENT_BUDGET` in `lighting.ts` scales only the accent lights (paper lanterns, glowing signs, the red light boxes) per season: autumn 0.85 and spring 0.92, so the trees and blossoms lead. Windows, streetlamps and the café are never scaled.
+- **UI on the sky.** The subtitle sits straight on the sky (muted grey on day blue is 2.3:1); a 1 px ink outline keeps it legible on every sky. Photos never include the HUD.
+- **Smooth and the palette looks** share the same tonemap, hue shift, outlines and glow; Smooth skips only the dither and the snap. They should match in mood and hierarchy, not RGB: prompt 10 task 8 makes that a greyscale ranking check.

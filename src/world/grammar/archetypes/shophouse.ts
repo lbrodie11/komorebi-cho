@@ -90,7 +90,7 @@ function attachment(a: ShopAttachment, s: ShopHouseSpec, fx: number, cz: number)
       return [
         { op: 'lantern', x: fx + 0.3, y: G + 2.3, z: s.z0 + 0.4 },
         { op: 'lantern', x: fx + 0.3, y: G + 2.3, z: s.z1 - 0.4 },
-        { op: 'box', w: 0.12, h: 3.25, d: 1, mat: { lamp: '#d0402a', glow: '#9a2b22', intensity: 0.6 }, x: fx + 0.14, y: G + 3.6, z: cz },
+        { op: 'box', w: 0.12, h: 3.25, d: 1, mat: { lamp: '#d0402a', glow: '#9a2b22', intensity: 0.6, accent: true }, x: fx + 0.14, y: G + 3.6, z: cz },
         { op: 'sign', sign: a.sign, x: fx + 0.21, y: G + 3.6, z: cz, ry: Math.PI / 2, glow: 0.6 },
       ];
     case 'ac':

@@ -18,7 +18,7 @@ import { diffusionParams, type DiffusionParams } from './diffusion';
  *     3. drifting world-space cloud shadows; mirrored reflections on water (scene alpha = WATER_MASK)
  *     4. tonemap → sRGB → hue-shifted shading
  *     5. rain mist near the ground
- *     6. pixel-artist outlines (dark violet) and top rim light
+ *     6. pixel-artist outlines (dark violet; a moonlit rim against a dark night sky) and top rim light
  *     7. Bayer 4×4 dither (skipped on signs, scene alpha = SIGN_MASK) → palette snap (the diorama only;
  *        the Smooth preset skips both and keeps full-colour shading) (candidate 3D LUT, or the reference loop with `?lutOff`)
  *     8. Bayer dissolve from the previous view during camera steps
@@ -236,8 +236,15 @@ void main(){
     float dr = texture2D(tDepth, vUv + vec2(px.x, 0.)).r;
     float dd = texture2D(tDepth, vUv - vec2(0., px.y)).r;
     float du = texture2D(tDepth, vUv + vec2(0., px.y)).r;
-    if (max(max(dl, dr), dd) - d > .004) c = mix(c, vec3(.09, .07, .14), .5);
-    else if (du - d > .004) c = c * 1.18 + .03;
+    float far = max(max(dl, dr), dd);
+    if (far - d > .004) {
+      // A dark outline, except where the edge meets a dark sky: at night a near-black line against a
+      // near-black sky erases the silhouette (#2e2a42 roofs on #1f2c45 sky are 1.01:1), so the edge
+      // gets a faint cool moonlit rim instead. By day the line stays.
+      float skyL = dot(mix(bgBottom, bgTop, .5), vec3(.3, .59, .11));
+      float night = (far >= .99999 ? 1. : 0.) * (1. - smoothstep(.12, .3, skyL));
+      c = mix(mix(c, vec3(.09, .07, .14), .5), c * 1.12 + vec3(.035, .04, .075), night);
+    } else if (du - d > .004) c = c * 1.18 + .03;
   }
   c += glowC;
   // 7. ordered dither + palette snap

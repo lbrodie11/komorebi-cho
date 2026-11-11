@@ -327,7 +327,8 @@ function inject(src: string, anchor: string, code: string, after = true): string
 
 /** A lamp-like emissive material whose glow follows the time of day. */
 export interface LampMaterial extends THREE.MeshStandardMaterial {
-  userData: { base: number; ownLook?: boolean };
+  /** `accent`: a lantern, glowing sign or light box, scaled by the season's accent budget. */
+  userData: { base: number; ownLook?: boolean; accent?: boolean };
 }
 
 export class Materials {
@@ -347,7 +348,7 @@ export class Materials {
   /** Lit glass per window kind, in WINDOW_STEPS brightness steps (index 0 = dark glass); see windowMat. */
   private readonly windowSteps = new Map<WindowKind, THREE.MeshStandardMaterial[]>();
   readonly frame = this.std('#2e2a42', 0.8);
-  readonly lantern = this.lamp('#ff7a55', '#ff3a1e', 2.2);
+  readonly lantern = this.lamp('#ff7a55', '#ff3a1e', 2.2, true);
   /**
    * Window glass at brightness `step` (0..WINDOW_STEPS) for a kind. Steps are shared materials,
    * so every window can fade on its own schedule without a material per window. Colours and
@@ -477,7 +478,7 @@ export class Materials {
       material.emissiveMap = t;
       material.emissiveIntensity = glow;
       const lamp = material as LampMaterial;
-      lamp.userData = { base: glow, ownLook: true };
+      lamp.userData = { base: glow, ownLook: true, accent: true };
       this.lamps.push(lamp);
     }
     return { material, w: p.w * SIGN_TEXEL, h: p.h * SIGN_TEXEL };
@@ -537,9 +538,9 @@ export class Materials {
     return this.std(color, roughness, { map: t, ...extra });
   }
 
-  lamp(color: string, emissive: string, base: number): LampMaterial {
+  lamp(color: string, emissive: string, base: number, accent = false): LampMaterial {
     const m = this.std(color, 0.6, { emissive: new THREE.Color(emissive), emissiveIntensity: base }) as LampMaterial;
-    m.userData = { base };
+    m.userData = { base, accent };
     this.lamps.push(m);
     return m;
   }
@@ -550,8 +551,9 @@ export class Materials {
     return m;
   }
 
-  setLampLevel(level: number): void {
-    for (const m of this.lamps) m.emissiveIntensity = m.userData.base * (0.15 + level);
+  /** Lamp brightness for the hour; `accent` scales the accent lights only (the season's budget, lighting.ts). */
+  setLampLevel(level: number, accent = 1): void {
+    for (const m of this.lamps) m.emissiveIntensity = m.userData.base * (0.15 + level) * (m.userData.accent ? accent : 1);
   }
 
   setWetness(w: number): void {

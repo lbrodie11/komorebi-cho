@@ -56,3 +56,6 @@ Prettier owns formatting (`npm run format`). ESLint owns correctness (`npm run l
 ## Deploys
 
 Every push to `main` builds and deploys `dist/` to GitHub Pages (`.github/workflows/pages.yml`). One-time setup: **Settings → Pages → Source: GitHub Actions**.
+
+## Proving a refactor changes nothing
+Serve the old and new builds side by side (a git worktree per commit, `npx vite preview --outDir <dist> --port <port>`), then run `node scripts/compare-builds.mjs <old url> <new url> classic 12,19.25`. It compares five seeded, frozen views per hour pixel by pixel, then diffs the scene graphs object by object, and exits non-zero on any difference. It reads pixels inside a frame: read later, a WebGL canvas is blank, and every comparison passes vacuously.

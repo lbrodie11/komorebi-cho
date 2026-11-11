@@ -10,7 +10,7 @@ import { buildProps, type PropsOut } from './props';
 import { Weather } from './weather';
 import { GROUND, VENDING } from './layout';
 import { groundHeight } from './terrain';
-import { EMISSIVE, shopDarkness, windowLevel, windowSpill, windowStep } from './lighting';
+import { ACCENT_BUDGET, EMISSIVE, shopDarkness, windowLevel, windowSpill, windowStep } from './lighting';
 import { LightPools } from './lightpools';
 import { fitSunShadow, type ShadowFit } from '../render/shadow';
 
@@ -159,7 +159,7 @@ export class World {
     this.hemi.groundColor.set(sky.hemiGround);
     this.hemi.intensity = sky.hemiI * HEMI_K;
     this.lampLevel = damp(this.lampLevel, sky.lamp, 2, dt);
-    this.mats.setLampLevel(this.lampLevel);
+    this.mats.setLampLevel(this.lampLevel, ACCENT_BUDGET[clock.season]);
     this.mats.lantern.emissiveIntensity = 0.4 + this.lampLevel * (EMISSIVE.lantern - 0.4);
     for (const id of this.lampPoolIds) this.pools.set(id, this.lampLevel);
     this.syncPlacedPools();

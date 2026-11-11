@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
+  ACCENT_BUDGET,
   EMISSIVE,
   FADE_H,
   WINDOW_STEPS,
@@ -172,5 +173,15 @@ describe('placed-light clusters', () => {
     ];
     expect(clusterLights(pts, 2)).toEqual([[0, 2], [1]]);
     expect(clusterLights(pts, 2)).toEqual(clusterLights(pts, 2));
+  });
+});
+
+describe('seasonal accent budget', () => {
+  it('only ever dims accents, most in autumn, and never enough to lift them over the café', () => {
+    for (const v of Object.values(ACCENT_BUDGET)) expect(v).toBeLessThanOrEqual(1);
+    expect(ACCENT_BUDGET.autumn).toBeLessThan(ACCENT_BUDGET.summer);
+    expect(ACCENT_BUDGET.spring).toBeLessThan(1);
+    // the café and streetlamps are never scaled; lanterns at full budget still sit below them
+    expect(EMISSIVE.lantern * Math.max(...Object.values(ACCENT_BUDGET))).toBeLessThan(EMISSIVE.streetlamp);
   });
 });

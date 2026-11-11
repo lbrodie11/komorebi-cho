@@ -56,6 +56,15 @@ Weather and seasons that change **affordances**, not just colours, plus small fe
    - Overlapping fixed pools share brightness (the kissaten's two front spills currently add up).
    - A grayscale and silhouette check: `scripts/diffusion-shots.mjs` plus a desaturate step, so the value structure reads without colour.
 
+8. **Colour-direction audit** (2026-11-11 palette review; the palette stays, its use gets disciplined). Already done: a moonlit rim instead of a dark outline where an edge meets a dark night sky (post.ts), the seasonal accent budget (`ACCENT_BUDGET` in lighting.ts), the colour script as comments on each sky key, the subtitle's ink outline. Still to do, each measurable:
+   - **Ten acceptance scenes**, same seed, camera and zoom: spring noon, golden hour, blue hour, rainy evening; summer midday, night; autumn golden hour, rainy evening; winter snowy morning, night. Each in Smooth and Classic, at Film Diffusion 0%, 5% and 20%.
+   - **Hierarchy check:** convert each frame to greyscale and rank the brightest regions; Sunday Café must rank first at 19:15 in every look and at every diffusion level (small intense streetlamps bloom wider than a big dim window, so check 10–20% especially). The pond's reflections must not become a second focal point.
+   - **Placed lights:** ten lanterns clustered must not outshine the café (the √n crowd sharing caps the point lights; check the glowing meshes too).
+   - **Winter:** snow roofs, the pale sky and white sign grounds are all near-white; check silhouettes.
+   - **Colour blindness:** the vermilion bridge against green trees; the greyscale check covers it.
+   - **OKLab experiment:** rebuild the palette LUT with OKLab distance and compare side by side; adopt it only if it visibly helps (watch warm dusk walls snapping to grey).
+   - **The benchmark scene:** Sunday Café at blue hour in the rain. New players start at 16:36, so make sure golden hour into blue hour lands in the first minutes too.
+
 ## Acceptance criteria
 - A 30-minute fast-forward through a year shows all four seasons, at least five weather states and every festival, with no visual glitches.
 - Residents measurably change behaviour in rain (path heat-map comparison in the PR).

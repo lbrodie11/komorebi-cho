@@ -172,6 +172,14 @@ button.px.warn {
   font-size: calc(14px * var(--ts, 1));
   color: var(--muted);
   letter-spacing: 0.02em;
+  /* the subtitle sits straight on the sky (muted on day blue is 2.3:1): a 1 px ink outline keeps it
+     legible on every sky without a backing panel */
+  text-shadow:
+    1px 0 0 var(--ink),
+    -1px 0 0 var(--ink),
+    0 1px 0 var(--ink),
+    0 -1px 0 var(--ink),
+    1px 1px 0 var(--ink);
 }
 
 .top-right {

@@ -44,6 +44,7 @@ interface Key {
 const KEYS: Key[] = [
   // deep night: cool moonlight from behind the terrace, every lamp on
   {
+    // colour script: stillness; the town asleep, a few windows keeping watch
     h: 0,
     top: '#16141f',
     bottom: '#211e30',
@@ -59,6 +60,7 @@ const KEYS: Key[] = [
   },
   // before dawn: the horizon starts to lift
   {
+    // colour script: anticipation; the night thinning
     h: 4.6,
     top: '#16141f',
     bottom: '#2e2a42',
@@ -74,6 +76,7 @@ const KEYS: Key[] = [
   },
   // sunrise: a pink horizon and the first long orange shadows; lamps fading
   {
+    // colour script: gentle optimism; the town is waking up
     h: 5.6,
     top: '#2f4a72',
     bottom: '#e59b9b',
@@ -89,6 +92,7 @@ const KEYS: Key[] = [
   },
   // early morning: soft gold sun, pale pink sky
   {
+    // colour script: freshness; peach light on cream walls, vegetation still muted
     h: 6.6,
     top: '#4f73a3',
     bottom: '#f4c7cf',
@@ -104,6 +108,7 @@ const KEYS: Key[] = [
   },
   // day: neutral, warm-white sun, cool sky fill, warm ground bounce
   {
+    // colour script: everyday warmth; readable architecture, modest shadow contrast, comfortably alive
     h: 8.5,
     top: '#4f73a3',
     bottom: '#c4dcee',
@@ -118,6 +123,7 @@ const KEYS: Key[] = [
     clouds: 0.9,
   },
   {
+    // colour script: the long afternoon; warmth gathering, nothing hurried
     h: 15.5,
     top: '#4f73a3',
     bottom: '#c4dcee',
@@ -134,6 +140,7 @@ const KEYS: Key[] = [
   // golden hour (17:30): low amber sun raking across the lane, long violet shadows,
   // a gold horizon under a still-blue sky. Lamps not yet needed.
   {
+    // colour script: nostalgia; you wish this moment would last
     h: 17.5,
     top: '#4f73a3',
     bottom: '#ffd37a',
@@ -149,6 +156,7 @@ const KEYS: Key[] = [
   },
   // sunset: the sun goes red, the sky pink to violet, lamps come on
   {
+    // colour script: the turn; lamps waking one by one, the day letting go
     h: 18.4,
     top: '#2e2a42',
     bottom: '#e59b9b',
@@ -166,6 +174,7 @@ const KEYS: Key[] = [
   // The kissaten's window (materials.windowMat('cafe'), lighting.ts EMISSIVE) must be the warmest thing in view:
   // fill and sky stay strictly blue, so nothing else competes for amber.
   {
+    // colour script: quiet wonder; cool indigo, local amber, saturated accents held back (the benchmark scene)
     h: 19.25,
     top: '#1f2c45',
     bottom: '#4f73a3',
@@ -181,6 +190,7 @@ const KEYS: Key[] = [
   },
   // evening into night
   {
+    // colour script: intimacy; the street belongs to the few still out
     h: 21,
     top: '#16141f',
     bottom: '#211e30',
@@ -195,6 +205,7 @@ const KEYS: Key[] = [
     clouds: 0.1,
   },
   {
+    // colour script: stillness again (wraps to 0)
     h: 24,
     top: '#16141f',
     bottom: '#211e30',

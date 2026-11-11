@@ -27,6 +27,14 @@ export const EMISSIVE = {
   home: 1.5,
 } as const;
 
+/**
+ * The season's budget for accent lights (paper lanterns, glowing signs, the red light boxes): a
+ * multiplier on their brightness, so they don't compete with the season's own colour. Autumn's
+ * trees already carry the reds; spring's blossoms should lead. Windows, streetlamps and the café
+ * are never scaled, so the brightness hierarchy (café first) holds in every season.
+ */
+export const ACCENT_BUDGET = { spring: 0.92, summer: 1, autumn: 0.85, winter: 1 } as const;
+
 /** Windows fade on and off over this many in-world hours (18 minutes), never popping. */
 export const FADE_H = 0.3;
 /** Brightness steps for window glass (shared materials per step: per-window fades without per-window materials). */

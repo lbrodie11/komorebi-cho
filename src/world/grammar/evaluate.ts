@@ -26,9 +26,9 @@ export function material(k: Kit, r: MatRef): THREE.Material {
   if ('lamp' in r) {
     let cache = lamps.get(k);
     if (!cache) lamps.set(k, (cache = new Map<string, THREE.Material>()));
-    const key = `${r.lamp}|${r.glow}|${r.intensity}`;
+    const key = `${r.lamp}|${r.glow}|${r.intensity}|${r.accent ? 1 : 0}`;
     let mat = cache.get(key);
-    if (!mat) cache.set(key, (mat = m.lamp(r.lamp, r.glow, r.intensity)));
+    if (!mat) cache.set(key, (mat = m.lamp(r.lamp, r.glow, r.intensity, r.accent)));
     return mat;
   }
   return m.tex2(r.tex, r.color, r.rx, r.ry, r.rough);

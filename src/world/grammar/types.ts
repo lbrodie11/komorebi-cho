@@ -15,7 +15,7 @@ export type MatRef =
   | { solid: string; rough?: number }
   | { std: string; rough?: number; metal?: number; double?: boolean; flat?: boolean }
   /** A lamp material (it glows at night). The same description gives the same material within one build. */
-  | { lamp: string; glow: string; intensity: number }
+  | { lamp: string; glow: string; intensity: number; accent?: boolean }
   | { named: 'roof' | 'roofDark' | 'dark' | 'lantern' | 'stone' | 'vermilion' };
 
 export type Part =
