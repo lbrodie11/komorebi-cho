@@ -1,4 +1,5 @@
 import type { Vec2, Rect } from '../core/math';
+import type { ShopHouseSpec } from './grammar/types';
 import type { SignSpec } from '../render/glyphs';
 
 /**
@@ -277,3 +278,73 @@ export const SIGNS = {
   water: { text: 'WATER', ink: '#f6efe0', bg: '#2f4a72', pad: 0 },
   fibre: { text: 'FIBER', ink: '#16141f', bg: '#ff6b3d', pad: 0 },
 } as const satisfies Record<string, SignSpec>;
+
+/**
+ * The shopping street's shop-houses, as data for the building grammar (src/world/grammar).
+ * They front east on the lane at x = -10.5; the frontage is z0..z1. Change a frontage and the
+ * grammar re-plans the bays, windows, awning and sign; nothing is stretched.
+ */
+export const SHOPS: readonly ShopHouseSpec[] = [
+  {
+    id: 'ramen',
+    use: 'food',
+    z0: -3.6,
+    z1: -0.4,
+    frontX: -10.5,
+    depth: 5.7,
+    height: 5.2,
+    wall: { tex: 'wood', color: '#653d27', rx: 2, ry: 2 },
+    roof: 'flat',
+    tank: true,
+    noren: '#9a2b22',
+    crest: SIGNS.ramenCrest,
+    hours: [11, 23],
+    age: 0.8,
+  },
+  {
+    id: 'bakery',
+    use: 'food',
+    z0: -0.2,
+    z1: 3.2,
+    frontX: -10.5,
+    depth: 5.7,
+    height: 4.4,
+    wall: { tex: 'plaster', color: '#e8dcc2', rx: 2, ry: 1.5 },
+    roof: 'gable',
+    awning: { tex: 'stripe', color: '#ffffff', rx: 3, ry: 1, rough: 0.8 },
+    sign: { spec: SIGNS.bakery, y: 3.4 },
+    hours: [7, 19],
+    age: 0.5,
+  },
+  {
+    id: 'florist',
+    use: 'shop',
+    z0: 3.4,
+    z1: 6,
+    frontX: -10.5,
+    depth: 5.7,
+    height: 3.6,
+    wall: { tex: 'wood', color: '#8a5634', rx: 2, ry: 1.2 },
+    roof: 'shed',
+    awning: { solid: '#3c6838' },
+    sign: { spec: SIGNS.florist, y: 3.1 },
+    hours: [9, 18],
+    age: 0.65,
+  },
+  {
+    id: 'books',
+    use: 'shop',
+    z0: 6.2,
+    z1: 9,
+    frontX: -10.5,
+    depth: 5.7,
+    height: 5,
+    wall: { tex: 'siding', color: '#8a8f99', rx: 2, ry: 2 },
+    roof: 'flat',
+    noren: '#2f4a72',
+    crest: SIGNS.booksCrest,
+    sign: { spec: SIGNS.books, y: 3.8 },
+    hours: [10, 20],
+    age: 0.7,
+  },
+];

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { Kit } from './kit';
-import type { SignSpec } from '../render/glyphs';
-import { G, SIGNS, TG } from './layout';
+import { G, SHOPS, SIGNS, TG } from './layout';
+import { evaluate } from './grammar/evaluate';
+import { planShopHouse, shopFootprint } from './grammar/shophouse';
+import { classifyGap, planSeam } from './grammar/seams';
 
 /** A roller shutter that rolls up at opening time. */
 export interface Shutter {
@@ -143,54 +145,15 @@ export function buildBuildings(k: Kit): BuildingsOut {
   for (let i = 0; i < 6; i++) k.box(0.18, 0.13, 0.03, m.solid('#e8dcc2'), 12.7 + (i % 3) * 0.32, TG + 0.95 + Math.floor(i / 3) * 0.2, -9.33);
 
   // ── Shotengai: four shops facing the lane, arch at the entrance ────────────
-  const shop = (
-    z0: number,
-    z1: number,
-    h: number,
-    wall: THREE.Material,
-    o: { roof?: 'gable' | 'shed'; awning?: THREE.Material; noren?: string; crest?: SignSpec; tank?: boolean; hours: [number, number]; age: number },
-  ) => {
-    const w = 5.7,
-      cx = -13.35,
-      cz = (z0 + z1) / 2,
-      d = z1 - z0;
-    k.weathering({ age: o.age }, () => {
-      k.box(w, h, d, wall, cx, G + h / 2, cz);
-      if (o.roof === 'gable') k.gableZ(d + 0.4, w + 0.6, 1.4, m.roof, cx, G + h, cz);
-      else if (o.roof === 'shed') k.shed(-16.2, -10.5, z0, z1, G + h, 1, 'x0', wall, m.roof);
-      else {
-        k.box(w + 0.1, 0.3, d + 0.1, m.dark, cx, G + h + 0.15, cz);
-        if (o.tank) k.cyl(0.45, 0.45, 0.8, m.solid('#86aed4', 0.5), cx - 1.5, G + h + 0.7, cz);
-      }
-      k.win(-10.46, G + 1.15, cz, Math.PI / 2, d * 0.72, 1.6, 'shop');
-      k.windows[k.windows.length - 1]!.hours = o.hours;
-      k.box(0.3, 0.25, d * 0.78, m.solid('#686d78'), -10.45, G + 2.08, cz);
-      if (h > 4.4) [cz - d / 4, cz + d / 4].forEach((z) => k.win(-10.46, G + 3.8, z, Math.PI / 2, 0.9, 1));
-    });
-    shutter(-10.46, G + 1.15, cz, Math.PI / 2, d * 0.74, 1.62, o.hours);
-    if (o.noren) {
-      k.plane(d * 0.55, 0.9, m.solid(o.noren), -10.42, G + 1.85, cz, Math.PI / 2);
-      if (o.crest) k.sign(o.crest, -10.41, G + 1.85, cz, Math.PI / 2);
-    }
-    if (o.awning) {
-      const a = k.box(1.1, 0.14, d * 0.9, o.awning, -9.95, G + 2.55, cz);
-      a.rotation.z = -0.38;
-    }
-  };
-  shop(-3.6, -0.4, 5.2, m.tex2('wood', '#653d27', 2, 2), { noren: '#9a2b22', crest: SIGNS.ramenCrest, tank: true, hours: [11, 23], age: 0.8 });
-  shop(-0.2, 3.2, 4.4, m.tex2('plaster', '#e8dcc2', 2, 1.5), { roof: 'gable', awning: m.tex2('stripe', '#ffffff', 3, 1, 0.8), hours: [7, 19], age: 0.5 });
-  shop(3.4, 6, 3.6, m.tex2('wood', '#8a5634', 2, 1.2), { roof: 'shed', awning: m.solid('#3c6838'), hours: [9, 18], age: 0.65 });
-  shop(6.2, 9, 5, m.tex2('siding', '#8a8f99', 2, 2), { noren: '#2f4a72', crest: SIGNS.booksCrest, hours: [10, 20], age: 0.7 });
+  // The shop-houses come from data through the building grammar (src/world/grammar): bays,
+  // windows, shutters, awnings and shop boards follow each frontage.
+  for (const spec of SHOPS) evaluate(k, planShopHouse(spec), { shutter });
   // ramen: lanterns + a tall back-lit sign between them
   lantern(-10.2, G + 2.3, -3.2);
   lantern(-10.2, G + 2.3, -0.8);
   k.box(0.12, 3.25, 1, m.lamp('#d0402a', '#9a2b22', 0.6), -10.36, G + 3.6, -2);
   k.sign(SIGNS.ramen, -10.29, G + 3.6, -2, Math.PI / 2, 0.6);
   k.weathering({ age: 0.8 }, () => k.ac(-10.36, G + 4, 1.6, Math.PI / 2));
-  // shop boards above the awnings, and the bookshop's name between its upper windows
-  k.sign(SIGNS.bakery, -10.42, G + 3.4, 1.5, Math.PI / 2);
-  k.sign(SIGNS.florist, -10.42, G + 3.1, 4.7, Math.PI / 2);
-  k.sign(SIGNS.books, -10.42, G + 3.8, 7.6, Math.PI / 2);
   // bakery bread rack
   k.box(0.5, 0.8, 1.2, m.solid('#8a5634'), -9.95, G + 0.4, 2.4);
   for (let i = 0; i < 6; i++) k.blob(-9.95, G + 0.88, 1.95 + i * 0.18, 0.09).material = m.solid('#d4a774');
@@ -293,6 +256,15 @@ export function buildBuildings(k: Kit): BuildingsOut {
     k.box(1.2, 1.4, 1, m.tex2('siding', '#4f73a3', 1, 1), 15.5, G + 0.7, 11.6);
     k.shed(14.9, 16.1, 11.1, 12.1, G + 1.4, 0.3, 'z0', m.solid('#4f73a3'), m.roof);
   });
+
+  // Seams between neighbouring shop-houses (downpipes in tight gaps, an alley in wider ones).
+  // Built last: seams are new geometry, and nothing before them should change.
+  const row = [...SHOPS].sort((a, b) => a.z0 - b.z0);
+  for (let i = 0; i + 1 < row.length; i++) {
+    const a = shopFootprint(row[i]!),
+      b = shopFootprint(row[i + 1]!);
+    evaluate(k, planSeam(classifyGap(a, b), a, b, row[i]!.frontX), { shutter });
+  }
 
   return { lanterns, shutters, parasols, chimneyTop: new THREE.Vector3(-14.9, TG + 13.2, -11.9) };
 }

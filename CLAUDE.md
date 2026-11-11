@@ -33,7 +33,7 @@ src/render    post (pixel pass), lut (palette lookup table), camera (iso + texel
               shadow (fitted sun frustum), materials (procedural textures + weathering/leaf/water/sign shaders),
               glyphs (5×5 kana, 7×7 pictograms), palette, sky (time-of-day keys),
               diffusion (Film Diffusion curve, output budget) + diffusion-pass (its GPU passes)
-src/world     layout (THE DATA), terrain (heights/regions), kit (geometry helpers, weathering scope, static merge),
+src/world     layout (THE DATA), grammar/ (building specs → parts → geometry; seams between neighbours), terrain (heights/regions), kit (geometry helpers, weathering scope, static merge),
               weathering (pure per-vertex maths), lighting (window schedules, spill, brightness hierarchy),
               lightpools (ground pool decals), buildings, nature, props (+ placeables), crowd (light sharing),
               weather, world (assembly + time-driven updates)

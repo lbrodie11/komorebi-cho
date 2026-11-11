@@ -42,6 +42,11 @@ Move buildings from hand-written code (`src/world/buildings.ts`) to **data + gra
 - **Determinism:** each building's seed is `hash(parcelSeed, archetype, revision)`. Neighbours re-evaluate only their **seam** components.
 - **Setback rule** (Building Standards Act 42-2): a "rebuilt" parcel facing a lane under 4 m steps back, which gives the staggered frontages of real shitamachi.
 
+## Progress (2026-11-11)
+Done (phase A): `src/world/grammar/` with `types.ts` (MatRef, Part, ShopHouseSpec, Footprint, Seam), `shophouse.ts` (the shop-house archetype: bays, upper windows, roof, noren, awning, shop board, all from the frontage), `seams.ts` (`classifyGap` and `planSeam`, keyed by the pair's seed), and `evaluate.ts` (parts → Kit, in the original call order). The four shopping-street shops are data (`SHOPS` in `layout.ts`); the screenshots are pixel-identical at noon and dusk. The three 0.2 m gaps between them now get downpipes (out of sight from the default view). Tests: determinism, 4 m → 6 m adds a bay and moves the sign, seam thresholds, 1,000 random edits leave untouched seams alone, everything on the plinth.
+
+Still to do: port the sento, kyosho house, apāto, temple and kissaten to archetypes (task 2), the priority layers and setback rule, utility wires as a spanning tree (task 4), and the "geometry hash" version of the stability test once buildings can move (prompt 06).
+
 ## Tasks
 1. `src/world/grammar/` with:
    - `types.ts` (Parcel, BuildingSpec, FacadeZone, RelEdge)
