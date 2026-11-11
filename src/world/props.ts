@@ -49,6 +49,8 @@ export interface PropsOut {
   shopFollowers: ShopFollower[];
   /** The service drops to the shop-houses: re-routed when a shop moves (`routeDrops`). */
   shopDrops: THREE.Group;
+  /** The bicycle someone rides (it leaves the rack with its rider and comes back). */
+  bike: THREE.Group;
 }
 
 /** A fixture on a shop-house front, and the nav obstacles it carries with it. */
@@ -150,17 +152,34 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     const basket = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.22, 0.32), metal);
     basket.position.set(0.62, 0.76, 0);
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.14), m.dark);
-    seat.position.set(-0.3, 0.78, 0);
-    g.add(fr, basket, seat);
+    seat.position.set(-0.3, 0.82, 0);
+    // what makes it read as a bicycle and not two hoops: a seat post, a steering post, handlebars across
+    const seatPost = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.24, 0.05), metal);
+    seatPost.position.set(-0.3, 0.7, 0);
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05), metal);
+    stem.position.set(0.42, 0.78, 0);
+    const bars = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.5), m.dark);
+    bars.position.set(0.42, 1.02, 0);
+    const down = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.07), m.solid(c));
+    down.position.set(0.05, 0.5, 0);
+    down.rotation.z = 0.5;
+    g.add(fr, basket, seat, seatPost, stem, bars, down);
     g.position.set(x, G, z);
     g.rotation.y = ry;
-    k.add(g);
+    return g;
   };
-  bike(-6.6, 10.9, 0, '#9a2b22');
-  bike(-5.4, 10.95, 0.1, '#2f4a72');
-  bike(-9.65, 0.2, Math.PI / 2, '#e8dcc2');
-  bike(10.6, -0.9, Math.PI / 2, '#3c6838');
-  bike(-14.2, -8.5, 0, '#e8dcc2');
+  // the red one by the hedge is the one someone rides: it stays a group of its own, so it can move
+  const ride = bike(-6.6, 10.9, 0, '#9a2b22');
+  ride.userData.apart = true;
+  ride.traverse((o) => ((o as THREE.Mesh).isMesh ? (o.castShadow = true) : null));
+  k.root.add(ride);
+  k.add(bike(-5.4, 10.95, 0.1, '#2f4a72'));
+  // and the rack they lean on: a low steel rail with three hoops
+  k.box(2.6, 0.05, 0.05, m.solid('#8a8f99'), -6, G + 0.45, 10.6);
+  for (const x of [-7.2, -6, -4.8]) k.box(0.05, 0.45, 0.05, m.solid('#8a8f99'), x, G + 0.225, 10.6);
+  k.add(bike(-9.65, 0.2, Math.PI / 2, '#e8dcc2'));
+  k.add(bike(10.6, -0.9, Math.PI / 2, '#3c6838'));
+  k.add(bike(-14.2, -8.5, 0, '#e8dcc2'));
 
   // crates outside the ramen shop's back door
   for (const [x, z, n] of [
@@ -309,7 +328,7 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     lightPool.push(ref);
   }
 
-  return { lights, swings, flags, lightPool, lampPools, shopFollowers, shopDrops };
+  return { lights, swings, flags, lightPool, lampPools, shopFollowers, shopDrops, bike: ride };
 }
 
 /**

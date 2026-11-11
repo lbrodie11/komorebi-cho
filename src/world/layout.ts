@@ -460,4 +460,14 @@ export const CAFE: CafeSpec = {
   ],
   age: 0.55,
 };
+/** The café's roof terrace: where its things are (world x, z), for the building and for whoever sits up there. */
+export const ROOF_TERRACE = {
+  /** The stair head's door: people come up and go down by it. */
+  door: [14.9, -1.7] as const,
+  /** The deck chair, and the way it faces (west, over the park). */
+  chair: [12.3, -0.9] as const,
+  chairFace: -Math.PI / 2,
+  /** The terrace's floor (the top of the roof's trim). */
+  y: CAFE.y + CAFE.h1 + CAFE.h2 + 0.34,
+};
 export const TOOL_SHED: ShedSpec = { x: 15.5, z: 11.6, y: G, w: 1.2, d: 1, h: 1.4, colour: '#4f73a3', age: 0.5 };

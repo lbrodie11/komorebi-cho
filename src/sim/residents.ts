@@ -9,7 +9,7 @@ import { Diary, type DiaryEntry } from './diary';
 import { Bonds, type Promotion, type Rung } from './bonds';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
-import { DOORS, EXITS, PASSAGES, SHELTERS } from '../world/layout';
+import { DOORS, EXITS, G, PASSAGES, ROOF_TERRACE, SHELTERS } from '../world/layout';
 import { groundHeight } from '../world/terrain';
 import type { NavGrid } from './grid';
 import { PERSONAS, type Persona } from './personas';
@@ -17,7 +17,8 @@ import type { Pose, Slot, SmartKind, SmartObject, SmartRegistry } from './smart'
 import { bubbleMaterial, type BubbleIcon } from './bubbles';
 import { msg, type Msg, type MsgKey } from '../i18n';
 
-type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger' | 'queue' | 'search' | 'shelter';
+type TaskKind =
+  'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger' | 'queue' | 'search' | 'shelter' | 'roof' | 'ride';
 
 interface Task {
   kind: TaskKind;
@@ -75,6 +76,8 @@ export function friendship(a: { p: Persona }, b: { p: Persona }): number {
 }
 /** How close a pair on each rung of the bond ladder is, 0..1 (what choices and crowding read). */
 export const CLOSENESS: Record<Rung, number> = { unseen: 0, familiar: 0.1, nod: 0.25, greeting: 0.5, chat: 0.75, friends: 1 };
+/** Riding is this many times walking pace. */
+const RIDE_PACE = 2.2;
 /** People within this distance (m) are in the same place; a game minute of it in a day is a day together. */
 const TOGETHER_RADIUS = 4;
 const TOGETHER_MINUTES = 1;
@@ -135,6 +138,15 @@ export class Agent {
   pose: Pose = 'stand';
   /** Needs, 0..1: tiredness, thirst, and wanting company (prompt 08). */
   readonly needs = { fatigue: 0.2, thirst: 0.2, social: 0.3 };
+  /**
+   * Up on the café's roof terrace: out of the stair-head door, across to the deck chair, and back.
+   * They count as indoors for the street (nobody down there meets them), but you can see them.
+   */
+  roof: { phase: 'out' | 'sit' | 'back'; t: number } | null = null;
+  /** The height they stand at when it isn't the ground (the roof terrace). */
+  perch: number | null = null;
+  /** On the bicycle: how many more stretches before taking it back to the rack. */
+  riding: number | null = null;
   /** Seconds left of a bow (to a neighbour passing by). */
   bowT = 0;
   /** A reaction playing (a hop, a puzzled lean) and how far into it (s). */
@@ -316,6 +328,9 @@ export class Agent {
   /** Visual pose + walk cycle + arms, head and gestures + umbrella; called every frame. */
   animate(dt: number, moving: boolean, rain: number, time: number): void {
     const run = this.task?.kind === 'jog';
+    // on the bicycle they sit, whatever the task's pose says
+    const riding = this.riding !== null;
+    const pose: Pose = riding ? 'sit' : this.pose;
     const g = gaitFor(this.p, run);
     if (moving) this.walkPhase += dt * g.rate;
     const swing = moving ? Math.sin(this.walkPhase) * g.swing : 0;
@@ -324,7 +339,7 @@ export class Agent {
     const step = Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, turn));
     this.root.rotation.y = wrapAngle(this.root.rotation.y + step);
     const lean = moving && !this.still ? Math.max(-0.12, Math.min(0.12, turn * 0.25)) : 0;
-    const ground = groundHeight(this.x, this.z);
+    const ground = this.perch ?? groundHeight(this.x, this.z);
     let y = ground + (moving && !this.still ? Math.abs(Math.sin(this.walkPhase)) * g.bob : 0);
     let legX = 0;
     let tilt = run ? 0.16 : 0; // runners lean forward
@@ -337,11 +352,11 @@ export class Agent {
       armR -= 0.5; // bent at the elbow, near enough
     }
     this.root.scale.y = this.scale;
-    switch (this.pose) {
+    switch (pose) {
       case 'sit':
-        legX = -1.45;
-        y = ground + 0.12 * this.scale;
-        armL = armR = -0.55; // hands in the lap
+        legX = riding ? -0.9 : -1.45;
+        y = ground + (riding ? 0.42 : 0.12) * this.scale;
+        armL = armR = riding ? -1.1 : -0.55; // hands on the bars, or in the lap
         break;
       case 'pray':
         tilt = 0.28;
@@ -368,7 +383,7 @@ export class Agent {
       tilt = Math.max(tilt, 0.45 * Math.sin((Math.PI * this.bowT) / BOW_SECONDS));
     }
     this.torso.rotation.set(tilt, 0, -lean);
-    if (this.pose === 'sit') {
+    if (pose === 'sit') {
       this.legs[0]!.rotation.x = legX;
       this.legs[1]!.rotation.x = legX;
     } else {
@@ -542,6 +557,7 @@ export class Residents {
 
   private hiddenLabel(a: Agent): Msg {
     if (a.task?.kind === 'commute') return msg(a.p.kid ? 'task.atSchool' : 'task.atWork');
+    if (a.task?.kind === 'roof') return msg('task.onRoof');
     if (a.task?.kind === 'inside') return msg('task.busyInside');
     if (a.task?.kind === 'home') return msg(a.task.dwell > 30 ? 'task.asleep' : 'task.atHome');
     return msg('task.elsewhere');
@@ -578,8 +594,10 @@ export class Residents {
       // decisions are staggered: a beat between one thing and the next, never all at once
       if (!a.task && this.clockS >= a.thinkUntil) this.plan(a, hour, rain);
       if (a.task) this.step(a, dt, gm, hour, rain);
-      a.animate(dt, !a.hidden && !a.arrived && a.standUp <= 0 && a.path.length > 0 && !a.waitingFor, rain, time);
+      const roofWalk = !!a.roof && a.roof.phase !== 'sit';
+      a.animate(dt, roofWalk || (!a.hidden && !a.arrived && a.standUp <= 0 && a.path.length > 0 && !a.waitingFor), rain, time);
     }
+    this.bikeFollow();
   }
 
   // ── Planning ────────────────────────────────────────────────────────────
@@ -622,6 +640,30 @@ export class Residents {
         hide: true,
         interruptible: true,
       });
+    }
+    // a break on the roof terrace: the café's own, on dry afternoons and evenings
+    if (
+      p.roofBreak &&
+      (working || !asleep) &&
+      hour > 14.5 &&
+      hour < 21.5 &&
+      rain < 0.15 &&
+      this.minutes - (a.lastDid.get('roof') ?? -Infinity) > 180 &&
+      a.rng.chance(0.3)
+    ) {
+      const d = DOORS[p.roofBreak];
+      if (d) {
+        a.lastDid.set('roof', this.minutes);
+        return this.assign(a, {
+          kind: 'roof',
+          label: msg('task.toRoof'),
+          goal: [d.x, d.z],
+          dwell: a.rng.range(12, 28),
+          pose: 'stand',
+          hide: true,
+          interruptible: false,
+        });
+      }
     }
     if (working) {
       const w = p.work!;
@@ -755,6 +797,9 @@ export class Residents {
       },
     });
     if (like('jog') > 0 && !night && rain < 0.4) opts.push({ score: like('jog'), key: 'jog', kind: 'jog', make: () => this.jogTask(a) });
+    // the bicycle by the hedge: whoever rides takes it for a turn round the block, if it's on its rack
+    if (p.rides && this.bike && !this.bikeOut && !night && rain < 0.3 && this.satiation(a, 'ride') > 0.5)
+      opts.push({ score: 0.9, key: 'ride', kind: 'ride', make: () => this.rideTask(a) });
     if (like('deliver') > 0 && hourInRange(hour, 9, 18))
       opts.push({
         score: like('deliver'),
@@ -795,6 +840,116 @@ export class Residents {
     if (!best || !t) return;
     a.lastPick.set(best.kind, best.key);
     this.assign(a, t);
+  }
+
+  /** The bicycle (set by main from the world), where it is kept, and whether someone has it out. */
+  bike: THREE.Object3D | null = null;
+  private bikeHome: { x: number; z: number; ry: number } | null = null;
+  private bikeOut = false;
+
+  /** Walk to the bicycle; arriving, get on and ride a few stretches of the block's loop, then bring it back. */
+  private rideTask(a: Agent): Task | null {
+    const b = this.bike;
+    if (!b) return null;
+    this.bikeHome ??= { x: b.position.x, z: b.position.z, ry: b.rotation.y };
+    const spot = this.grid.nearestOpen(this.bikeHome.x, this.bikeHome.z - 0.7, 3);
+    if (!spot) return null;
+    this.bikeOut = true; // spoken for
+    return {
+      kind: 'ride',
+      label: msg('task.toBike'),
+      goal: spot,
+      dwell: 0.3,
+      pose: 'stand',
+      interruptible: false,
+      onArrive: () => {
+        a.riding = a.rng.int(3, 6);
+        a.lastDid.set('ride', this.minutes);
+      },
+    };
+  }
+
+  /** The next stretch of the ride, or the way back to the rack. */
+  private rideOn(a: Agent): void {
+    const home = this.bikeHome!;
+    const back = a.riding! <= 0;
+    const loop: [number, number][] = [
+      [-9.2, 9.5],
+      [-9.2, -4.9],
+      [9.2, -4.9],
+      [9.2, 9.5],
+    ];
+    const goal = back ? (this.grid.nearestOpen(home.x, home.z - 0.7, 3) ?? [a.x, a.z]) : loop[a.rng.int(0, 3)]!;
+    a.riding = back ? -1 : a.riding! - 1;
+    this.assign(a, { kind: 'ride', label: msg('task.riding'), goal, dwell: 0.1, pose: 'stand', interruptible: false });
+  }
+
+  /** Off the bicycle, and the bicycle back on its rack exactly where it was. */
+  private dismount(a: Agent): void {
+    a.riding = null;
+    this.bikeOut = false;
+    if (this.bike && this.bikeHome) {
+      this.bike.position.set(this.bikeHome.x, G, this.bikeHome.z);
+      this.bike.rotation.y = this.bikeHome.ry;
+    }
+  }
+
+  /** Keep the bicycle under its rider. */
+  private bikeFollow(): void {
+    const r = this.bike && this.agents.find((a) => a.riding !== null);
+    if (!r || !this.bike) return;
+    this.bike.position.set(r.x, groundHeight(r.x, r.z), r.z);
+    this.bike.rotation.y = r.root.rotation.y - Math.PI / 2; // its front (local +x) the way the rider faces
+  }
+
+  /**
+   * The roof terrace, for whoever is up there: out of the stair-head door, across to the deck chair
+   * at walking pace, sit for the task's dwell, walk back to the door, and gone (down the stairs).
+   */
+  private roofStep(a: Agent, dt: number, gm: number, rain: number): void {
+    const r = a.roof!;
+    const [dx, dz] = ROOF_TERRACE.door,
+      [cx, cz] = ROOF_TERRACE.chair;
+    const walk = Math.hypot(cx - dx, cz - dz) / (a.p.speed * 0.8);
+    if (r.phase === 'sit') {
+      a.dwellLeft -= gm;
+      a.heading = ROOF_TERRACE.chairFace;
+      // rain, or time's up: back inside
+      if (a.dwellLeft <= 0 || rain > 0.25) {
+        r.phase = 'back';
+        r.t = 0;
+        a.pose = 'stand';
+        a.standUp = 0;
+      }
+      return;
+    }
+    r.t = Math.min(1, r.t + dt / walk);
+    const k = r.phase === 'out' ? r.t : 1 - r.t;
+    a.root.position.x = dx + (cx - dx) * k;
+    a.root.position.z = dz + (cz - dz) * k;
+    a.heading = Math.atan2((cx - dx) * (r.phase === 'out' ? 1 : -1), (cz - dz) * (r.phase === 'out' ? 1 : -1));
+    if (r.t < 1) return;
+    if (r.phase === 'out') {
+      r.phase = 'sit';
+      a.pose = 'sit';
+    } else {
+      // down the stairs: out of sight again, to come out of the café's door when they next do something
+      a.roof = null;
+      a.perch = null;
+      a.root.visible = false;
+      if (a.hiddenAt) a.placeAt(a.hiddenAt[0], a.hiddenAt[1]);
+      a.task = null;
+    }
+  }
+
+  /** In at the café's door, up the stairs, and out of the stair head onto the roof. */
+  private toRoof(a: Agent): void {
+    const [dx, dz] = ROOF_TERRACE.door;
+    a.roof = { phase: 'out', t: 0 };
+    a.perch = ROOF_TERRACE.y;
+    a.root.position.set(dx, ROOF_TERRACE.y, dz);
+    a.pose = 'stand';
+    a.root.visible = true;
   }
 
   private jogTask(a: Agent): Task {
@@ -1255,6 +1410,7 @@ export class Residents {
     if (a.hidden) {
       // already out of sight: they are simply "there" now (at work, at the station...)
       if (t.hide) a.hiddenAt = [t.goal[0], t.goal[1]];
+      if (t.kind === 'roof') this.toRoof(a); // already inside the café: straight up the stairs
       return;
     }
     this.repath(a);
@@ -1297,6 +1453,7 @@ export class Residents {
 
   private endTask(a: Agent, icon?: BubbleIcon): void {
     const t = a.task;
+    if (t?.kind === 'ride') this.dismount(a); // however the ride ends, the bicycle goes back on its rack
     if (t?.obj && t.kind === 'inspect') t.obj.inspectors = Math.max(0, t.obj.inspectors - 1);
     this.smart.release(a.p.id);
     if (a.pose === 'sit' || a.pose === 'crouch') a.standUp = 0.6;
@@ -1314,6 +1471,7 @@ export class Residents {
   private step(a: Agent, dt: number, gm: number, _hour: number, _rain: number): void {
     const t = a.task!;
     if (a.hidden) {
+      if (a.roof) return this.roofStep(a, dt, gm, this.rainNow);
       a.dwellLeft -= gm;
       if (a.dwellLeft <= 0) a.task = null; // re-plan; may emerge
       return;
@@ -1396,7 +1554,7 @@ export class Residents {
 
   private walk(a: Agent, dt: number): void {
     const t = a.task!;
-    let move = a.p.speed * dt * (this.snowing(this.rainNow) ? SNOW_PACE : 1);
+    let move = a.p.speed * dt * (this.snowing(this.rainNow) ? SNOW_PACE : 1) * (a.riding !== null ? RIDE_PACE : 1);
     const x0 = a.x,
       z0 = a.z;
     // a sidestep first (only onto open ground), then on along the path, which re-aims from wherever they are
@@ -1470,7 +1628,13 @@ export class Residents {
       a.hiddenAt = [a.x, a.z];
       a.hidden = true;
       a.root.visible = false;
+      if (t.kind === 'roof') this.toRoof(a);
       return;
+    }
+    if (t.kind === 'ride') {
+      t.onArrive?.();
+      if (a.riding === -1) return this.endTask(a); // back at the rack: off, and the bicycle parked
+      return this.rideOn(a);
     }
     if (t.kind === 'jog') {
       a.task = null;

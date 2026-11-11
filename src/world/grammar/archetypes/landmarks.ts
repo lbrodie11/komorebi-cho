@@ -1,5 +1,6 @@
 import type { SignSpec } from '../../../render/glyphs';
 import type { MatRef, Part } from '../types';
+import { ROOF_TERRACE } from '../../layout';
 
 /**
  * The one-of-a-kind buildings, as archetypes: a spec (where, how big, what it's made of, how old)
@@ -194,8 +195,14 @@ export function planTemple(s: TempleSpec): Part[] {
       { op: 'box', w: 0.32, h: 0.4, d: 0.4, mat: { named: 'stone' }, x, y: s.y + 0.7, z },
     );
   }
-  // ema (prayer plaque) board
-  parts.push({ op: 'box', w: 1.4, h: 0.7, d: 0.1, mat: { solid: '#8a5634' }, x: s.x + 3.7, y: s.y + 0.9, z: s.z + 1.5 });
+  // ema (prayer plaque) rack: two posts, a little roof, and the plaques people have hung on it
+  // (without the posts and roof it read as a plank with six squares)
+  parts.push(
+    { op: 'box', w: 1.4, h: 0.7, d: 0.1, mat: { solid: '#8a5634' }, x: s.x + 3.7, y: s.y + 0.9, z: s.z + 1.5 },
+    { op: 'box', w: 0.12, h: 1.45, d: 0.12, mat: { solid: '#45291b' }, x: s.x + 2.95, y: s.y + 0.72, z: s.z + 1.5 },
+    { op: 'box', w: 0.12, h: 1.45, d: 0.12, mat: { solid: '#45291b' }, x: s.x + 4.45, y: s.y + 0.72, z: s.z + 1.5 },
+    { op: 'gableX', w: 1.9, d: 0.6, h: 0.22, mat: { solid: '#2e2a42' }, x: s.x + 3.7, y: s.y + 1.45, z: s.z + 1.5 },
+  );
   for (let i = 0; i < 6; i++)
     parts.push({
       op: 'box',
@@ -319,9 +326,73 @@ export function planCafe(s: CafeSpec): Part[] {
     parts.push({ op: 'blob', x, y: top + 0.7, z, r: 0.4 });
   for (const [x, z] of [
     [13.2, -2.6],
-    [15.2, -2.4],
+    [14.1, 0.9],
   ] as const)
     parts.push({ op: 'pot', x, z, y: top + 0.34, r: 0.26 });
+  parts.push(...roofTerrace(s, top + 0.34));
+  return parts;
+}
+
+/**
+ * The café's roof terrace: a steel railing round the edge, a string of small bulbs on poles above
+ * it, a stair head with a door (how anyone gets up here), and a deck chair looking over the park.
+ */
+function roofTerrace(s: CafeSpec, y: number): Part[] {
+  const parts: Part[] = [];
+  const steel: MatRef = { solid: '#686d78' };
+  // the railing follows the roof's edge, a little in from it
+  const cx = s.pts.reduce((a, p) => a + p[0], 0) / s.pts.length,
+    cz = s.pts.reduce((a, p) => a + p[1], 0) / s.pts.length;
+  const ring = s.pts.map(([x, z]) => {
+    const d = Math.hypot(x - cx, z - cz);
+    return [x - ((x - cx) / d) * 0.18, z - ((z - cz) / d) * 0.18] as const;
+  });
+  const bulb: MatRef = { lamp: '#fff1c4', glow: '#ffd37a', intensity: 0.9 };
+  ring.forEach((p, i) => {
+    const q = ring[(i + 1) % ring.length]!;
+    const dx = q[0] - p[0],
+      dz = q[1] - p[1];
+    const len = Math.hypot(dx, dz),
+      ry = Math.atan2(-dz, dx);
+    const mx = (p[0] + q[0]) / 2,
+      mz = (p[1] + q[1]) / 2;
+    // top rail, mid rail, a post at each corner and every 1.4 m or so
+    parts.push(
+      { op: 'box', w: len, h: 0.06, d: 0.06, mat: steel, x: mx, y: y + 0.95, z: mz, ry },
+      { op: 'box', w: len, h: 0.04, d: 0.04, mat: steel, x: mx, y: y + 0.5, z: mz, ry },
+    );
+    const n = Math.max(1, Math.round(len / 1.4));
+    for (let k = 0; k < n; k++) parts.push({ op: 'box', w: 0.06, h: 0.95, d: 0.06, mat: steel, x: p[0] + (dx * k) / n, y: y + 0.475, z: p[1] + (dz * k) / n });
+    // a taller pole at each corner carries the string of bulbs, which sags a little between poles
+    parts.push({ op: 'box', w: 0.05, h: 2.1, d: 0.05, mat: steel, x: p[0], y: y + 1.05, z: p[1] });
+    const bulbs = Math.max(2, Math.round(len / 0.75));
+    for (let k = 1; k < bulbs; k++) {
+      const t = k / bulbs;
+      parts.push({ op: 'box', w: 0.09, h: 0.09, d: 0.09, mat: bulb, x: p[0] + dx * t, y: y + 2.05 - Math.sin(Math.PI * t) * 0.28, z: p[1] + dz * t });
+    }
+  });
+  // the stair head: a small plaster box with a door facing the terrace and a lean-to roof
+  const [dx0, dz0] = ROOF_TERRACE.door;
+  parts.push(
+    { op: 'box', w: 1.5, h: 2.1, d: 1.6, mat: { tex: 'plaster', color: '#e8dcc2', rx: 0.5, ry: 0.5 }, x: dx0, y: y + 1.05, z: dz0 - 0.85 },
+    { op: 'box', w: 1.7, h: 0.1, d: 1.8, mat: { solid: '#45291b' }, x: dx0, y: y + 2.15, z: dz0 - 0.85, rx: 0.12 },
+    { op: 'box', w: 0.8, h: 1.7, d: 0.05, mat: { solid: '#2f4a72' }, x: dx0, y: y + 0.85, z: dz0 - 0.03 },
+    { op: 'box', w: 0.08, h: 0.08, d: 0.05, mat: { solid: '#ffd37a' }, x: dx0 + 0.28, y: y + 0.9, z: dz0 },
+    { op: 'box', w: 0.9, h: 0.06, d: 0.4, mat: { solid: '#8a8f99' }, x: dx0, y: y + 0.03, z: dz0 + 0.2 },
+  );
+  // the deck chair: a low striped sling on a wooden frame, facing west over the park
+  const [chx, chz] = ROOF_TERRACE.chair;
+  const sling: MatRef = { tex: 'stripe', color: '#ffffff', rx: 1, ry: 2, rough: 0.9 };
+  parts.push(
+    { op: 'box', w: 0.75, h: 0.06, d: 0.6, mat: sling, x: chx - 0.1, y: y + 0.3, z: chz, rz: -0.12 },
+    { op: 'box', w: 0.7, h: 0.06, d: 0.6, mat: sling, x: chx + 0.45, y: y + 0.6, z: chz, rz: -0.95 },
+    { op: 'box', w: 1.3, h: 0.05, d: 0.05, mat: { solid: '#8a5634' }, x: chx + 0.1, y: y + 0.22, z: chz - 0.32 },
+    { op: 'box', w: 1.3, h: 0.05, d: 0.05, mat: { solid: '#8a5634' }, x: chx + 0.1, y: y + 0.22, z: chz + 0.32 },
+    // a little side table and a cup
+    { op: 'cyl', rt: 0.2, rb: 0.2, h: 0.04, mat: { solid: '#8a5634' }, x: chx, y: y + 0.42, z: chz + 0.75, seg: 8 },
+    { op: 'cyl', rt: 0.03, rb: 0.03, h: 0.4, mat: { named: 'dark' }, x: chx, y: y + 0.2, z: chz + 0.75, seg: 4 },
+    { op: 'box', w: 0.1, h: 0.09, d: 0.1, mat: { solid: '#f6efe0' }, x: chx, y: y + 0.49, z: chz + 0.75 },
+  );
   return parts;
 }
 

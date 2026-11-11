@@ -76,3 +76,9 @@ Make the tiny people and objects *feel* good at 10 pixels tall. Juice without no
   - Gaits are their own (`gaitFor`): kids bounce, the jogger runs with bent arms, and someone with a cane takes shorter, slower steps.
 - **Task 7, the gestures:** a glance (when someone notices a placed thing in passing), a nod, and a wave (friends across the lane). Tested in `tests/rig.test.ts`. The nod waits for prompt 09b's ladder to decide who nods to whom.
 - **Next:** task 2 (interruption contracts), task 3 (doors), task 8 (placement sounds by material and surface).
+
+**Added 2026-11-11 (small life, from the owner's notes):**
+- **The café roof is a terrace:** a steel railing, a string of bulbs that come on with the lamps, a stair head with a door, and a deck chair. Haru takes breaks up there on dry afternoons and evenings. He goes in at the café door, comes out of the stair head, sits, and goes back down the same way; rain sends him in.
+- **The bicycles read as bicycles** (seat post, handlebars) and lean on a rack. Hiro takes the red one for a turn round the block and puts it back where it was.
+- **The temple's prayer-plaque rack** has posts and a small roof, so it no longer reads as a plank.
+- **Still to do here:** a mounting and dismounting pose, pedalling legs, and a door that opens on the stair head (task 3, doors).

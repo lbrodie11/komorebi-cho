@@ -86,6 +86,7 @@ const grid = townGrid();
 const smart = new SmartRegistry();
 registerStaticObjects(smart);
 const residents = new Residents(world.scene, grid, smart, bus, world.mats, params.seed);
+residents.bike = world.bike;
 const animals = new Animals(world.scene, world.mats, grid, smart, bus, world.chimneyTop, params.seed);
 const build = new BuildTool(world.scene, world.mats, grid, smart, residents, bus, () => clock.hour, world.lightPool);
 build.shops = {

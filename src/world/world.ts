@@ -100,6 +100,10 @@ export class World {
   shadowFit: ShadowFit | null = null;
   /** The static town's silhouette as points (plinth corners, rooftops): what the camera's pan bounds keep in reach. */
   readonly outline: THREE.Vector3[];
+  /** The bicycle someone rides: the sim moves it with its rider and puts it back on the rack. */
+  get bike(): THREE.Group {
+    return this.props.bike;
+  }
   /** A shutter starts to roll (opening or closing time), at (x, z): for the soundscape. */
   onShutter: ((x: number, z: number) => void) | null = null;
   /** Accessibility: stills swaying lanterns, flags and swings. */

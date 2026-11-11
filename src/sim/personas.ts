@@ -33,6 +33,10 @@ export interface Persona {
   haunts?: string[];
   /** Cats come and sit near them. */
   catFriend?: boolean;
+  /** They take breaks on the roof terrace above this door (the café's owner). */
+  roofBreak?: string;
+  /** They ride the bicycle by the hedge. */
+  rides?: boolean;
   /** How close they are to others (0..1, by persona id); either side's word counts. */
   friends?: Record<string, number>;
 }
@@ -45,6 +49,7 @@ export interface Persona {
 export const PERSONAS: Persona[] = [
   {
     id: 'haru',
+    roofBreak: 'kissaten',
     friends: { aiko: 0.5 },
     colors: { top: '#45291b', legs: '#2e2a42', skin: '#e8c3a0', hair: '#cfd2d4', accent: '#f6efe0' },
     accessory: 'apron',
@@ -190,6 +195,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'hiro',
+    rides: true,
     crowdAversion: 0.6,
     colors: { top: '#2f7f7a', legs: '#2e2a42', skin: '#c99e7a', hair: '#16141f', accent: '#d4a774' },
     accessory: 'box',
