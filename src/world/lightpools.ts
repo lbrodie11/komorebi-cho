@@ -55,6 +55,17 @@ function flatQuad(x0: number, x1: number, z0: number, z1: number, y: number, u0:
   return g;
 }
 
+/** The quad for a round pool, clipped to `clip` with matching UVs. */
+function roundQuad(x: number, z: number, y: number, r: number, rz: number, clip: Rect): THREE.BufferGeometry {
+  const x0 = Math.max(clip.x0, x - r),
+    x1 = Math.min(clip.x1, x + r),
+    z0 = Math.max(clip.z0, z - rz),
+    z1 = Math.min(clip.z1, z + rz);
+  const u = (px: number) => (px - (x - r)) / (2 * r);
+  const v = (pz: number) => 1 - (pz - (z - rz)) / (2 * rz);
+  return flatQuad(x0, x1, z0, z1, y, u(x0), u(x1), v(z0), v(z1));
+}
+
 interface Pool {
   mesh: THREE.Mesh;
   mat: THREE.MeshBasicMaterial;
@@ -93,14 +104,23 @@ export class LightPools {
 
   /** A round pool of radius r centred at (x, z), clipped to `clip` so it never hangs off the plinth. */
   addRound(x: number, z: number, y: number, r: number, color: string, peak: number, clip: Rect, stretchZ = 1): number {
-    const rz = r * stretchZ;
-    const x0 = Math.max(clip.x0, x - r),
-      x1 = Math.min(clip.x1, x + r),
-      z0 = Math.max(clip.z0, z - rz),
-      z1 = Math.min(clip.z1, z + rz);
-    const u = (px: number) => (px - (x - r)) / (2 * r);
-    const v = (pz: number) => 1 - (pz - (z - rz)) / (2 * rz);
-    return this.make(flatQuad(x0, x1, z0, z1, y, u(x0), u(x1), v(z0), v(z1)), 'round', color, peak);
+    return this.make(roundQuad(x, z, y, r, r * stretchZ, clip), 'round', color, peak);
+  }
+
+  /**
+   * A round pool that can move: for the pooled lights that player-placed lanterns and vending
+   * machines borrow. Hidden until `place`d.
+   */
+  addMovable(color: string, peak: number): number {
+    return this.make(new THREE.BufferGeometry(), 'round', color, peak);
+  }
+
+  /** Put movable pool `i` at (x, z), clipped to `clip`, tinted `color`. Rebuilds its quad (placement is rare). */
+  place(i: number, x: number, z: number, y: number, r: number, color: THREE.Color, clip: Rect): void {
+    const p = this.pools[i]!;
+    p.mesh.geometry.dispose();
+    p.mesh.geometry = roundQuad(x, z, y, r, r, clip);
+    p.color.copy(color);
   }
 
   /** A window spill: a footprint opening outward from the glass (see windowSpill). */

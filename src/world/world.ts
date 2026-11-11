@@ -44,6 +44,9 @@ export class World {
   private readonly pools: LightPools;
   /** Pools that follow the street-lamp level (lamps, vending machines). */
   private readonly lampPoolIds: number[] = [];
+  /** Movable pools mirroring props.lightPool (player-placed lights), and where each was last placed. */
+  private readonly placedPoolIds: number[] = [];
+  private readonly placedAt: string[] = [];
   /** Every shadow caster and receiver: the static diorama plus headroom for things players place. */
   readonly shadowBox: THREE.Box3;
   shadowFit: ShadowFit | null = null;
@@ -90,6 +93,8 @@ export class World {
       return y + 0.035;
     };
     for (const l of this.props.lampPools) this.lampPoolIds.push(pools.addRound(l.x, l.z, groundAt(l.x, l.z, l.r), l.r, '#ffcf8a', 0.42, GROUND));
+    // one movable pool per pooled light, for the lanterns and vending machines players place
+    for (let i = 0; i < this.props.lightPool.length; i++) this.placedPoolIds.push(pools.addMovable('#ffb35a', 0.34));
     for (const v of VENDING) this.lampPoolIds.push(pools.addRound(v.x, v.z + 0.9, groundAt(v.x, v.z + 0.9, 0.7), 0.75, v.glow, 0.3, GROUND, 0.85));
     for (const w of this.kit.windows) {
       if (w.kind === 'home') continue;
@@ -102,6 +107,27 @@ export class World {
     }
     root.add(pools.group);
     return pools;
+  }
+
+  /**
+   * Player-placed lights (BuildTool lends them pooled point lights) get a ground pool too: it follows
+   * the light's position, colour and shared brightness, and switches off when the light is returned.
+   */
+  private syncPlacedPools(): void {
+    this.props.lightPool.forEach((ref, i) => {
+      const id = this.placedPoolIds[i]!;
+      if (ref.base <= 0) {
+        this.pools.set(id, 0);
+        return;
+      }
+      const p = ref.light.position;
+      const key = `${p.x.toFixed(2)},${p.z.toFixed(2)},${ref.light.color.getHexString()}`;
+      if (this.placedAt[i] !== key) {
+        this.placedAt[i] = key;
+        this.pools.place(id, p.x, p.z, groundHeight(p.x, p.z) + 0.035, 1.6, ref.light.color, GROUND);
+      }
+      this.pools.set(id, this.lampLevel * (ref.crowd ?? 1));
+    });
   }
 
   get lightPool() {
@@ -134,6 +160,7 @@ export class World {
     this.mats.setLampLevel(this.lampLevel);
     this.mats.lantern.emissiveIntensity = 0.4 + this.lampLevel * (EMISSIVE.lantern - 0.4);
     for (const id of this.lampPoolIds) this.pools.set(id, this.lampLevel);
+    this.syncPlacedPools();
     for (const l of this.props.lights) l.light.intensity = l.base * (l.crowd ?? 1) * this.lampLevel;
 
     // windows follow routines (shops their hours once it's dark, homes in the evening), fading in

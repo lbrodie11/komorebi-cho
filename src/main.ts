@@ -26,7 +26,34 @@ import { DEFAULT_DIFFUSION, diffusionOutputSize } from './render/diffusion';
 // ── Boot ──────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const hudRoot = document.getElementById('hud') as HTMLElement;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+const WEBGL_RETRIES_KEY = 'komorebi-cho/webgl-retries';
+/**
+ * Browsers occasionally lose the WebGL context while it is being created (seen intermittently in
+ * WebKit; it can also happen under memory pressure). three.js then throws and the page would stay
+ * blank. Reload quietly up to twice, then say what happened instead of showing nothing.
+ */
+function createRenderer(): THREE.WebGLRenderer {
+  try {
+    return new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  } catch (err) {
+    let tries: number;
+    try {
+      tries = Number(sessionStorage.getItem(WEBGL_RETRIES_KEY) ?? 0);
+      sessionStorage.setItem(WEBGL_RETRIES_KEY, String(tries + 1));
+    } catch {
+      tries = 2; // no storage: don't risk a reload loop
+    }
+    if (tries < 2) setTimeout(() => location.reload(), 300);
+    else {
+      const msg = document.createElement('p');
+      msg.className = 'webgl-failed';
+      msg.textContent = 'Komorebi-chō couldn’t start 3D graphics in this browser. Try reloading, or another browser.';
+      document.getElementById('app')?.append(msg);
+    }
+    throw err;
+  }
+}
+const renderer = createRenderer();
 // DPR is handled explicitly in resize(): the drawing buffer is the render target size (pixel ratio 1),
 // and the canvas's CSS box is sized so the browser upscales by an exact integer in device pixels.
 renderer.setPixelRatio(1);
@@ -123,6 +150,7 @@ const hud = new Hud(hudRoot, {
     if (on) setTool('view');
   },
   capture: () => {
+    if (contextLost) return Promise.resolve(null); // nothing to render into until the context is back
     bus.emit('sfx', { name: 'shutter' });
     const aspect = parseFloat(canvas.style.width) / parseFloat(canvas.style.height) || 16 / 9;
     const url = captureFrame(Math.round(PHOTO_H * aspect), PHOTO_H);
@@ -229,7 +257,9 @@ function captureFrame(w: number, h: number): string | null {
   up.height = outH;
   const ctx = up.getContext('2d');
   if (!ctx) return null;
-  ctx.imageSmoothingEnabled = false;
+  // palette looks enlarge by a whole number with hard pixel edges; Smooth's fractional scale is filtered, as on screen
+  ctx.imageSmoothingEnabled = !usesPalette(pixel);
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(canvas, 0, 0, outW, outH);
   return up.toDataURL('image/png');
 }
@@ -536,6 +566,12 @@ function frame(now: number): void {
 }
 hud.setClock(clock.label(), clock.day, clock.season);
 schedule();
+// started cleanly: a later failure gets its own fresh retries
+try {
+  sessionStorage.removeItem(WEBGL_RETRIES_KEY);
+} catch {
+  /* storage unavailable */
+}
 if (!params.scripted) bus.emit('story', { text: 'Late afternoon in Komorebi-chō.' });
 
 /** What `__komorebi.freeze()` can pin. Anything left out keeps its current value. */

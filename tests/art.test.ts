@@ -168,6 +168,27 @@ describe('weathered materials', () => {
   });
 });
 
+describe('snow', () => {
+  beforeAll(() => installHeadlessDom());
+
+  it('is not rain: no mirror-like roads, puddles or soaked walls while it falls', async () => {
+    const { Materials } = await import('../src/render/materials');
+    const { Weather } = await import('../src/world/weather');
+    const m = new Materials();
+    const w = new Weather(new THREE.Group(), m, 0);
+    w.setMode('rain');
+    w.rain = w.wetness = 1;
+    w.update(1 / 60, 1, 0, 7, 'winter');
+    const puddles = (w as unknown as { puddles: THREE.Mesh[] }).puddles;
+    expect(m.wet.value).toBe(0);
+    expect(puddles.length).toBeGreaterThan(0);
+    expect(puddles.every((p) => !p.visible)).toBe(true);
+    w.update(1 / 60, 1, 0, 7, 'autumn');
+    expect(m.wet.value).toBeGreaterThan(0.9); // the same weather in autumn is wet
+    expect(puddles.every((p) => p.visible)).toBe(true);
+  });
+});
+
 describe('quiet props', () => {
   it('keep every door reachable: pots stand beside doors, not in them', () => {
     const grid = new NavGrid(

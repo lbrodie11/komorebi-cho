@@ -67,7 +67,10 @@ export function windowLevel(
 ): number {
   if (kind === 'home') {
     const h = (((hour + offset) % 24) + 24) % 24;
-    if (!occupiedTonight(index, day)) return 0;
+    // "tonight" runs noon to noon on the window's own (offset) clock: the calendar day ticks
+    // over at midnight, and keying on it would pop a late-lit window on or off at 00:00
+    const night = Math.floor((day * 24 + hour + offset - 12) / 24);
+    if (!occupiedTonight(index, night)) return 0;
     return Math.max(ramp(h, 17.5, 23.6), ramp(h, 5.6, 7)) * windowWarmth(index);
   }
   // a shop window follows its own opening hours (and its shutter), so a closed shop goes dark

@@ -71,18 +71,19 @@ Every important light is built in five layers, each with its own job:
 Brightness follows a hierarchy (`EMISSIVE`): kissaten 3.2, streetlamps 2.7, shops 2.0, lanterns 2.0, homes 1.5. The warm/cool separation carries the night; exposure is never raised to compensate.
 - **Windows fade, vary and follow their building.**
   - Levels come from the clock alone (`windowLevel`), so a paused or jumped clock agrees with a running one. Each window fades over 18 in-world minutes.
-  - About one home window in five stays dark on any night (a different set each day), and each home has its own lamp warmth.
+  - About one home window in five stays dark on any night. "Tonight" runs noon to noon on the window's own clock, so nothing pops at midnight; each night picks a different set, and each home has its own lamp warmth.
   - Shop windows follow their own shop's hours (the shutter's), so a closed shop goes dark.
   - Glass brightness comes in 8 shared material steps per kind, so every window fades on its own schedule without a material per window.
-- **Pools are authored decals, not shadowed lights** (`LightPools`). Streetlamps and vending machines get round pools. Ground-floor shop and kissaten windows get a spill that opens outward from the glass (`windowSpill`), so it can't leak through the building.
+- **Pools are authored decals, not shadowed lights** (`LightPools`). Streetlamps and vending machines get round pools, and so do the lanterns and vending machines players place: each pooled light has a movable pool that follows its position, colour and shared brightness. Ground-floor shop and kissaten windows get a spill that opens outward from the glass (`windowSpill`), so it can't leak through the building.
   - Upper-floor windows get none.
   - Spills stop at the plinth edge; a window facing straight off it gets none.
   - Pools add light on colour only (destination alpha untouched, so the water and sign tags survive). They are depth-tested and never write depth, so walls and residents in front hide them.
   - They follow the lamp level or their window's level, cast no shadows, and cost one small draw each. In the palette looks they fall off in banded rings, like hand-drawn pixel-art lamplight.
+- **Snow is not rain:** while it snows, roads stay matte, puddles stay hidden and walls don't darken; the wetness it leaves shows after a thaw.
 - Reference scene for lighting changes: the kissaten at 19:15 in light rain (`?hour=19.25&weather=rain`, zoomed to the café).
 
 ## Film Diffusion (src/render/diffusion.ts, diffusion-pass.ts)
-A restrained lens-diffusion setting, 0–20% (Settings → Film Diffusion; new players start at 5%). Glow gathers around real light sources, and dithered surfaces read as tone. Geometry edges, outlines, window frames, foliage clusters, residents and the DOM HUD stay as crisp as at 0%.
+A restrained lens-diffusion setting, 0–20% (Settings → Film Diffusion; new players start at 5%). Glow gathers around real light sources, and the dithered seams in halos read as tone. Geometry edges, outlines, window frames, foliage clusters, residents and the DOM HUD stay as crisp as at 0%.
 
 **At exactly 0% nothing new runs.** The pixel pass draws the canvas at internal resolution, and CSS enlarges it with `image-rendering: pixelated`; no diffusion target is even allocated. Above 0% the canvas switches to device resolution. That switch changes the canvas size, so it happens in `resize()`, never per frame.
 
@@ -103,7 +104,7 @@ Passes above 0%:
    - it writes a flag (alpha 1 where the dithered palette pick differs from the undithered one);
 
    The dither itself stays at full strength: it carries the in-between colours the palette lacks.
-2. **Dither blend → resolved.** A 3×3 tent in sRGB over neighbours that are also flagged and lie on the same surface (`|Δdepth| < 0.00075`, about 0.3 m: the camera is orthographic, near 1, far 400, so depth is linear). The result mixes in by `resolve`. Unflagged pixels (outlines, windows, silhouettes, flat colour) pass through untouched.
+2. **Dither blend → resolved.** Dither now lives only in light halos, so this softens the seams where a halo falls off. A 3×3 tent in sRGB over neighbours that are also flagged and lie on the same surface (`|Δdepth| < 0.00075`, about 0.3 m: the camera is orthographic, near 1, far 400, so depth is linear). The result mixes in by `resolve`. Unflagged pixels (outlines, windows, silhouettes, flat colour) pass through untouched.
 3. **Glow pyramid.**
    - The first downsample gathers an exact 2×2 box from the exposed HDR scene through a soft-knee bright pass (T = 1.6, K = 0.4, clamped at 8).
    - Measured: sunlit cream reaches about 1.16 at noon; lights at night run 2–24. So noon glow covers 0.02% of the frame, night about 20%.

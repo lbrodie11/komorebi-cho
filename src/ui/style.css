@@ -441,3 +441,13 @@ button.px.primary {
   pointer-events: none;
   z-index: 50;
 }
+
+.webgl-failed {
+  position: absolute;
+  inset: 40% 16px auto;
+  margin: 0 auto;
+  max-width: 420px;
+  text-align: center;
+  color: var(--cream);
+  font-size: 15px;
+}

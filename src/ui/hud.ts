@@ -303,7 +303,10 @@ export class Hud {
     this.speedBtns.forEach((b, i) => b.classList.toggle('on', i === idx));
   }
   setPixel(p: PixelPreset): void {
-    for (const [k, b] of this.pixelBtns) b.classList.toggle('on', k === p);
+    for (const [k, b] of this.pixelBtns) {
+      b.classList.toggle('on', k === p);
+      b.setAttribute('aria-pressed', String(k === p)); // the chosen look, for screen readers too
+    }
   }
 
   setWeather(m: WeatherMode): void {

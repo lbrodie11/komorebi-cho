@@ -168,8 +168,11 @@ export class Weather {
     this.rain = damp(this.rain, this.target, 0.06, gameMinutes + dt * 0.5);
     const wetGoal = Math.max(this.rain, this.wetness - gameMinutes / 20);
     this.wetness = clamp(this.rain > this.wetness ? damp(this.wetness, this.rain, 0.05, gameMinutes) : wetGoal, 0, 1);
-    this.m.setWetness(this.wetness);
-    for (const p of this.puddles) p.visible = this.wetness > 0.35;
+    // Snow isn't rain: no mirror-like roads, no puddles, no soaked walls while it settles.
+    // (Wetness still accrues, so a thaw into spring leaves the streets wet, as melt would.)
+    const wetLook = season === 'winter' ? 0 : this.wetness;
+    this.m.setWetness(wetLook);
+    for (const p of this.puddles) p.visible = wetLook > 0.35;
     this.wind.set(time * 0.02 + Math.sin(time * 0.05) * 0.4, time * 0.012);
 
     const snow = season === 'winter';

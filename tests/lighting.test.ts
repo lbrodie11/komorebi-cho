@@ -29,6 +29,21 @@ describe('window schedules', () => {
     }
   });
 
+  it('never pop at midnight: "tonight" runs noon to noon on each window\'s own clock', () => {
+    // walk every window offset across midnight minute by minute; a calendar-day key would jump here
+    for (let index = 0; index < 60; index++)
+      for (const offset of [-1.2, -0.6, 0, 0.6, 1.2]) {
+        let prev = windowLevel('home', 23, offset, index, 4, 1);
+        for (let m = 1; m < 120; m++) {
+          const day = m < 60 ? 4 : 5;
+          const hour = m < 60 ? 23 + m / 60 : (m - 60) / 60;
+          const v = windowLevel('home', hour, offset, index, day, 1);
+          expect(Math.abs(v - prev), `window ${index}, offset ${offset}, ${hour.toFixed(2)}h`).toBeLessThanOrEqual(1.5 / (FADE_H * 60) + 1e-9);
+          prev = v;
+        }
+      }
+  });
+
   it('derive from the clock alone: a paused or replayed clock gives the same light', () => {
     for (const h of [6.1, 12, 18.3, 23.5]) expect(windowLevel('home', h, 0.4, 9, 3, 0.5)).toBe(windowLevel('home', h, 0.4, 9, 3, 0.5));
   });
@@ -109,6 +124,18 @@ describe('light pools', () => {
     p.addRound(GROUND.x1 - 0.5, 0, 0.4, 2, '#ffffff', 1, GROUND);
     const pos = (p.group.children[0] as THREE.Mesh).geometry.getAttribute('position');
     for (let i = 0; i < pos.count; i++) expect(pos.getX(i)).toBeLessThanOrEqual(GROUND.x1 + 1e-9);
+  });
+
+  it('move with a placed light, clipped to the plinth, in its colour', () => {
+    const p = new LightPools();
+    const id = p.addMovable('#ffffff', 1);
+    p.place(id, GROUND.x1 - 0.3, 0, 0.4, 1.6, new THREE.Color('#4fd6ff'), GROUND);
+    p.set(id, 1);
+    const m = p.group.children[0] as THREE.Mesh;
+    const pos = m.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) expect(pos.getX(i)).toBeLessThanOrEqual(GROUND.x1 + 1e-9);
+    expect((m.material as THREE.MeshBasicMaterial).color.getHexString()).toBe(new THREE.Color('#4fd6ff').getHexString());
+    expect(m.visible).toBe(true);
   });
 
   it('switch off below a visible level and scale their colour with the level', () => {
