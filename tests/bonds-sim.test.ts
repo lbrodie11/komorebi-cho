@@ -194,11 +194,27 @@ describe('but-for attribution at the decision point (prompt 09b)', () => {
     expect(dark.a.cause).toBeNull();
     expect(lit.a.task?.obj?.id).toBe('bench-pond-a');
     expect(lit.a.cause).toEqual({ obj: 'bench-pond-a', ids: ['p-lantern'] });
+    // the working is kept for the debug "Why?" view: the top three options, the winner first, and what decided it
+    const why = lit.residents.info(lit.a).why;
+    expect(why.options).toHaveLength(3);
+    expect(why.options[0]).toMatch(/^bench-pond-a \d+\.\d\d \(.*light ×1\.50/);
+    expect(why.because).toEqual(['p-lantern']);
+    expect(dark.residents.info(dark.a).why.because).toEqual([]);
     // a moment shared on that bench is the lantern's doing, though the bench was always there
     const b = lit.residents.agents.find((x) => x.p.id === 'genzo')!;
     b.hidden = false;
     b.task = { kind: 'use', label: { key: 'task.sitting' }, goal: [lit.A.x, lit.A.z], dwell: 60, pose: 'sit', obj: lit.A, interruptible: true };
     lit.r.sharedMoment(lit.a, b, 'seat', lit.A);
     expect(lit.residents.bonds.get('nana', 'genzo')!.credit['p-lantern']).toBeGreaterThan(0);
+  });
+});
+
+describe('how far a placed thing draws the eye', () => {
+  it('grows with its size, and a wind chime carries further', async () => {
+    const { drawRadius } = await import('../src/world/props');
+    expect(drawRadius({ radius: 0.2 })).toBeCloseTo(3.3);
+    expect(drawRadius({ radius: 1.6 })).toBeCloseTo(5.4);
+    expect(drawRadius({ radius: 5 })).toBe(6); // capped
+    expect(drawRadius({ radius: 0.2, chime: true })).toBeCloseTo(4.3);
   });
 });

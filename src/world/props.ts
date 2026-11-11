@@ -442,6 +442,15 @@ function buildQuietProps(k: Kit, follow: Follow): void {
 
 // ── Player-placeable objects ────────────────────────────────────────────────
 /** The original six placeables, plus everything in the data catalogue (catalogue.ts). */
+/**
+ * How far a placed thing draws the eye when something happens at it (prompt 09b's attention
+ * profile): from its size, with wind chimes carrying further (you hear them before you see them).
+ * Data, so a new placeable gets a sensible reach without touching the sim.
+ */
+export function drawRadius(def: { radius: number; chime?: boolean }): number {
+  return Math.min(6, Math.max(3, 3 + def.radius * 1.5)) + (def.chime ? 1 : 0);
+}
+
 export type PlaceableKind = 'bench' | 'sakura' | 'lantern' | 'vending' | 'planter' | 'catbowl' | CatalogueKind;
 
 export interface PlaceableDef {

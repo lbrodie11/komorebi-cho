@@ -148,6 +148,8 @@ export class Agent {
   perch: number | null = null;
   /** On the bicycle: how many more stretches before taking it back to the rack. */
   riding: number | null = null;
+  /** Their last free choice, with the working shown: the top options and what each scored (the debug "Why?"). */
+  why: string[] = [];
   /** Why they chose the seat they're at or heading for: the placed things without which they'd have gone elsewhere. */
   cause: { obj: string; ids: string[] } | null = null;
   /** Seconds left of a bow (to a neighbour passing by). */
@@ -448,6 +450,8 @@ export interface ResidentInfo {
   diary: Msg[];
   /** Something the player placed that changed their day, in the last in-game day. */
   changed: Msg | null;
+  /** The working behind their last free choice (top options and scores), and the placed things that decided it. For ?debug. */
+  why: { options: string[]; because: string[] };
   /** Who they know best (at least to nod to), closest first: persona id and rung. */
   neighbors: { id: string; rung: Rung }[];
 }
@@ -537,6 +541,7 @@ export class Residents {
       knows: a.known.size,
       favorite: this.topFavourite(a),
       changed: this.minutes - a.changedAt < DAY ? a.changedThing : null,
+      why: { options: a.why, because: a.cause?.ids ?? [] },
       neighbors: this.bonds
         .known(a.p.id, 'nod')
         .slice(0, 4)
@@ -856,6 +861,20 @@ export class Residents {
     if (!best || !t) return;
     // why here? Of the placed things that made this seat inviting, the ones without which they'd have
     // gone elsewhere (the same moods, the same rivals): kept with the choice, for crediting what follows
+    a.why = opts
+      .map((o, i) => ({ o, s: scores[i]! }))
+      .sort((x, y) => y.s - x.s)
+      .slice(0, 3)
+      .map(({ o, s }) => {
+        const f = o.seat && env ? placeScore({ x: o.seat.x, z: o.seat.z, face: o.seat.slots[0]?.face }, env, !!p.catFriend).parts : null;
+        const parts = f
+          ? Object.entries(f)
+              .filter(([, v]) => Math.abs(v - 1) > 0.005)
+              .map(([k, v]) => `${k} ×${v.toFixed(2)}`)
+              .join(', ')
+          : '';
+        return `${o.key} ${s.toFixed(2)}${parts ? ` (${parts})` : ''}`;
+      });
     a.cause = null;
     if (best.seat && env) {
       const i = opts.indexOf(best);
@@ -1286,7 +1305,7 @@ export class Residents {
     const was = this.lastHour;
     this.lastHour = hour;
     if (was < 0 || !(was < 18 && hour >= 18 && hour - was < 1)) return;
-    for (const o of this.smart.objects.values()) if (o.placed && o.glow) this.attention(o.x, o.z, 3.5, 'lit', o);
+    for (const o of this.smart.objects.values()) if (o.placed && o.glow) this.attention(o.x, o.z, o.draw ?? 3.5, 'lit', o);
   }
 
   /** A pair climbed a rung: a line in the feed (naming the thing the player placed, if it was behind it), and an event. */
@@ -1480,7 +1499,7 @@ export class Residents {
         if (o.kind === 'shrine') this.bus.emit('prayed', { x: o.x, z: o.z });
         // someone stopping to admire a thing the player placed makes the people near it look too:
         // every such thing can bring two strangers' eyes to the same place
-        if (o.placed && o.kind === 'admire') this.attention(o.x, o.z, 3.5, 'admire', o);
+        if (o.placed && o.kind === 'admire') this.attention(o.x, o.z, o.draw ?? 3.5, 'admire', o);
         this.remember(a, o);
         if (o.placed) {
           const others = this.agents.filter((b) => b !== a && !b.hidden && b.arrived && b.task?.obj?.id === o.id).map((b) => b.p.id);

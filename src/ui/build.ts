@@ -3,7 +3,7 @@ import type { EventBus, GameEvents } from '../core/events';
 import type { Materials } from '../render/materials';
 import { BUILDABLE, G, GROUND } from '../world/layout';
 import { groundHeight, inPond, onBridge, onIslet, regionAt } from '../world/terrain';
-import { PLACEABLES, type LightRef, type PlaceableKind } from '../world/props';
+import { drawRadius, PLACEABLES, type LightRef, type PlaceableKind } from '../world/props';
 import { clusterLights, crowdFactors } from '../world/crowd';
 import type { NavGrid } from '../sim/grid';
 import { benchSlots, frontSlot, type SmartObject, type SmartRegistry, type Slot } from '../sim/smart';
@@ -507,6 +507,7 @@ export class BuildTool {
       label: rec.kind,
       radius: def.radius,
       glow: !!def.glow,
+      draw: drawRadius(def),
       x: rec.x,
       z: rec.z,
       slots: this.slots(rec),
@@ -575,6 +576,7 @@ export class BuildTool {
       label: p.kind,
       radius: p.radius,
       glow: !!def.glow,
+      draw: drawRadius(def),
       x,
       z,
       slots: this.slots(p),

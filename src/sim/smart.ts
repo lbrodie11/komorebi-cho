@@ -36,6 +36,8 @@ export interface SmartObject {
   glow?: boolean;
   /** A placed object's footprint radius: a slot of anything else that falls under it can't be used. */
   radius?: number;
+  /** How far it draws the eye when something happens at it (m): bigger things from further off. */
+  draw?: number;
   /** How many can use it in comfort (its slots are the hard limit); by default, all of them. */
   soft?: number;
   /** Standing spots where people wait their turn when every slot is taken (shops), nearest first. */

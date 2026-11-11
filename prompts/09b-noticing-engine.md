@@ -188,9 +188,12 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
   - **Cost:** 0.06 ms per tick for the whole resident simulation with bonds, the field and attribution, measured headless over 7,200 ticks on a busy laptop. The prompt's budget for the engine alone was 0.2 ms.
   - **"Since removed":** a bond memory whose object is gone says so. "It is gone now; they still stop for each other."
   - **Coming back:** the feed opens with "Last time:" and the last thing that happened between two neighbors, as it was told then. Nothing is invented for the time away; the town stands still while you're gone.
+- **Eighth step (2026-11-11): attention reach as data, and the "Why?" view.**
+  - **Reach:** `drawRadius()` in `props.ts` gives every placeable a reach from its size (3 to 6 m, a meter more for wind chimes). It is carried on the smart object (`draw`) and used for admiring, dusk lanterns and chimes. A new placeable gets a sensible reach without touching the sim.
+  - **"Why?":** with `?debug`, a neighbor's card shows the working behind their last free choice. That is the top three options with their scores, a seat's place-field parts, and "but for:" the placed things that decided it.
 - **Still to do:**
-  - Task 1, the scoring split and the "Why?" view.
-  - Task 3, the rest: per-item attention profiles as catalogue data (radius, when), and festivals (prompt 10).
+  - Task 1, the rest: `freeTime` still builds its options inline. Splitting it into a pure `scoreOptions(agent, view)` is a refactor for when the Worker arrives (prompt 12).
+  - Task 3, the rest: festivals as triangulators (prompt 10).
   - Task 5, the rest: the but-for check covers seats only. Extend it to other choices (a route past a vending machine, a view).
   - The three-panel bond sheet (the edit, a shared moment, the promotion), and "knows" counting people on the card.
   - The playtest: 4 of 5 people can say which edit made a friendship.

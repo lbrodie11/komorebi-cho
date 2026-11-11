@@ -193,6 +193,8 @@ export class Hud {
   /** Follow (the camera keeps the neighbour in view), on the card; Smooth only. */
   private readonly followBtn: HTMLButtonElement;
   private following: string | null = null;
+  /** ?debug: the card shows the working behind a neighbor's choice. */
+  debug = false;
   /** Narrower / Wider, shown while a shop is carried (the on-screen [ and ], for touch). */
   private readonly shopSize: HTMLElement;
   private readonly redoBtn: HTMLButtonElement;
@@ -1387,6 +1389,25 @@ export class Hud {
         n.append(line);
       }
       this.cardBody.append(n);
+    }
+    // ?debug: why they chose what they're doing (the top options and their scores, and the placed
+    // things without which they'd have chosen otherwise). Developer words, not player copy.
+    if (this.debug && i.why.options.length) {
+      const w = el('div', 'diary why');
+      const h4 = el('h4');
+      h4.textContent = 'Why?';
+      w.append(h4);
+      for (const line of i.why.options) {
+        const p2 = el('p');
+        p2.textContent = line;
+        w.append(p2);
+      }
+      if (i.why.because.length) {
+        const p2 = el('p');
+        p2.textContent = `but for: ${i.why.because.join(', ')}`;
+        w.append(p2);
+      }
+      this.cardBody.append(w);
     }
     if (i.diary.length) {
       const d = el('div', 'diary');

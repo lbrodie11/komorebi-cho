@@ -389,6 +389,7 @@ hud.setCaptions(captions);
 hud.setTextScale(textScale);
 hud.setFont(uiFont);
 hud.setDensity(density);
+hud.debug = params.debug;
 sound.setDensity(density);
 if (saved) hud.restoreNotes(saved.notes);
 // coming back: the last thing that happened between two neighbours, as it was told then (nothing is
@@ -1402,7 +1403,8 @@ function frame(now: number): void {
       const chimes = build.records().filter((r) => PLACEABLES[r.kind].chime);
       if (chimes.length) {
         const c = chimes[Math.floor(chimeRng.next() * chimes.length)]!;
-        residents.attention(c.x, c.z, 4.5, 'chime', smart.objects.get(c.id));
+        const so = smart.objects.get(c.id);
+        residents.attention(c.x, c.z, so?.draw ?? 4.5, 'chime', so);
         bus.emit('sfx', { name: 'chime', x: c.x, z: c.z });
         if (captions && sound.playing) hud.caption(t('caption.chime'));
       }
