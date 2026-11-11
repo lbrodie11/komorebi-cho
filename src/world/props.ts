@@ -463,6 +463,7 @@ const ORIGINAL: Record<'bench' | 'sakura' | 'lantern' | 'vending' | 'planter' | 
         const a = (i / 14) * Math.PI * 2 * 3.1;
         const b = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32 + (i % 3) * 0.08, 0), m.leaves.sakura[i % 3]);
         b.position.set(Math.cos(a) * (0.3 + (i % 4) * 0.2), 2.0 + (i % 5) * 0.18, Math.sin(a) * (0.3 + (i % 4) * 0.2));
+        b.userData.canopy = true;
         g.add(b);
       }
       return { object: g };

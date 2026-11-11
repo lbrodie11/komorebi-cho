@@ -459,6 +459,7 @@ export class BuildTool {
         o.receiveShadow = true;
       }
     });
+    this.m.leafShadows(object); // a placed tree lets the sun through too
     this.root.add(object);
     this.grid.stamp({ x: rec.x, z: rec.z, r: def.radius }, 1);
     // an undo or a load can put something back where someone now stands: they step aside

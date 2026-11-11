@@ -112,6 +112,7 @@ export class World {
     this.props = buildProps(this.kit, this.wireMat);
     for (const f of this.props.shopFollowers) this.buildings.street.follow(f);
     this.kit.finishWeathering();
+    this.mats.leafShadows(root);
     // measured before weather joins the root: rain streaks span 20 m of empty air and cast nothing
     this.shadowBox = new THREE.Box3().setFromObject(root);
     this.shadowBox.union(new THREE.Box3(new THREE.Vector3(GROUND.x0, this.shadowBox.min.y, GROUND.z0), new THREE.Vector3(GROUND.x1, 0, GROUND.z1)));
@@ -257,6 +258,7 @@ export class World {
     this.sun.intensity = sky.sunI * SUN_K;
     // re-fit every frame: the frustum hugs the plinth from wherever the sun is, and bias follows its height
     this.shadowFit = fitSunShadow(this.sun, this.shadowBox, sky.sunDir, SHADOW_MAP);
+    this.mats.sunDir.value.set(...sky.sunDir).normalize();
     this.hemi.color.set(sky.hemiSky);
     this.hemi.groundColor.set(sky.hemiGround);
     this.hemi.intensity = sky.hemiI * HEMI_K;

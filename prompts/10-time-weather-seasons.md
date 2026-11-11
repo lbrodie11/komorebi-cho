@@ -51,7 +51,7 @@ Weather and seasons that change **affordances**, not just colours, plus small fe
 6. **Moon phases** in the post-pass sky, computed from the date.
 
 7. **Lighting gaps left by prompt 03** (each with screenshots at 19:15 clear and in rain):
-   - Light pools show in wet streets: a wet-only pool boost, or the mirrored pass extended to wet roads.
+   - Light pools show in wet streets: a wet-only pool boost, or the mirrored pass extended to wet roads. The post pass already traces reflections for water and puddles (same material), so extend that mask to wet asphalt near light sources rather than adding a new reflection technique; keep the reflections below the kissaten in the hierarchy check.
    - The kissaten door gets one authored downward light (a single `SpotLight`, or a brighter authored pool), so the focal point reads first.
    - Overlapping fixed pools share brightness (the kissaten's two front spills currently add up).
    - A grayscale and silhouette check: `scripts/diffusion-shots.mjs` plus a desaturate step, so the value structure reads without colour.

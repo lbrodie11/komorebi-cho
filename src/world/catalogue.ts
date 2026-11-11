@@ -427,6 +427,8 @@ export function buildShapes(m: Materials, shapes: readonly Shape[]): THREE.Group
     const mesh = new THREE.Mesh(geometry(sh), material(m, sh.mat));
     mesh.position.set(sh.at[0], sh.at[1], sh.at[2]);
     if (sh.rot) mesh.rotation.set(sh.rot[0], sh.rot[1], sh.rot[2]);
+    // foliage above head height is a canopy: the sun comes through it (komorebi); a bonsai stays solid
+    if (typeof sh.mat === 'object' && 'leaves' in sh.mat && sh.at[1] >= 1.5) mesh.userData.canopy = true;
     g.add(mesh);
   }
   return g;

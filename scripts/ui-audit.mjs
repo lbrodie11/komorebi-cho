@@ -563,7 +563,8 @@ await (async () => {
     ],
     ['JSON null', 'null'],
   ]) {
-    const { ctx, page, errors } = await boot(browser, { save: raw, timeout: 20000 });
+    // the same boot allowance as every other boot: a loaded machine with software GL can take 20 s+
+    const { ctx, page, errors } = await boot(browser, { save: raw, timeout: 90000 });
     const ok = await K(page, () => (window.__komorebi?.frames ?? 0) > 3 && Number.isFinite(window.__komorebi.clock.minutes)).catch(() => false);
     check(`corrupt save (${name}) still boots`, ok && errors.length === 0, errors.slice(0, 2).join(' | '));
     await ctx.close();

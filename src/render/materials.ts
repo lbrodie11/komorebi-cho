@@ -278,6 +278,42 @@ const LEAF_VERT_BODY = /* glsl */ `
   mat3 m3 = mat3(modelMatrix);
   transformed += transpose(m3) * sw / dot(m3[0], m3[0]);
 }`;
+/**
+ * Komorebi: sunlight through the leaves. The canopies' shadow (their depth pass) has holes cut
+ * from a noise field measured across the sun's beam, not on each leaf blob, so every blob along
+ * one ray agrees and the light comes through the whole canopy as patches on the street, benches
+ * and passers-by. The field drifts slowly with the wind, and is stable while the camera moves
+ * (it only follows the sun). Only tree canopies (`userData.canopy`) get it: shrubs and pots stay solid.
+ */
+export const KOMOREBI = {
+  /** Patch size: field frequency (per metre across the beam). */
+  scale: 2.4,
+  /** How much of a canopy's shadow lets light through: higher means fewer patches. */
+  threshold: 0.6,
+  /** Drift speed with the wind. */
+  drift: 0.05,
+} as const;
+const KOMOREBI_VERT_HEAD = /* glsl */ `
+varying vec3 vLeafW;`;
+const KOMOREBI_VERT_BODY = /* glsl */ `
+vLeafW = (modelMatrix * vec4(transformed, 1.)).xyz;`;
+const KOMOREBI_FRAG_HEAD = /* glsl */ `
+uniform float uTime;
+uniform float uWind;
+uniform vec3 uSunDir;
+varying vec3 vLeafW;
+${NOISE_GLSL}`;
+const KOMOREBI_FRAG_BODY = /* glsl */ `
+{
+  vec3 L = normalize(uSunDir);
+  vec3 U = normalize(cross(L, abs(L.y) > .99 ? vec3(1., 0., 0.) : vec3(0., 1., 0.)));
+  vec3 V = cross(L, U);
+  vec2 p = vec2(dot(vLeafW, U), dot(vLeafW, V)) * ${KOMOREBI.scale.toFixed(2)};
+  float d = uTime * ${KOMOREBI.drift.toFixed(3)} * uWind;
+  float n = kNoise(p + vec2(d, -d * .7)) * .65 + kNoise(p * 2.1 - vec2(d * 1.3, d)) * .35;
+  if (n > ${KOMOREBI.threshold.toFixed(2)}) discard;
+}`;
+
 const LEAF_FRAG_BODY = /* glsl */ `
 diffuseColor.rgb *= .9 + .2 * fract(sin(dot(vBlob, vec3(12.9898, 78.233, 37.719))) * 43758.5453);`;
 
@@ -379,6 +415,10 @@ export class Materials {
   readonly wet: Uniform<number> = { value: 0 };
   /** Sky colour near the horizon (linear), for the water's fresnel. */
   readonly skyTint: Uniform<THREE.Color> = { value: new THREE.Color('#c4dcee') };
+  /** Toward the sun (world), for the komorebi shadow holes. */
+  readonly sunDir: Uniform<THREE.Vector3> = { value: new THREE.Vector3(0, 1, 0) };
+  /** The canopies' shadow: swaying like the leaves, with komorebi holes (`leafShadows` hands it out). */
+  readonly leafDepth: THREE.MeshDepthMaterial;
   private readonly mossColor: Uniform<THREE.Color> = { value: new THREE.Color('#3c6838') };
   readonly puddle: THREE.MeshStandardMaterial;
   private readonly cache = new Map<string, THREE.MeshStandardMaterial>();
@@ -388,6 +428,7 @@ export class Materials {
 
   constructor() {
     const leaf = () => this.patchLeaf(this.std('#ffffff', 0.9, { flatShading: true }));
+    this.leafDepth = this.makeLeafDepth();
     this.leaves = { sakura: [leaf(), leaf(), leaf()], deciduous: [leaf(), leaf(), leaf()], evergreen: [leaf(), leaf(), leaf()] };
     this.grass = this.tex2('grass', '#5b8c45', 0.5, 0.5);
     this.roof = this.tex2('roof', '#4b4f5a', 0.5, 0.5, 0.7);
@@ -409,6 +450,35 @@ export class Materials {
     m.customProgramCacheKey = () => 'leaf';
     m.userData.ownLook = true;
     return m;
+  }
+
+  private makeLeafDepth(): THREE.MeshDepthMaterial {
+    const d = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    const time = this.time,
+      wind = this.wind,
+      sunDir = this.sunDir;
+    d.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = time;
+      sh.uniforms.uWind = wind;
+      sh.uniforms.uSunDir = sunDir;
+      // the same sway as the leaves (so the shadow moves with them), then the world position for the holes
+      sh.vertexShader = inject(
+        inject(sh.vertexShader, '#include <common>', LEAF_VERT_HEAD + KOMOREBI_VERT_HEAD),
+        '#include <begin_vertex>',
+        LEAF_VERT_BODY + KOMOREBI_VERT_BODY,
+      );
+      sh.fragmentShader = inject(inject(sh.fragmentShader, '#include <common>', KOMOREBI_FRAG_HEAD), '#include <clipping_planes_fragment>', KOMOREBI_FRAG_BODY);
+    };
+    d.customProgramCacheKey = () => 'komorebi';
+    return d;
+  }
+
+  /** Give every tree canopy blob under `root` (`userData.canopy`) the komorebi shadow: the world once built, placed trees as they arrive. */
+  leafShadows(root: THREE.Object3D): void {
+    root.traverse((o) => {
+      const me = o as THREE.Mesh;
+      if (me.isMesh && me.userData.canopy) me.customDepthMaterial = this.leafDepth;
+    });
   }
 
   private patchWater(m: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {

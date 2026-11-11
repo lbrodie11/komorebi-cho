@@ -264,6 +264,7 @@ export class Kit {
       const rr = r * (0.3 + this.rng.next() * 0.6);
       const b = new THREE.Mesh(new THREE.IcosahedronGeometry(r * (0.28 + this.rng.next() * 0.25), 0), this.leafMat(kind));
       b.position.set(Math.cos(a) * rr, h + r * 0.4 + e * r * 0.7, Math.sin(a) * rr);
+      b.userData.canopy = true; // the sun comes through (komorebi)
       g.add(b);
     }
     g.position.set(x, y0, z);
