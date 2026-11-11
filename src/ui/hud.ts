@@ -18,8 +18,13 @@ export interface HudActions {
   setPixel(p: PixelPreset): void;
   setVolumes(music: number, ambience: number): void;
   setReducedMotion(v: boolean): void;
+  /** Film Diffusion strength, 0..0.2. */
+  setDiffusion(s: number): void;
   reset(): void;
 }
+
+/** Slider readout: "Off" at 0, otherwise the percent ("0.5%", "5%"). */
+export const diffusionLabel = (pct: number): string => (pct <= 0 ? 'Off' : `${Number(pct.toFixed(1))}%`);
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
@@ -170,13 +175,35 @@ export class Hud {
     this.splash = null;
   }
 
+  private diffusionInput: HTMLInputElement | null = null;
+  private diffusionOut: HTMLOutputElement | null = null;
+
+  /** Reflect a Film Diffusion value (0..0.2) in the slider, e.g. after loading a save. */
+  setDiffusion(s: number): void {
+    const pct = Math.round(s * 200) / 2; // the slider's 0.5% steps
+    if (this.diffusionInput) this.diffusionInput.value = String(pct);
+    this.showDiffusion(pct);
+  }
+
+  private showDiffusion(pct: number): void {
+    const text = diffusionLabel(pct);
+    if (this.diffusionOut) this.diffusionOut.textContent = text;
+    this.diffusionInput?.setAttribute('aria-valuetext', text);
+  }
+
   private buildSettings(): void {
     const s = this.settings;
     s.append(el('h4', '', 'Settings'));
     const px = el('div', 'row');
-    const labels: Record<PixelPreset, string> = { fine: 'Fine', classic: 'Classic', chunky: 'Chunky' };
+    const labels: Record<PixelPreset, string> = { fine: 'Fine', classic: 'Classic', chunky: 'Chunky', smooth: 'Smooth' };
+    const titles: Record<PixelPreset, string> = {
+      fine: 'Fine pixels',
+      classic: 'Classic pixels',
+      chunky: 'Chunky pixels',
+      smooth: 'Smooth: finer pixels and full-colour shading',
+    };
     for (const p of PIXEL_PRESETS) {
-      const b = btn(labels[p], () => this.act.setPixel(p), `${labels[p]} pixels`);
+      const b = btn(labels[p], () => this.act.setPixel(p), titles[p]);
       this.pixelBtns.set(p, b);
       px.append(b);
     }
@@ -198,6 +225,26 @@ export class Hud {
     const upd = () => this.act.setVolumes(Number(mv.value), Number(av.value));
     mv.addEventListener('input', upd);
     av.addEventListener('input', upd);
+    // Film Diffusion: 0–20%, live on input. Range inputs already take arrow keys (main.ts ignores keys aimed at inputs).
+    const fd = el('label', 'diffusion');
+    const name = el('span', '', 'Film Diffusion ');
+    fd.title = 'A soft lens glow around lights. Off shows the pure pixel palette.';
+    const fr = el('input');
+    fr.type = 'range';
+    fr.min = '0';
+    fr.max = '20';
+    fr.step = '0.5';
+    const out = el('output');
+    out.setAttribute('aria-hidden', 'true'); // the slider's aria-valuetext says the same thing
+    fr.addEventListener('input', () => {
+      this.showDiffusion(Number(fr.value));
+      this.act.setDiffusion(Number(fr.value) / 100);
+    });
+    name.append(out);
+    fd.append(name, fr);
+    s.append(fd);
+    this.diffusionInput = fr;
+    this.diffusionOut = out;
     const rm = el('label', '', 'Reduced motion');
     const cb = el('input');
     cb.type = 'checkbox';

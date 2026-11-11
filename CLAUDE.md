@@ -9,7 +9,12 @@ A free, web-first, cozy **living miniature** of a fictional Tokyo shitamachi bac
 
 ## Non-negotiables
 1. **All art and audio are code.** No image/audio/model files except generated-at-build icons. Fonts: OFL only (Pixelify Sans, Noto Sans JP), self-hosted, license file shipped.
-2. **The palette is the art direction.** Every final pixel snaps to `src/render/palette.ts`. Add a colour only deliberately.
+2. **The palette is the art direction.** Every pixel of the diorama snaps to `src/render/palette.ts`. Add a colour only deliberately. Deliberate exceptions:
+   - the sky backdrop is a smooth, undithered gradient (a dithered checkerboard behind the silhouettes was distracting);
+   - Film Diffusion above 0% adds in-between tones on top of the snapped image;
+   - the Smooth look shades in full colour at about twice the resolution. Since 2026-11-10 it is the default for new players (your call).
+
+   The palette pixel-art looks (Fine, Classic, Chunky) stay in Settings and must keep snapping exactly.
 3. **No failure states, budgets or timers.** Nothing punishes the player.
 4. **Never teleport a visible resident.** Disappear only into doors/exits; reappear from them.
 5. **Edits are transactions.** Preview → validate → commit → resolve (nav, smart objects, residents). Removal must let occupants down gently (stand up, `?` bubble, re-plan).
@@ -25,7 +30,8 @@ TypeScript (strict) · Vite · three.js `WebGLRenderer` (r187+) · Web Audio API
 src/core      rng (named streams), clock, events (typed bus), math, params (seeded-run URL)
 src/render    post (pixel pass), lut (palette lookup table), camera (iso + texel snap), pixelscale (integer upscale),
               shadow (fitted sun frustum), materials (procedural textures + weathering/leaf/water/sign shaders),
-              glyphs (5×5 kana, 7×7 pictograms), palette, sky (time-of-day keys)
+              glyphs (5×5 kana, 7×7 pictograms), palette, sky (time-of-day keys),
+              diffusion (Film Diffusion curve, output budget) + diffusion-pass (its GPU passes)
 src/world     layout (THE DATA), terrain (heights/regions), kit (geometry helpers, weathering scope, static merge),
               weathering (pure per-vertex maths), buildings, nature, props (+ placeables), crowd (light sharing),
               weather, world (assembly + time-driven updates)
@@ -37,6 +43,7 @@ src/save      storage (versioned localStorage + migrations)
 tests/        vitest: core, sim, audio, render maths (lut, shadow, pixel scale), art (glyphs, weathering, leaves, sky keys)
 prompts/      the roadmap: numbered work orders, done in order
 docs/         ARCHITECTURE, COLOR, CONTRIBUTING, VERSIONS
+scripts/      diffusion-shots.mjs (reproducible reference screenshots; Playwright installed --no-save)
 ```
 
 ## Commands

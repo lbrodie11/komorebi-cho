@@ -1,6 +1,6 @@
 # Colour pipeline
 
-The palette is the art direction (`src/render/palette.ts`). Every final pixel is one of its entries. Getting there safely means knowing which colour space each number is in. This page traces a pixel from material to screen.
+The palette is the art direction (`src/render/palette.ts`). In the pixel-art presets (Fine, Classic, Chunky) every diorama pixel is one of its entries. The sky backdrop is a smooth gradient (never snapped), and the Smooth preset shades the whole diorama in full colour. Above 0% Film Diffusion, the diffusion passes deliberately add in-between tones: blended dither and glow. They work from palette-snapped pixels, never instead of them. Getting there safely means knowing which colour space each number is in. This page traces a pixel from material to screen.
 
 ## Stages
 
@@ -14,9 +14,12 @@ The palette is the art direction (`src/render/palette.ts`). Every final pixel is
 | Composite: scene | `toSRGB(tonemap(lin × exposure))` | **sRGB**, then hue-shifted shading | 0–1 |
 | Composite: sky, mist, moon | uniforms from `hexToSrgb` | **sRGB** (raw) | 0–1 |
 | Composite: glow | hue-preserving cap, then `toSRGB(…) × 0.55`, added | **sRGB** | 0–0.55 |
-| Dither | `+ (Bayer4 − 0.5) × spread` (0 on signs) | **sRGB**, may leave [0,1] | about −0.05 to 2.4 |
-| Palette snap | candidate LUT or `?lutOff` loop | **sRGB** palette entry | exactly palette |
-| Canvas | `ShaderMaterial` with no `colorspace_fragment` | values written as-is: **sRGB** | — |
+| Dither | `+ (Bayer4 − 0.5) × 0.03`, Bayer pinned to the world (0 on signs) | **sRGB**, may leave [0,1] | about −0.015 to 2.4 |
+| Palette snap | candidate LUT or `?lutOff` loop; the sky skips it (smooth gradient, ±½/255 noise) | **sRGB** palette entry | exactly palette (diorama) |
+| Canvas (0% Film Diffusion) | `ShaderMaterial` with no `colorspace_fragment` | values written as-is: **sRGB** | — |
+| Film Diffusion: pix → resolved | RGBA8 targets; dither blend in sRGB | **sRGB** (blended dither leaves the palette on purpose) | 0–1 |
+| Film Diffusion: glow pyramid | HalfFloat targets from the exposed scene | **linear** HDR | 0–8 |
+| Film Diffusion: canvas | resolved → linear, + glow (soft-clipped below 1), → sRGB, ±½/255 noise | **sRGB** | 0–1 |
 
 Two rules hold this together:
 

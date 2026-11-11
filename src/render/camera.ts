@@ -62,6 +62,13 @@ export class IsoCamera {
     if (next === 0) this.targetGoal.set(0, 3.9, 0);
   }
 
+  /** Jump straight to a magnification index (0 = 1×), for scripted views. */
+  setZoomIndex(i: number): void {
+    this.zoomIndex = clamp(Math.round(i), 0, this.magnifications.length - 1);
+    this.halfH = this.baseHalfH / this.magnifications[this.zoomIndex]!;
+    this.updateProjection();
+  }
+
   /** Pan in screen space (pixels of the CSS canvas). */
   panScreen(dxPx: number, dyPx: number, cssHeight: number): void {
     const worldPerPx = (2 * this.halfH) / cssHeight;

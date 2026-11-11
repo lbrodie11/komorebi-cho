@@ -31,7 +31,8 @@ Keep PRs small. If a branch grows past ~800 changed lines, split it. Mechanical 
   /?seed=1&hour=18&season=spring&weather=clear&freeze=1
   /?seed=1&hour=12&season=spring&weather=rain&freeze=1
   ```
-  Wait until `__komorebi.frames > 20`, then capture `#view`. Add `&lutOff` to render with the reference palette loop.
+  Wait until `__komorebi.frames > 20`, then capture `#view`. Add `&lutOff` to render with the reference palette loop. Seeded runs use the new-player defaults: the Smooth look and 5% Film Diffusion. Add `&pixel=classic` (or `fine`, `chunky`) for the palette pixel art, `&diffusion=0` for no diffusion, or `&diffusion=20` for the strongest.
+- **Render changes**: run `scripts/diffusion-shots.mjs`. It takes the six reference views at 1280×720 (DPR 1) and 1920×1080 (DPR 2) with real device pixel ratios, in the look you pass (Smooth by default; run `classic` too, since the palette looks must keep snapping exactly), and writes sha256 hashes. Diff each shot against the previous build: the hashes tell you which views changed, and any change at 0% must be one you meant. It needs Playwright, which isn't a project dependency yet; the script's header says how to install it without saving.
 - **Art direction** (visual PRs): a contact sheet of 4 times × 2 weathers × 4 seasons (`hour=6,12,18,22`, `weather=clear,rain`, every `season`) at the seeded URL. Squint at it: buildings must separate from ground and sky at every hour. At the default view the eye should land on the kissaten first, then the shrine islet, then the chimney. To check, blur a seeded frame heavily (or squint) and see which landmark holds the most contrast.
 - **Performance**: the `?debug` numbers at the default view.
 - **Known gaps**: what you didn't do, and why.

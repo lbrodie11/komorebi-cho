@@ -38,7 +38,11 @@ npm run lint && npm run typecheck && npm test && npm run build
 | M | Sound on/off |
 | Click a person | Meet them |
 
-Settings has three pixel sizes (Fine, Classic, Chunky) and a reduced-motion switch.
+Settings offers four looks:
+- **Smooth** (the default) has finer pixels and full-colour shading, for a clean voxel-diorama look.
+- **Fine**, **Classic** and **Chunky** are palette pixel art at three pixel sizes.
+
+Settings also has **Film Diffusion** (0–20%, default 5%: a soft lens glow around lights, while edges stay crisp) and a reduced-motion switch.
 
 ## URL parameters
 
@@ -47,12 +51,15 @@ Settings has three pixel sizes (Fine, Classic, Chunky) and a reduced-motion swit
 | `?debug` | Stats overlay: fps, frame and sim time, draw calls, triangles, textures, residents on screen |
 | `?seed=N&hour=H&season=S&weather=clear\|rain&freeze=1` | A reproducible frame for screenshots and visual diffs. Never reads or writes your save. |
 | `?lutOff` | Snap to the palette with the reference loop instead of the lookup table (for comparison) |
+| `?diffusion=P` | Film Diffusion for this visit, in percent (0–20). Not saved. |
+| `?pixel=classic` | The look for this visit: `smooth`, `fine`, `classic` or `chunky`. Not saved. |
 
 Example: `/?seed=1&hour=19.25&season=autumn&weather=rain&freeze=1`
 
 ## What's inside
 
 - **The block.** At the top, a sento with its tall chimney, a narrow concrete micro-home, a two-storey apāto with a steel stair, and a temple on a raised terrace. Below that, a shotengai with four shops under an entrance arch, a kissaten on a chamfered corner, a community allotment, and a pocket park with a koi pond, waterfall, vermilion bridge and a Benzaiten islet.
+- **Film Diffusion.** An optional lens-diffusion pass (0–20%) glows around real light sources and turns dither into tone. At 0% the diorama is the pure palette.
 - **The pixel pass.** The low-res half-float render goes through a sky, a half-res lantern glow, cloud shadows, a tonemap, hue-shifted shading, pond reflections, outlines and a Bayer dither. It then snaps to the palette through a 3D lookup table, at an exact integer upscale. Camera steps are instant, with a 250 ms dither dissolve between views, so nothing ever crawls across the pixel grid.
 - **Art direction.** Weathering follows its causes: grime at wall bases and under eaves, streaks below sills and AC units, moss on north faces, darkening in rain. Hand-drawn 5×5 kana and 7×7 pictograms paint every sign. Foliage sways with the wind, and leaves fall from the trees that drop them. The plinth has a utility cutaway with labelled pipes.
 - **Time and weather.** One real second is one in-world minute. The light is hand-keyed through golden hour, blue hour, rainy evenings and snowy mornings. Shops raise their shutters on schedule and windows light up on household routines. Rain arrives gradually and the streets stay wet after it stops. Four seasons bring petals, autumn colour, snow and fireflies.

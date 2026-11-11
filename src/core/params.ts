@@ -1,4 +1,5 @@
 import { SEASONS, type Season } from './clock';
+import { PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
 
 /**
  * Launch flags read from the URL query. Kept DOM-free (only `URLSearchParams`)
@@ -7,6 +8,8 @@ import { SEASONS, type Season } from './clock';
  *   ?seed=N&hour=H&season=S&weather=clear|rain&freeze=1   deterministic screenshot state
  *   ?debug                                                 stats overlay
  *   ?lutOff                                                palette snap via the reference loop instead of the LUT
+ *   ?diffusion=P                                           Film Diffusion strength in percent (0–20) for this run
+ *   ?pixel=fine|classic|chunky|smooth                      the look for this run
  */
 export interface LaunchParams {
   /** Mixed into the simulation's RNG streams (residents, animals, weather). 0 = the authored default. */
@@ -18,6 +21,10 @@ export interface LaunchParams {
   freeze: boolean;
   debug: boolean;
   lutOff: boolean;
+  /** Film Diffusion override as a fraction (0..0.2), or null to use the setting. */
+  diffusion: number | null;
+  /** Look override for this visit (never saved), or null to use the setting. */
+  pixel: PixelPreset | null;
   /**
    * True when any seeded-state flag is present. Scripted runs never read or
    * write the player's save: a screenshot run must not clobber a real garden.
@@ -44,6 +51,13 @@ export function parseLaunchParams(search: string): LaunchParams {
   const weather = w === 'clear' || w === 'rain' ? w : null;
 
   const freeze = truthy(q.get('freeze'));
+
+  const dRaw = q.get('diffusion');
+  const dNum = dRaw === null || dRaw === '' ? NaN : Number(dRaw);
+  const diffusion = Number.isFinite(dNum) ? Math.min(0.2, Math.max(0, dNum / 100)) : null;
+
+  const px = q.get('pixel');
+  const pixel = (PIXEL_PRESETS as readonly (string | null)[]).includes(px) ? (px as PixelPreset) : null;
   return {
     seed,
     hour,
@@ -52,6 +66,8 @@ export function parseLaunchParams(search: string): LaunchParams {
     freeze,
     debug: q.has('debug'),
     lutOff: q.has('lutOff'),
+    diffusion,
+    pixel,
     scripted: seedRaw !== null || hour !== null || season !== null || weather !== null || freeze,
   };
 }

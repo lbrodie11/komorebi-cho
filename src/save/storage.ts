@@ -1,7 +1,8 @@
 import type { Season } from '../core/clock';
 import type { WeatherMode } from '../world/weather';
 import type { PlaceableKind } from '../world/props';
-import type { PixelPreset } from '../render/pixelscale';
+import { DEFAULT_PIXEL, PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
+import { LEGACY_DIFFUSION_DEFAULT, sanitizeDiffusion } from '../render/diffusion';
 
 export const SAVE_VERSION = 2;
 const KEY = 'komorebi-cho/save';
@@ -21,7 +22,18 @@ export interface SaveData {
   weather: WeatherMode;
   placed: PlacedRecord[];
   memory: Record<string, string[]>;
-  settings: { pixel: PixelPreset; music: number; ambience: number; reducedMotion: boolean };
+  settings: {
+    pixel: PixelPreset;
+    music: number;
+    ambience: number;
+    reducedMotion: boolean;
+    /**
+     * Film Diffusion, 0..0.2. Optional on disk (saves before it existed lack it), always
+     * present after `load()`: missing or invalid values become LEGACY_DIFFUSION_DEFAULT,
+     * the rest clamp to range. An optional field needs no version bump.
+     */
+    diffusion: number;
+  };
 }
 
 /** Forward-only migrations keyed by the version they upgrade *from*. */
@@ -45,6 +57,13 @@ export function load(): SaveData | null {
       v++;
     }
     if (v !== SAVE_VERSION) return null;
+    const settings = (d.settings ?? {}) as Record<string, unknown>;
+    d.settings = {
+      ...settings,
+      // an unknown preset would break the canvas layout; fall back to the default look
+      pixel: (PIXEL_PRESETS as readonly unknown[]).includes(settings.pixel) ? settings.pixel : DEFAULT_PIXEL,
+      diffusion: sanitizeDiffusion(settings.diffusion, LEGACY_DIFFUSION_DEFAULT),
+    };
     return d as unknown as SaveData;
   } catch {
     return null;

@@ -37,6 +37,12 @@ body {
   cursor: grab;
   touch-action: none;
 }
+/* Film Diffusion enlarges in a shader, at device resolution (or just under, past the size cap):
+   any remaining browser scaling should be smooth, not nearest-neighbour */
+#view.diffused,
+#view.smooth {
+  image-rendering: auto;
+}
 #view.dragging {
   cursor: grabbing;
 }
@@ -264,7 +270,8 @@ button.px.primary {
   position: absolute;
   right: 22px;
   top: 70px;
-  width: 270px;
+  width: 300px;
+  max-width: calc(100vw - 32px);
   padding: 12px 14px;
   display: none;
   font-size: 13px;
@@ -283,6 +290,9 @@ button.px.primary {
   width: 120px;
   accent-color: var(--amber);
 }
+.settings output {
+  color: var(--amber);
+}
 .settings h4 {
   margin: 0 0 4px;
   font-size: 15px;
@@ -290,9 +300,18 @@ button.px.primary {
   color: var(--amber);
 }
 .settings .row {
-  display: flex;
+  /* the four looks as one even row: Fine, Classic, Chunky, Smooth */
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
-  flex-wrap: wrap;
+}
+.settings .row button {
+  padding-left: 2px;
+  padding-right: 2px;
+  text-align: center;
+}
+.settings label span {
+  white-space: nowrap;
 }
 
 .help {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { EventBus, type GameEvents } from './core/events';
 import { WorldClock, type Season } from './core/clock';
 import { IsoCamera } from './render/camera';
-import { canvasLayout, type PixelPreset } from './render/pixelscale';
+import { canvasLayout, DEFAULT_PIXEL, usesPalette, type PixelPreset } from './render/pixelscale';
 import { PostPass } from './render/post';
 import { PALETTE } from './render/palette';
 import { skyAt } from './render/sky';
@@ -21,6 +21,7 @@ import { load, save, clearSave, SAVE_VERSION } from './save/storage';
 import type { PlaceableKind } from './world/props';
 import { parseLaunchParams, warmupStart } from './core/params';
 import { warmUp } from './sim/warmup';
+import { DEFAULT_DIFFUSION, diffusionOutputSize } from './render/diffusion';
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -53,7 +54,14 @@ const residents = new Residents(world.scene, grid, smart, bus, world.mats, param
 const animals = new Animals(world.scene, world.mats, grid, smart, bus, world.chimneyTop, params.seed);
 const build = new BuildTool(world.scene, world.mats, grid, smart, residents, bus, () => clock.hour, world.lightPool);
 
-let pixel: PixelPreset = 'classic';
+/** The player's look, as saved; new players start on Smooth. */
+let pixelSetting: PixelPreset = DEFAULT_PIXEL;
+/** What renders: the setting, unless the URL overrides it for this visit (?pixel=, never saved). */
+let pixel: PixelPreset = params.pixel ?? pixelSetting;
+/** The player's Film Diffusion setting (0..DIFFUSION_MAX), as saved. */
+let diffusionSetting = DEFAULT_DIFFUSION;
+/** What renders: the setting, unless the URL overrides it for this visit (?diffusion=, never saved). */
+let diffusion = params.diffusion ?? diffusionSetting;
 let photo = false;
 
 // ── Persistence ───────────────────────────────────────────────────────────
@@ -65,10 +73,13 @@ if (saved) {
   world.weather.setMode(saved.weather);
   for (const r of saved.placed) if (build.canPlace(r.kind, r.x, r.z)) build.place(r, false);
   residents.restoreMemory(saved.memory);
-  pixel = saved.settings.pixel;
+  pixelSetting = saved.settings.pixel;
+  pixel = params.pixel ?? pixelSetting;
   sound.musicVolume = saved.settings.music;
   sound.ambienceVolume = saved.settings.ambience;
   world.reducedMotion = saved.settings.reducedMotion;
+  diffusionSetting = saved.settings.diffusion;
+  diffusion = params.diffusion ?? diffusionSetting;
 }
 let reducedMotion = world.reducedMotion;
 function persist(): void {
@@ -80,7 +91,7 @@ function persist(): void {
     weather: world.weather.mode,
     placed: build.records(),
     memory: residents.memory(),
-    settings: { pixel, music: sound.musicVolume, ambience: sound.ambienceVolume, reducedMotion },
+    settings: { pixel: pixelSetting, music: sound.musicVolume, ambience: sound.ambienceVolume, reducedMotion, diffusion: diffusionSetting },
   });
 }
 
@@ -113,18 +124,13 @@ const hud = new Hud(hudRoot, {
   },
   capture: () => {
     bus.emit('sfx', { name: 'shutter' });
-    renderFrame(0);
-    const up = document.createElement('canvas');
-    const k = 4;
-    up.width = canvas.width * k;
-    up.height = canvas.height * k;
-    const ctx = up.getContext('2d');
-    if (!ctx) return Promise.resolve(null);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(canvas, 0, 0, up.width, up.height);
-    return Promise.resolve(up.toDataURL('image/png'));
+    const aspect = parseFloat(canvas.style.width) / parseFloat(canvas.style.height) || 16 / 9;
+    const url = captureFrame(Math.round(PHOTO_H * aspect), PHOTO_H);
+    resize(); // back to the screen's layout
+    return Promise.resolve(url);
   },
   setPixel: (p) => {
+    pixelSetting = p;
     pixel = p;
     hud.setPixel(p);
     resize();
@@ -138,6 +144,10 @@ const hud = new Hud(hudRoot, {
     reducedMotion = v;
     world.reducedMotion = v;
   },
+  setDiffusion: (s) => {
+    diffusionSetting = s;
+    setDiffusion(s);
+  },
   reset: () => {
     for (const r of build.records()) build.remove(r.id);
     clearSave();
@@ -148,6 +158,7 @@ hud.setSpeed(clock.speed, clock.paused);
 hud.setWeather(world.weather.mode);
 hud.setTool('view', build.kind);
 hud.setPixel(pixel);
+hud.setDiffusion(diffusion);
 
 function seasonLine(s: Season): string {
   return {
@@ -168,13 +179,70 @@ let devW = Math.round(app.clientWidth * (window.devicePixelRatio || 1));
 let devH = Math.round(app.clientHeight * (window.devicePixelRatio || 1));
 let exactDeviceBox = false;
 
+/**
+ * Lay out the canvas. At 0% Film Diffusion the drawing buffer is the internal render
+ * size and CSS enlarges it with `image-rendering: pixelated`. Above 0% the post pass
+ * enlarges it in a shader, so the drawing buffer is the device-resolution budget instead.
+ * Switching between the two changes the canvas size, so it happens here, not per frame.
+ */
 function resize(): void {
   const dpr = window.devicePixelRatio || 1;
   const l = canvasLayout(devW, devH, dpr, pixel);
   Object.assign(canvas.style, { width: `${l.cssW}px`, height: `${l.cssH}px`, left: `${l.cssLeft}px`, top: `${l.cssTop}px` });
-  renderer.setSize(l.rw, l.rh, false);
+  post.setSize(l.rw, l.rh);
+  post.setPalette(usesPalette(pixel));
+  iso.setViewport(l.rw, l.rh);
+  const out = diffusionOutputSize(l.cssW, l.cssH, dpr);
+  post.setOutputSize(out.w, out.h);
+  const active = post.setDiffusion(renderer, diffusion, out.w / l.rw);
+  canvas.classList.toggle('diffused', active);
+  // Smooth's fractional enlargement is filtered; nearest-neighbour at 1.33× would make uneven pixel columns
+  canvas.classList.toggle('smooth', !usesPalette(pixel));
+  if (active) renderer.setSize(out.w, out.h, false);
+  else renderer.setSize(l.rw, l.rh, false);
+}
+
+/** Photos are this tall whatever the display's DPR; the width follows the window, so the photo frames what you see. */
+const PHOTO_H = 1080;
+
+/**
+ * Render one frame laid out for a w×h device-pixel screen at DPR 1, with the
+ * current pixel preset and Film Diffusion, and return it as a PNG data URL. The HUD is DOM,
+ * so it never appears. The caller restores the screen layout with resize().
+ */
+function captureFrame(w: number, h: number): string | null {
+  const l = canvasLayout(w, h, 1, pixel);
+  const outW = Math.round(l.rw * l.scale),
+    outH = Math.round(l.rh * l.scale);
   post.setSize(l.rw, l.rh);
   iso.setViewport(l.rw, l.rh);
+  post.setOutputSize(outW, outH);
+  if (post.setDiffusion(renderer, diffusion, l.scale)) {
+    renderer.setSize(outW, outH, false);
+    renderFrame(0);
+    return canvas.toDataURL('image/png'); // same task as the render: the drawing buffer is still intact
+  }
+  renderer.setSize(l.rw, l.rh, false);
+  renderFrame(0);
+  const up = document.createElement('canvas');
+  up.width = outW;
+  up.height = outH;
+  const ctx = up.getContext('2d');
+  if (!ctx) return null;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(canvas, 0, 0, outW, outH);
+  return up.toDataURL('image/png');
+}
+
+/** Live slider updates: only crossing 0 needs a new canvas size. */
+function setDiffusion(s: number): void {
+  const crossed = s > 0 !== diffusion > 0;
+  diffusion = s;
+  if (crossed || !post.diffusing) resize();
+  else {
+    const l = canvasLayout(devW, devH, window.devicePixelRatio || 1, pixel);
+    post.setDiffusion(renderer, s, post.outputWidth / l.rw);
+  }
 }
 const ro = new ResizeObserver(([entry]) => {
   const box = entry?.devicePixelContentBoxSize?.[0];
@@ -347,7 +415,7 @@ if (params.scripted) {
   time = warmUp({ clock, world, residents, animals, placed }, warmupStart(hour, 3), hour);
 }
 /** Frozen runs render the same frame forever: no sim, no animation time, no clock. */
-const frozen = params.freeze;
+let frozen = params.freeze;
 if (frozen) {
   clock.paused = true;
   hud.setSpeed(clock.speed, clock.paused);
@@ -375,7 +443,7 @@ canvas.addEventListener('webglcontextlost', (e) => {
   persist();
 });
 canvas.addEventListener('webglcontextrestored', () => {
-  post.rebuildAfterContextLoss();
+  post.rebuildAfterContextLoss(renderer);
   // dropped, not disposed (its GL objects died with the old context); three allocates a fresh one
   world.sun.shadow.map = null;
   contextLost = false;
@@ -470,9 +538,58 @@ hud.setClock(clock.label(), clock.day, clock.season);
 schedule();
 if (!params.scripted) bus.emit('story', { text: 'Late afternoon in Komorebi-chō.' });
 
+/** What `__komorebi.freeze()` can pin. Anything left out keeps its current value. */
+interface FreezeSpec {
+  hour?: number;
+  season?: Season;
+  weather?: 'clear' | 'rain';
+  /** Shader and animation time, seconds (drives water ripples, cloud drift, sway phase). */
+  time?: number;
+  /** Camera look-at point, world units. */
+  target?: [number, number, number];
+  /** Magnification index: 0 = 1×, 1 = 2×, 2 = 3×. */
+  zoom?: number;
+  /** Camera yaw, radians (π/4 is the default view). */
+  yaw?: number;
+}
+
+/**
+ * Pin everything that moves so a frame reproduces exactly: the clock, residents,
+ * animals and weather particles stop, and shader time and cloud drift are fixed.
+ * Changing hour/season/weather here does not re-run the warm-up, so for settled lamps
+ * and routines load the seeded URL at the same hour first (docs/CONTRIBUTING.md).
+ */
+function freeze(o: FreezeSpec = {}): void {
+  frozen = true;
+  clock.paused = true;
+  hud.setSpeed(clock.speed, clock.paused);
+  if (o.season) clock.season = o.season;
+  if (o.hour !== undefined) clock.setHour(o.hour);
+  if (o.weather) {
+    world.weather.setMode(o.weather);
+    world.weather.rain = world.weather.wetness = o.weather === 'rain' ? 1 : 0;
+    hud.setWeather(o.weather);
+  }
+  if (o.time !== undefined) time = o.time;
+  if (o.yaw !== undefined) iso.yaw = o.yaw;
+  if (o.zoom !== undefined) iso.setZoomIndex(o.zoom);
+  if (o.target) {
+    iso.target.set(...o.target);
+    iso.targetGoal.set(...o.target);
+  }
+}
+
 // handy for debugging and for automated visual tests
 Object.assign(window, {
   __komorebi: {
+    freeze,
+    setDiffusion,
+    /** Switch the pixel preset (as the Settings buttons do), for scripted screenshots. */
+    setPixel: (p: PixelPreset) => {
+      pixel = p;
+      hud.setPixel(p);
+      resize();
+    },
     clock,
     world,
     residents,

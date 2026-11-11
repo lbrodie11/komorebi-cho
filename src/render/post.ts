@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { hexToSrgb } from '../core/math';
 import { bakePaletteLut, LUT_AXIS, LUT_SIZE } from './lut';
 import { SIGN_MASK, WATER_MASK } from './materials';
+import { DiffusionPass } from './diffusion-pass';
+import { diffusionParams, type DiffusionParams } from './diffusion';
 
 /**
  * The look of the game lives in these passes. Colour spaces at each stage are
@@ -11,21 +13,35 @@ import { SIGN_MASK, WATER_MASK } from './materials';
  *   glow  → `glowRT`  (half of sceneRT): bright HDR neighbours gathered once per 2×2 block
  *           (the same 24 taps as before, over a quarter of the pixels)
  *   composite → canvas (sRGB palette colours):
- *     1. dithered sky (gradient, drifting cloud bands, stars, moon)
+ *     1. sky (gradient, drifting cloud bands, stars, moon): smooth, never dithered or palette-snapped
  *     2. lantern glow, upsampled from glowRT (halos dither nicely)
  *     3. drifting world-space cloud shadows; mirrored reflections on water (scene alpha = WATER_MASK)
  *     4. tonemap → sRGB → hue-shifted shading
  *     5. rain mist near the ground
  *     6. pixel-artist outlines (dark violet) and top rim light
- *     7. Bayer 4×4 dither (skipped on signs, scene alpha = SIGN_MASK) → palette snap (candidate 3D LUT, or the reference loop with `?lutOff`)
+ *     7. Bayer 4×4 dither (skipped on signs, scene alpha = SIGN_MASK) → palette snap (the diorama only;
+ *        the Smooth preset skips both and keeps full-colour shading) (candidate 3D LUT, or the reference loop with `?lutOff`)
  *     8. Bayer dissolve from the previous view during camera steps
  * The canvas is then upscaled by an integer factor with `image-rendering: pixelated`.
  */
+
+/** How much of the pixel-pass halo (glowC) Film Diffusion's glow replaces at full strength. */
+const HALO_FADE = 0.6;
+
+/**
+ * Ordered-dither amplitude. Small on purpose: a Bayer offset of ±0.015 only flips pixels that sit
+ * within ~1.5% of the boundary between two palette shades, so surfaces read as clean flat colour
+ * with a thin dithered seam where one shade hands over to the next (lamp pools, halos, shadow
+ * falloff). It was 0.1, which checkered whole walls and roofs and hid small details at 1× zoom.
+ */
+export const DITHER_SPREAD = 0.03;
 
 /** Camera-step dissolve length, seconds. */
 export const DISSOLVE_S = 0.25;
 
 const VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }';
+/** For passes that address pixels with gl_FragCoord (no varying: Firefox warns about unread outputs). */
+const VERT_PLAIN = 'void main(){ gl_Position = vec4(position.xy, 0., 1.); }';
 
 const BAYER = /* glsl */ `
 float B2(vec2 a){ a = floor(a); return fract(a.x / 2. + a.y * a.y * .75); }
@@ -43,9 +59,12 @@ export const glowFragmentShader = /* glsl */ `
 uniform sampler2D tColor;
 uniform vec2 res;
 uniform float tap;
-varying vec2 vUv;
+// camera offset mod 2: each 2×2 block covers the same two world pixels as the camera pans,
+// so the chunky halo slides with its lantern instead of re-sampling (shimmering) every step
+uniform vec2 shift;
 void main(){
   vec2 px = 1. / res;
+  vec2 vUv = (2. * floor(gl_FragCoord.xy) + 1. - shift) * px;
   vec3 g = vec3(0.);
   for (int i = -2; i <= 2; i++){
     for (int j = -2; j <= 2; j++){
@@ -62,6 +81,7 @@ export const compositeFragmentShader = (n: number): string => /* glsl */ `
 uniform sampler2D tColor;
 uniform sampler2D tDepth;
 uniform sampler2D tGlow;
+uniform vec2 glowRes;
 uniform sampler2D tPrev;
 uniform vec2 res;
 uniform vec3 pal[${n}];
@@ -91,6 +111,12 @@ uniform vec2 cloudOffset;
 uniform mat4 invViewProj;
 uniform vec2 upUv;
 uniform float waterReflect;
+uniform vec2 ditherShift;
+// 1: snap to the palette (Fine/Classic/Chunky); 0: full-colour shading (Smooth)
+uniform float snap;
+// Film Diffusion (0, and haloScale 1, on the plain path)
+uniform float flagOut;
+uniform float haloScale;
 varying vec2 vUv;
 ${BAYER}
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -104,28 +130,62 @@ float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 4; i++){ v += a * v
 vec3 toSRGB(vec3 c){ c = max(c, 0.); return mix(c * 12.92, 1.055 * pow(c, vec3(1. / 2.4)) - .055, step(.0031308, c)); }
 vec3 worldPos(vec2 uv, float d){ vec4 w = invViewProj * vec4(uv * 2. - 1., d * 2. - 1., 1.); return w.xyz / w.w; }
 
+// nearest palette colour (weighted RGB distance)
+vec3 snapPal(vec3 c){
+#ifdef USE_LUT
+  // The cell lists the (up to 4) palette colours that can win inside it; pick the nearest to the exact colour.
+  ivec3 cell = ivec3(lutCell(c));
+  ivec4 k = ivec4(texelFetch(tLut, cell, 0) * 255. + .5);
+  const vec3 W = vec3(.3, .59, .11);
+  vec3 o = pal[k.x];
+  vec3 e = c - o;
+  float best = dot(e * e, W);
+  vec3 p = pal[k.y]; e = c - p; float q = dot(e * e, W); if (q < best){ best = q; o = p; }
+  p = pal[k.z]; e = c - p; q = dot(e * e, W); if (q < best){ best = q; o = p; }
+  p = pal[k.w]; e = c - p; q = dot(e * e, W); if (q < best){ o = p; }
+  return o;
+#else
+  float best = 1e9; vec3 o = c;
+  for (int i = 0; i < ${n}; i++){
+    vec3 e = c - pal[i];
+    float q = dot(e * e, vec3(.3, .59, .11));
+    if (q < best){ best = q; o = pal[i]; }
+  }
+  return o;
+#endif
+}
+
 void main(){
   vec2 px = 1. / res;
   float d = texture2D(tDepth, vUv).r;
+  bool sky = d >= .99999;
 
   // 2. glow (gathered at half res in the glow pass); applies over sky too.
   // Hue-preserving cap: scale all channels together once the brightest passes 1, so a pile of
   // orange lanterns stays an orange halo instead of clipping channel-by-channel to white.
-  vec3 G = texture2D(tGlow, vUv).rgb * glow * exposure;
+  vec2 gq = floor((gl_FragCoord.xy + mod(ditherShift, 2.)) / 2.);
+  vec3 G = texture2D(tGlow, (gq + .5) / glowRes).rgb * glow * exposure * haloScale;
   G /= max(1., max(max(G.r, G.g), G.b));
   vec3 glowC = toSRGB(G) * .55;
 
   vec3 c;
   float dither = spread;
-  if (d >= .99999){
+  if (sky){
     // 1. sky
     float y = vUv.y;
     c = mix(bgBottom, bgTop, smoothstep(0., 1., y));
     float band = fbm(vec2(vUv.x * 2.6 + time * .006, vUv.y * 7.));
     float cl = smoothstep(.56, .78, band) * bgClouds * smoothstep(.25, .95, y);
     c = mix(c, mix(bgBottom, vec3(1.), .4), cl * .55);
-    float s = hash(floor(vUv * res));
-    if (s > .993) c += vec3(.8) * stars * (.55 + .45 * sin(time * 1.5 + s * 400.));
+    // Stars live on a grid at most 300 cells tall, one render pixel each, so density and the hash's
+    // input range stay the same at any render height (a per-pixel hash at Smooth's ~700 rows
+    // degraded into vertical streaks). At palette heights (≤ 300) the grid is the pixel grid.
+    float sg = min(res.y, 300.);
+    vec2 sgrid = vec2(res.x / res.y, 1.) * sg;
+    vec2 cell = floor(vUv * sgrid);
+    float s = hash(cell);
+    bool here = all(equal(floor((cell + .5) / sgrid * res), floor(vUv * res)));
+    if (s > .993 && here) c += vec3(.8) * stars * (.55 + .45 * sin(time * 1.5 + s * 400.));
     vec2 mp = (vUv - vec2(.86, .8)) * vec2(res.x / res.y, 1.);
     float md = length(mp);
     float crescent = step(md, .045) * (1. - step(length(mp - vec2(.018, .01)), .04));
@@ -178,29 +238,32 @@ void main(){
   }
   c += glowC;
   // 7. ordered dither + palette snap
-  c += (B4(gl_FragCoord.xy) - .5) * dither;
-#ifdef USE_LUT
-  // The cell lists the (up to 4) palette colours that can win inside it; pick the nearest to the exact colour.
-  ivec3 cell = ivec3(lutCell(c));
-  ivec4 k = ivec4(texelFetch(tLut, cell, 0) * 255. + .5);
-  const vec3 W = vec3(.3, .59, .11);
-  vec3 o = pal[k.x];
-  vec3 e = c - o;
-  float best = dot(e * e, W);
-  vec3 p = pal[k.y]; e = c - p; float q = dot(e * e, W); if (q < best){ best = q; o = p; }
-  p = pal[k.z]; e = c - p; q = dot(e * e, W); if (q < best){ best = q; o = p; }
-  p = pal[k.w]; e = c - p; q = dot(e * e, W); if (q < best){ o = p; }
-#else
-  float best = 1e9; vec3 o = c;
-  for (int i = 0; i < ${n}; i++){
-    vec3 e = c - pal[i];
-    float q = dot(e * e, vec3(.3, .59, .11));
-    if (q < best){ best = q; o = pal[i]; }
+  vec3 unsnapped = c;
+  vec3 o;
+  float flag = 0.;
+  if (snap > .5){
+    // the pattern is pinned to the world (camera offset), so panning moves it with the scene instead of crawling
+    c += (B4(gl_FragCoord.xy + ditherShift) - .5) * dither;
+    o = snapPal(c);
+    // Film Diffusion: tell the dither-blend pass which pixels the dither actually changed
+    if (flagOut > .5 && o != snapPal(unsnapped)) flag = 1.;
+  } else {
+    // the Smooth look: full-colour shading, no palette and no dither; ±½/255 noise hides 8-bit banding
+    o = clamp(unsnapped, 0., 1.) + (hash(gl_FragCoord.xy) - .5) / 255.;
   }
-#endif
+  if (sky){
+    // The sky is a smooth gradient, never a dithered checkerboard: it is the backdrop to every
+    // silhouette, and a busy two-colour pattern there competes with the diorama's edges.
+    // ±½/255 of noise hides 8-bit banding. Stars, moon and clouds ride along unsnapped.
+    o = clamp(unsnapped, 0., 1.) + (hash(gl_FragCoord.xy) - .5) / 255.;
+    flag = 0.;
+  }
   // 8. camera-step dissolve: the previous view survives where the Bayer threshold is above 'fade'
-  if (fade > 0. && B4(gl_FragCoord.xy) < fade) o = texture2D(tPrev, vUv).rgb;
-  gl_FragColor = vec4(o, 1.);
+  if (fade > 0. && B4(gl_FragCoord.xy) < fade){
+    o = texture2D(tPrev, vUv).rgb;
+    flag = 0.;
+  }
+  gl_FragColor = vec4(o, flagOut > .5 ? flag : 1.);
 }`;
 
 export interface PostParams {
@@ -244,6 +307,13 @@ export class PostPass {
   private fadeLeft = 0;
   /** Which `prev` target the composite currently dissolves from. */
   private prevIdx: 0 | 1 = 0;
+  /** Film Diffusion: null on the plain (0%) path, which renders exactly as before it existed. */
+  private diff: DiffusionPass | null = null;
+  private strength = 0;
+  private scale = 1;
+  private outW = 1;
+  private outH = 1;
+  private params: DiffusionParams = diffusionParams(0, 1);
 
   constructor(
     private readonly palette: readonly string[],
@@ -289,8 +359,13 @@ export class PostPass {
     }
 
     const glowMat = new THREE.ShaderMaterial({
-      uniforms: { tColor: { value: sceneRT.texture }, res: { value: new THREE.Vector2(this.w, this.h) }, tap: { value: GLOW_TAP } },
-      vertexShader: VERT,
+      uniforms: {
+        tColor: { value: sceneRT.texture },
+        res: { value: new THREE.Vector2(this.w, this.h) },
+        tap: { value: GLOW_TAP },
+        shift: { value: new THREE.Vector2() },
+      },
+      vertexShader: VERT_PLAIN,
       fragmentShader: glowFragmentShader,
       depthTest: false,
       depthWrite: false,
@@ -310,6 +385,7 @@ export class PostPass {
         tColor: { value: sceneRT.texture },
         tDepth: { value: sceneRT.depthTexture },
         tGlow: { value: glowRT.texture },
+        glowRes: { value: new THREE.Vector2(1, 1) },
         tPrev: { value: prev[0].texture },
         tLut: { value: lut },
         res: { value: new THREE.Vector2(this.w, this.h) },
@@ -321,7 +397,7 @@ export class PostPass {
         moon: { value: 0 },
         time: { value: 0 },
         exposure: { value: 1 },
-        spread: { value: 0.1 },
+        spread: { value: DITHER_SPREAD },
         cloudShadow: { value: 0.6 },
         bgClouds: { value: 0.8 },
         mist: { value: 0 },
@@ -331,6 +407,10 @@ export class PostPass {
         invViewProj: { value: new THREE.Matrix4() },
         upUv: { value: new THREE.Vector2() },
         waterReflect: { value: 0.4 },
+        ditherShift: { value: new THREE.Vector2() },
+        snap: { value: 1 },
+        flagOut: { value: 0 },
+        haloScale: { value: 1 },
       },
       vertexShader: VERT,
       fragmentShader: compositeFragmentShader(this.palette.length),
@@ -345,7 +425,9 @@ export class PostPass {
 
   private resizeTargets(g: Gpu): void {
     g.sceneRT.setSize(this.w, this.h);
-    g.glowRT.setSize(Math.max(1, Math.ceil(this.w / 2)), Math.max(1, Math.ceil(this.h / 2)));
+    // one extra pixel of room: the 2×2 blocks are offset by the camera's offset mod 2
+    g.glowRT.setSize(Math.ceil((this.w + 1) / 2), Math.ceil((this.h + 1) / 2));
+    (g.compMat.uniforms.glowRes!.value as THREE.Vector2).set(g.glowRT.width, g.glowRT.height);
     for (const t of g.prev) t.setSize(this.w, this.h);
     (g.glowMat.uniforms.res!.value as THREE.Vector2).set(this.w, this.h);
     (g.compMat.uniforms.res!.value as THREE.Vector2).set(this.w, this.h);
@@ -356,6 +438,69 @@ export class PostPass {
     this.h = h;
     this.fadeLeft = 0; // the previous view no longer lines up
     this.resizeTargets(this.gpu);
+    this.diff?.setSize(w, h);
+  }
+
+  /**
+   * Film Diffusion strength (0..DIFFUSION_MAX) and the enlargement in device pixels per
+   * game pixel. Above 0 the pixel pass renders into an internal target and the
+   * diffusion passes draw the canvas at `setOutputSize`; at exactly 0 the pixel pass
+   * draws the canvas itself, unchanged. Returns whether the active path is running
+   * (false when 0, or when the GPU can't set it up).
+   */
+  setDiffusion(renderer: THREE.WebGLRenderer, s: number, devPxPerGamePx: number): boolean {
+    this.strength = s;
+    this.scale = devPxPerGamePx;
+    this.params = diffusionParams(s, devPxPerGamePx);
+    if (s <= 0) {
+      this.diff?.dispose();
+      this.diff = null;
+      return false;
+    }
+    if (!this.diff) {
+      try {
+        const half = renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float');
+        this.diff = new DiffusionPass(this.quadScene, this.quad, this.cam, half ? THREE.HalfFloatType : THREE.UnsignedByteType);
+        this.diff.setSize(this.w, this.h);
+        this.diff.setOutputSize(this.outW, this.outH);
+      } catch (e) {
+        console.warn('Film Diffusion unavailable; using the plain pixel path.', e);
+        this.diff = null;
+        return false;
+      }
+    }
+    this.diff.setParams(this.params);
+    return true;
+  }
+
+  /** Palette snap on (the pixel-art presets) or off (Smooth: full-colour shading). */
+  setPalette(on: boolean): void {
+    this.gpu.compMat.uniforms.snap!.value = on ? 1 : 0;
+  }
+
+  /** Canvas size for the active path (device-resolution budget, see diffusionOutputSize). */
+  setOutputSize(w: number, h: number): void {
+    this.outW = w;
+    this.outH = h;
+    this.diff?.setOutputSize(w, h);
+  }
+
+  private readonly axis = new THREE.Vector3();
+  /** Camera position in whole render pixels along its right/up axes (the texel snap makes these integers). */
+  private camOffset(camera: THREE.Camera): [number, number] {
+    const c = camera as THREE.OrthographicCamera;
+    const px = (c.top - c.bottom) / c.zoom / this.h;
+    const x = c.position.dot(this.axis.setFromMatrixColumn(c.matrixWorld, 0)) / px;
+    const y = c.position.dot(this.axis.setFromMatrixColumn(c.matrixWorld, 1)) / px;
+    return [Math.round(x), Math.round(y)];
+  }
+
+  get diffusing(): boolean {
+    return this.diff !== null;
+  }
+
+  get outputWidth(): number {
+    return this.outW;
   }
 
   set(p: Partial<PostParams>): void {
@@ -403,6 +548,10 @@ export class PostPass {
     (u.invViewProj!.value as THREE.Matrix4).copy(this.inv.invert());
     this.fadeLeft = Math.max(0, this.fadeLeft - dt);
     u.fade!.value = this.fadeLeft / DISSOLVE_S;
+    // Bayer 4×4 repeats every 4 pixels, so the camera's whole-pixel offset mod 4 pins it to the world
+    const off = this.camOffset(camera);
+    (u.ditherShift!.value as THREE.Vector2).set(((off[0] % 4) + 4) % 4, ((off[1] % 4) + 4) % 4);
+    (g.glowMat.uniforms.shift!.value as THREE.Vector2).set(((off[0] % 2) + 2) % 2, ((off[1] % 2) + 2) % 2);
 
     renderer.setRenderTarget(g.sceneRT);
     renderer.render(scene, camera);
@@ -410,8 +559,13 @@ export class PostPass {
     renderer.setRenderTarget(g.glowRT);
     renderer.render(this.quadScene, this.cam);
     this.quad.material = g.compMat;
-    renderer.setRenderTarget(null);
+    const d = this.diff;
+    u.flagOut!.value = d ? 1 : 0;
+    // the old chunky halo gives way to the smooth glow as it rises, so they don't stack
+    u.haloScale!.value = d ? 1 - HALO_FADE * this.params.glowAmt : 1;
+    renderer.setRenderTarget(d ? d.pix : null);
     renderer.render(this.quadScene, this.cam);
+    if (d) d.render(renderer, g.sceneRT, u.exposure!.value as number, off);
   }
 
   /**
@@ -421,9 +575,11 @@ export class PostPass {
    * context, and three re-created its bookkeeping on restore, so disposing would
    * only ask WebGL to delete objects that belong to another context.
    */
-  rebuildAfterContextLoss(): void {
+  rebuildAfterContextLoss(renderer: THREE.WebGLRenderer): void {
     const old = this.gpu;
     const next = this.build();
+    // the diffusion targets died with the context too: drop (don't dispose) and rebuild
+    this.diff = null;
     for (const [k, { value }] of Object.entries(old.compMat.uniforms)) {
       const dst = next.compMat.uniforms[k];
       if (!dst) continue;
@@ -434,5 +590,6 @@ export class PostPass {
     }
     this.gpu = next;
     this.fadeLeft = 0;
+    if (this.strength > 0) this.setDiffusion(renderer, this.strength, this.scale);
   }
 }

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { pixelScale, canvasLayout, PIXEL_PRESETS, RENDER_H_MIN, RENDER_H_MAX } from '../src/render/pixelscale';
+import { pixelScale, canvasLayout, PIXEL_PRESETS, RENDER_H_MIN, RENDER_H_MAX, SMOOTH_H, usesPalette } from '../src/render/pixelscale';
 
 describe('pixelScale', () => {
   it('keeps the render height in band for every preset on every common screen', () => {
     // device heights: phones, laptops at DPR 1/1.25/2, 1080p, 1440p, 4K
     for (const h of [600, 720, 768, 800, 900, 1000, 1080, 1200, 1440, 1600, 1800, 2160]) {
-      for (const p of PIXEL_PRESETS) {
+      for (const p of PIXEL_PRESETS.filter(usesPalette)) {
         const rh = Math.floor(h / pixelScale(h, p));
         expect(rh, `${h}px ${p}`).toBeGreaterThanOrEqual(RENDER_H_MIN);
         expect(rh, `${h}px ${p}`).toBeLessThanOrEqual(RENDER_H_MAX);
@@ -23,6 +23,20 @@ describe('pixelScale', () => {
   it('distinguishes presets when the band allows', () => {
     // 1800 device px: scales 6 (300), 7 (257) and 8 (225) all fit
     expect([pixelScale(1800, 'fine'), pixelScale(1800, 'classic'), pixelScale(1800, 'chunky')]).toEqual([6, 7, 8]);
+  });
+
+  it('gives Smooth a fixed ~2× row count that fills the container, at any DPR', () => {
+    for (const h of [720, 1080, 1200, 1440, 1600, 2160]) {
+      const l = canvasLayout(Math.round(h * 1.6), h, 2, 'smooth');
+      expect(l.rh, `${h}px`).toBe(SMOOTH_H);
+      expect(l.rh, `${h}px`).toBeGreaterThanOrEqual(1.8 * Math.floor(h / pixelScale(h, 'classic')));
+      expect(l.cssH * 2).toBe(h); // fills the container exactly: no border
+      expect(l.rw / l.rh).toBeCloseTo(1.6, 2);
+    }
+    // small screens never upscale below 1 device pixel per render pixel
+    expect(canvasLayout(800, 400, 1, 'smooth').rh).toBe(400);
+    expect(usesPalette('smooth')).toBe(false);
+    expect(usesPalette('classic')).toBe(true);
   });
 
   it('falls back to the nearest scale on screens too short for the band', () => {
