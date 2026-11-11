@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EventBus, GameEvents } from '../core/events';
 import type { Materials } from '../render/materials';
-import { BUILDABLE, G } from '../world/layout';
+import { BUILDABLE, G, GROUND } from '../world/layout';
 import { groundHeight, inPond, onBridge, onIslet, regionAt } from '../world/terrain';
 import { PLACEABLES, type LightRef, type PlaceableKind } from '../world/props';
 import { clusterLights, crowdFactors } from '../world/crowd';
@@ -9,8 +9,17 @@ import type { NavGrid } from '../sim/grid';
 import { benchSlots, frontSlot, type SmartObject, type SmartRegistry, type Slot } from '../sim/smart';
 import type { Residents } from '../sim/residents';
 import type { PlacedRecord } from '../save/storage';
+import type { Command } from '../edit/history';
 
-export type ToolMode = 'view' | 'build' | 'remove';
+export type ToolMode = 'view' | 'build' | 'remove' | 'move';
+
+/** Why a spot can't take a placeable (shown at the cursor; the words are `reason.<key>` in en.ts). */
+export type PlaceReason = 'offPlinth' | 'lane' | 'garden' | 'steps' | 'water' | 'bridge' | 'blocked' | 'person' | 'tooClose';
+
+/** Rotation step for R / Shift+R. */
+export const ROTATE_STEP = Math.PI / 4;
+/** Positions snap to this grid (hold Alt to place freely, to the centimetre). */
+export const SNAP = 0.25;
 
 /** A ring cut into `dashes` arcs: the "can't place here" ring, readable without colour. */
 function dashedRingGeometry(inner: number, outer: number, dashes: number): THREE.BufferGeometry {
@@ -72,6 +81,12 @@ export class BuildTool {
   private readonly dashedRing = dashedRingGeometry(0.5, 0.62, 10);
   private hover: { x: number; z: number; ok: boolean } | null = null;
   private hoverRemove: Placed | null = null;
+  /** Move mode: the placed thing being carried (hidden in place until it's put down). */
+  private held: Placed | null = null;
+  /** Why the spot under the cursor is invalid, if it is. */
+  reason: PlaceReason | null = null;
+  /** Every edit goes through here (the history, in main.ts); without it, clicks apply directly. */
+  onCommit: ((c: Command) => void) | null = null;
   private counter = 0;
 
   constructor(
@@ -91,7 +106,9 @@ export class BuildTool {
   }
 
   setMode(mode: ToolMode, kind?: PlaceableKind): void {
+    this.dropHeld(); // switching tools puts anything being carried back where it was
     this.mode = mode;
+    this.reason = null;
     if (kind) this.kind = kind;
     if (this.ghost) dispose(this.ghost.object, this.ghost.owned, this.m);
     this.ghost = null;
@@ -106,54 +123,103 @@ export class BuildTool {
     }
   }
 
-  rotate(): void {
-    this.ry += Math.PI / 2;
+  /** Turn the item being placed or carried by one step (R; Shift+R the other way). */
+  rotate(dir: 1 | -1 = 1): void {
+    const t = Math.PI * 2;
+    this.ry = (((this.ry + dir * ROTATE_STEP) % t) + t) % t;
     if (this.ghost) this.ghost.object.rotation.y = this.ry;
+  }
+
+  /** Put a carried item back where it came from (Esc, or a tool change). */
+  dropHeld(): void {
+    if (!this.held) return;
+    this.held.object.visible = true;
+    this.held = null;
+    if (this.ghost) dispose(this.ghost.object, this.ghost.owned, this.m);
+    this.ghost = null;
+  }
+
+  /** Is something being carried (move mode)? Esc puts it back first. */
+  get carrying(): boolean {
+    return this.held !== null;
   }
 
   /** What a click would act on right now; touch uses it to tell a first tap (preview) from a second (commit). */
   targetKey(): string | null {
     if (this.mode === 'build') return this.hover ? `${this.hover.x},${this.hover.z}` : null;
     if (this.mode === 'remove') return this.hoverRemove?.id ?? null;
+    if (this.mode === 'move') return this.held ? (this.hover ? `${this.hover.x},${this.hover.z}` : null) : (this.hoverRemove?.id ?? null);
     return null;
   }
 
-  /** Validity: soft ground only, not on water/bridges, clear of obstacles, people and other placements. */
-  canPlace(kind: PlaceableKind, x: number, z: number, opts: { ignoreResidents?: boolean } = {}): boolean {
+  /**
+   * Why `kind` can't go at (x, z), or null if it can: hard rules only (the ground, the water,
+   * buildings and paths, people standing there, other placed things). `ignoreId` skips one placed
+   * item (the one being moved).
+   */
+  placeCheck(kind: PlaceableKind, x: number, z: number, opts: { ignoreResidents?: boolean; ignoreId?: string } = {}): PlaceReason | null {
     const def = PLACEABLES[kind];
-    if (!def) return false;
-    const reg = regionAt(x, z);
-    if (!reg || !BUILDABLE.includes(reg.kind)) return false;
-    if (inPond(x, z) || onBridge(x, z) || onIslet(x, z)) return false;
+    if (!def) return 'blocked';
+    const ground = (px: number, pz: number): PlaceReason | null => {
+      if (px < GROUND.x0 || px > GROUND.x1 || pz < GROUND.z0 || pz > GROUND.z1) return 'offPlinth';
+      if (inPond(px, pz) || onIslet(px, pz)) return 'water';
+      if (onBridge(px, pz)) return 'bridge';
+      const reg = regionAt(px, pz);
+      if (!reg) return 'offPlinth';
+      if (BUILDABLE.includes(reg.kind)) return null;
+      return reg.kind === 'soil' ? 'garden' : reg.kind === 'steps' || reg.kind === 'terrace' ? 'steps' : 'lane';
+    };
+    const centre = ground(x, z);
+    if (centre) return centre;
     const r = def.radius;
+    for (const [dx, dz] of [
+      [r, 0],
+      [-r, 0],
+      [0, r],
+      [0, -r],
+    ] as const) {
+      const g = ground(x + dx, z + dz);
+      if (g) return g;
+    }
+    // the item being moved still holds its own spot on the nav grid: don't count it as in the way
+    const held = opts.ignoreId ? this.placed.get(opts.ignoreId) : undefined;
+    const open = (px: number, pz: number) => this.grid.isOpenAt(px, pz) || (!!held && Math.hypot(px - held.x, pz - held.z) <= held.radius + 0.3);
     for (const [dx, dz] of [
       [0, 0],
       [r, 0],
       [-r, 0],
       [0, r],
       [0, -r],
-    ] as const) {
-      if (!this.grid.isOpenAt(x + dx, z + dz)) return false;
-      const rr = regionAt(x + dx, z + dz);
-      if (!rr || !BUILDABLE.includes(rr.kind) || inPond(x + dx, z + dz)) return false;
-    }
-    if (!opts.ignoreResidents && this.residents.anyoneNear(x, z, r + 0.4)) return false;
-    for (const p of this.placed.values()) if (Math.hypot(p.x - x, p.z - z) < p.radius + r + 0.2) return false;
-    return true;
+    ] as const)
+      if (!open(x + dx, z + dz)) return 'blocked';
+    if (!opts.ignoreResidents && this.residents.anyoneNear(x, z, r + 0.4)) return 'person';
+    for (const p of this.placed.values()) if (p.id !== opts.ignoreId && Math.hypot(p.x - x, p.z - z) < p.radius + r + 0.2) return 'tooClose';
+    return null;
   }
 
-  pointer(ray: THREE.Ray): void {
+  /** Validity: soft ground only, not on water/bridges, clear of obstacles, people and other placements. */
+  canPlace(kind: PlaceableKind, x: number, z: number, opts: { ignoreResidents?: boolean; ignoreId?: string } = {}): boolean {
+    return this.placeCheck(kind, x, z, opts) === null;
+  }
+
+  /** Follow the pointer's ray. `free`: no grid snap (Alt held), positions to the centimetre. */
+  pointer(ray: THREE.Ray, free = false): void {
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(G + 0.1));
     const hit = new THREE.Vector3();
     if (!ray.intersectPlane(plane, hit)) {
       this.hover = null;
+      this.reason = null;
       this.ring.visible = false;
       return;
     }
-    const x = Math.round(hit.x * 4) / 4;
-    const z = Math.round(hit.z * 4) / 4;
-    if (this.mode === 'build' && this.ghost) {
-      const ok = this.canPlace(this.kind, x, z);
+    const q = free ? 100 : 1 / SNAP;
+    const x = Math.round(hit.x * q) / q;
+    const z = Math.round(hit.z * q) / q;
+    const carrying = this.mode === 'move' && this.held;
+    if ((this.mode === 'build' || carrying) && this.ghost) {
+      const kind = carrying ? this.held!.kind : this.kind;
+      this.reason = this.placeCheck(kind, x, z, carrying ? { ignoreId: this.held!.id } : {});
+      const ok = this.reason === null;
       this.hover = { x, z, ok };
       const g = this.ghost.object;
       g.visible = true;
@@ -162,9 +228,10 @@ export class BuildTool {
       this.ring.visible = true;
       this.setRing(ok);
       this.ring.position.set(x, groundHeight(x, z) + 0.03, z);
-      const s = PLACEABLES[this.kind].radius / 0.55;
+      const s = PLACEABLES[kind].radius / 0.55;
       this.ring.scale.setScalar(s);
-    } else if (this.mode === 'remove') {
+    } else if (this.mode === 'remove' || this.mode === 'move') {
+      this.reason = null;
       let best: Placed | null = null;
       let bd = Infinity;
       for (const p of this.placed.values()) {
@@ -177,7 +244,7 @@ export class BuildTool {
       this.hoverRemove = best;
       this.ring.visible = !!best;
       if (best) {
-        this.setRing(false); // "this goes": the same dashed red as "can't go here"
+        this.setRing(this.mode === 'move'); // remove: the dashed red of "this goes"; move: a solid "pick this up"
         this.ring.position.set(best.x, groundHeight(best.x, best.z) + 0.03, best.z);
         this.ring.scale.setScalar(best.radius / 0.55 + 0.2);
       }
@@ -191,7 +258,10 @@ export class BuildTool {
 
   /** Is there a valid spot under the pointer (or keyboard cursor) right now? */
   get canCommit(): boolean {
-    return this.mode === 'build' ? !!this.hover?.ok : this.mode === 'remove' ? !!this.hoverRemove : false;
+    if (this.mode === 'build') return !!this.hover?.ok;
+    if (this.mode === 'remove') return !!this.hoverRemove;
+    if (this.mode === 'move') return this.held ? !!this.hover?.ok : !!this.hoverRemove;
+    return false;
   }
 
   /** Hide the preview (the keyboard cursor left, or the tool changed). */
@@ -202,18 +272,53 @@ export class BuildTool {
     if (this.ghost) this.ghost.object.visible = false;
   }
 
+  /** Commit an edit: through the history when one is attached (undo/redo), otherwise directly. */
+  private commit(c: Command): void {
+    if (this.onCommit) this.onCommit(c);
+    else if (c.op === 'place') this.place(c.rec as PlacedRecord, true);
+    else if (c.op === 'remove') this.remove(c.rec.id);
+    else this.move(c.id, c.to.x, c.to.z, c.to.ry);
+  }
+
   click(): boolean {
     if (this.mode === 'build' && this.hover?.ok) {
-      this.place({ id: `p${Date.now().toString(36)}${this.counter++}`, kind: this.kind, x: this.hover.x, z: this.hover.z, ry: this.ry }, true);
+      this.commit({ op: 'place', rec: { id: `p${Date.now().toString(36)}${this.counter++}`, kind: this.kind, x: this.hover.x, z: this.hover.z, ry: this.ry } });
       this.hover.ok = false;
       this.setRing(false);
       return true;
     }
     if (this.mode === 'remove' && this.hoverRemove) {
-      this.remove(this.hoverRemove.id);
+      const { id, kind, x, z, ry } = this.hoverRemove;
+      this.commit({ op: 'remove', rec: { id, kind, x, z, ry } });
       this.hoverRemove = null;
       this.ring.visible = false;
       return true;
+    }
+    if (this.mode === 'move') {
+      if (!this.held && this.hoverRemove) {
+        // pick it up: the original hides, a ghost of it follows the pointer
+        this.held = this.hoverRemove;
+        this.held.object.visible = false;
+        this.ry = this.held.ry;
+        const { result, owned } = this.m.own(() => PLACEABLES[this.held!.kind].build(this.m).object);
+        result.rotation.y = this.ry;
+        this.root.add(result);
+        this.ghost = { object: result, owned };
+        this.hoverRemove = null;
+        return true;
+      }
+      if (this.held && this.hover?.ok) {
+        const h = this.held;
+        const to = { x: this.hover.x, z: this.hover.z, ry: this.ry };
+        this.held = null;
+        if (this.ghost) dispose(this.ghost.object, this.ghost.owned, this.m);
+        this.ghost = null;
+        h.object.visible = true;
+        // put down where it was: nothing changed, nothing for undo to remember
+        if (to.x !== h.x || to.z !== h.z || to.ry !== h.ry) this.commit({ op: 'move', id: h.id, from: { x: h.x, z: h.z, ry: h.ry }, to });
+        this.ring.visible = false;
+        return true;
+      }
     }
     return false;
   }
@@ -282,6 +387,32 @@ export class BuildTool {
   }
 
   /**
+   * Move a placed thing (same id): its nav footprint, smart object and light follow, anyone using
+   * it stands up and re-plans, and the neighbours notice it in its new spot (half as novel).
+   */
+  move(id: string, x: number, z: number, ry: number): void {
+    const p = this.placed.get(id);
+    if (!p) return;
+    const def = PLACEABLES[p.kind];
+    this.residents.onRemoved(id);
+    this.smart.remove(id);
+    this.grid.stamp({ x: p.x, z: p.z, r: p.radius }, -1);
+    p.x = x;
+    p.z = z;
+    p.ry = ry;
+    p.object.position.set(x, groundHeight(x, z), z);
+    p.object.rotation.y = ry;
+    p.object.visible = true;
+    this.grid.stamp({ x, z, r: p.radius }, 1);
+    const o = this.smart.add({ id, kind: this.smartKind(p.kind), label: p.kind, x, z, slots: this.slots(p), placed: true, createdAt: performance.now() });
+    if (def.glow) this.relight();
+    this.bus.emit('sfx', { name: 'place', x, z });
+    const ev = { id, kind: p.kind, x, z, novelty: def.novelty * 0.5 };
+    this.bus.emit('objectPlaced', ev);
+    this.residents.onPlaced(ev, o, this.hourNow());
+  }
+
+  /**
    * Hand the pooled point lights to the placed lights. With more placed lights than the pool
    * holds, nearby ones of the same colour share one light at their centre, √n as bright, so
    * every lantern still lights the ground. Clustered lights share brightness instead of
@@ -341,29 +472,26 @@ export class BuildTool {
     return [...this.placed.keys()].map((id) => this.smart.objects.get(id)).filter((o): o is SmartObject => !!o);
   }
 
+  /** What residents use it for, from its affordances (data), not its name. */
   private smartKind(k: PlaceableKind): SmartObject['kind'] {
-    switch (k) {
-      case 'bench':
-        return 'bench';
-      case 'vending':
-        return 'vending';
-      case 'catbowl':
-        return 'catbowl';
-      default:
-        return 'admire';
-    }
+    const a = PLACEABLES[k].affords;
+    return a.includes('sit') ? 'bench' : a.includes('drink') ? 'vending' : a.includes('feed-cats') ? 'catbowl' : 'admire';
   }
 
+  /** Where residents stand or sit to use it, from what it is for. */
   private slots(rec: PlacedRecord): Slot[] {
-    switch (rec.kind) {
+    const def = PLACEABLES[rec.kind];
+    switch (this.smartKind(rec.kind)) {
       case 'bench':
         return benchSlots(rec.x, rec.z, rec.ry);
       case 'vending':
         return [frontSlot(rec.x, rec.z, rec.ry, 0.85)];
       case 'catbowl':
         return [{ ...frontSlot(rec.x, rec.z, rec.ry, 0.7), pose: 'crouch' }];
-      default:
-        return [frontSlot(rec.x, rec.z, rec.ry, 1.1), frontSlot(rec.x, rec.z, rec.ry + Math.PI, 1.1)];
+      default: {
+        const d = Math.max(1.1, def.radius + 0.5);
+        return [frontSlot(rec.x, rec.z, rec.ry, d), frontSlot(rec.x, rec.z, rec.ry + Math.PI, d)];
+      }
     }
   }
 }

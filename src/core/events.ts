@@ -42,5 +42,5 @@ export type GameEvents = {
   /** A resident used a placed object; `with` are the others using it at the same moment (drives Memories). */
   used: { who: string; id: string; with: string[] };
   bell: { hour: number };
-  sfx: { name: 'place' | 'remove' | 'flap' | 'meow' | 'click' | 'shutter'; x?: number; z?: number };
+  sfx: { name: 'place' | 'remove' | 'flap' | 'meow' | 'click' | 'shutter' | 'chime'; x?: number; z?: number };
 };

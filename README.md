@@ -33,8 +33,11 @@ npm run lint && npm run typecheck && npm test && npm run build
 | Q / E | Rotate 90° |
 | Space | Pause time |
 | 1–4 | Jump to dawn / noon / dusk / night |
-| B | Build mode (R rotates the item; arrow keys + Enter place by keyboard) |
+| B | Build mode (R / Shift+R rotate by 45°; arrow keys + Enter place by keyboard) |
 | X | Remove things you placed |
+| V | Move things you placed (click one to pick it up, click again to put it down) |
+| Ctrl/Cmd + Z, Ctrl/Cmd + Shift + Z | Undo, redo |
+| Alt (while placing) | Place off the 0.25 m grid |
 | N | Journal: memories as manga panels, and what happened lately |
 | L | People: meet the neighbors |
 | H or ? | Help |

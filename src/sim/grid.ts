@@ -75,6 +75,13 @@ export class NavGrid {
   }
 
   /** Add (+1) or remove (-1) an obstacle footprint. */
+  /** A checksum of every cell's obstacle count: an undone edit must leave no phantom obstacle behind. */
+  get occupancyHash(): number {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < this.blocked.length; i++) h = Math.imul(h ^ this.blocked[i]!, 0x01000193);
+    return h >>> 0;
+  }
+
   stamp(o: Obstacle, delta: 1 | -1): void {
     const pad = 0.15;
     let x0: number, x1: number, z0: number, z1: number;

@@ -76,3 +76,16 @@ describe('smart objects and personas', () => {
     expect(r.reserve(bench, 'c')).not.toBeNull();
   });
 });
+
+describe('nav grid occupancy hash', () => {
+  it('returns to the same hash when every stamp is undone', () => {
+    const g = new NavGrid({ x0: -5, z0: -5, w: 10, d: 10, cell: 0.5 }, { walkable: () => true, height: () => 0 }, []);
+    const h0 = g.occupancyHash;
+    g.stamp({ x: 1, z: 1, r: 0.6 }, 1);
+    g.stamp({ x: -2, z: 0, r: 0.4 }, 1);
+    expect(g.occupancyHash).not.toBe(h0);
+    g.stamp({ x: 1, z: 1, r: 0.6 }, -1);
+    g.stamp({ x: -2, z: 0, r: 0.4 }, -1);
+    expect(g.occupancyHash).toBe(h0);
+  });
+});

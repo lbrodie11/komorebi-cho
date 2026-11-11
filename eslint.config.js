@@ -4,7 +4,8 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  { ignores: ['dist/', 'coverage/', 'node_modules/'] },
+  // .claude/ holds other sessions' git worktrees: their files belong to their own checkouts
+  { ignores: ['dist/', 'coverage/', 'node_modules/', '.claude/'] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {

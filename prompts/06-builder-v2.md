@@ -30,6 +30,13 @@ Working method:
 ## Goal
 Let players compose the neighbourhood itself (place, move, resize, rotate buildings and props) with frictionless, reversible, transactional edits. Still no budgets, no fail states, no timers.
 
+## Progress (2026-11-11)
+Done (phase A, the edit core): `src/edit/history.ts`: every edit is a small serialisable command (`place`, `remove`, `move`) with an inverse; `History` performs, undoes and redoes them (200 deep), and its log is the replay log for prompt 13. The build tool turns clicks into commands (`onCommit`), never edits directly. **Move tool** (V): pick a placed thing up, put it down (Esc puts it back); the same id keeps its nav footprint, smart object and light, users stand up gently, neighbours notice it in its new spot. **Validation reasons** at the cursor ("On the lane: people walk here", "In the pond", "Someone is standing here"...). R / Shift+R rotate 45°, Alt places off the 0.25 m grid, Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y) undo and redo, with toolbar buttons. Verified: 50 random mixed edits in the running game undo to a byte-identical world hash (placements and nav-grid obstacle counts) and redo to the same end; unit tests cover the history.
+
+Done (phase B): **the catalogue** (`src/world/catalogue.ts`): 25 new placeables, 31 in all, each defined as data (primitive shapes with materials, a footprint, uses, novelty, a category), built by one builder; the palette icon is rasterised from the same shapes. Six categories (Rest, Green, Light, Street, Shrine, Critters) as tabs in the palette. What residents do with an item (sit, drink, feed cats, admire) comes from its data, not a per-kind switch. Lights glow and share the pooled point lights; the wind chime rings now and then while sound is on (a named stream, with a caption). Generic forms only: no real shrine's furniture, no brands.
+
+Still to do: phase C, moving and resizing buildings through the grammar (the kissaten-across-the-street test), with copy-on-write previews and seam re-planning; phase D, the edge cases (residents shuffling aside, including when an undo re-places something where someone stands; evictions; unreachable islands; debounced nav rebuilds) and the 500-edit fuzz; hotbar categories; magnetic rotation snaps to facades.
+
 ## Tasks
 1. **Parcel grid.** Footprints are quantised internally to 0.25 m, with optional 0.5 m snapping. Free rotation with magnetic snaps at 0/15/30/45° and to nearby facades. Every object owns three footprints:
    - visual bounds

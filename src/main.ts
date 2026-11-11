@@ -16,10 +16,12 @@ import { Animals } from './sim/animals';
 import { BuildTool, type ToolMode } from './ui/build';
 import { Hud, TEXT_SCALES, type TextScale } from './ui/hud';
 import { Tutorial } from './ui/tutorial';
+import { History } from './edit/history';
+import { stream } from './core/rng';
 import { MemoryRecorder, type Memory, type WorldView } from './sim/memories';
 import { DebugOverlay } from './ui/debug';
 import { Sound } from './audio/sound';
-import { load, save, readStamp, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
+import { load, save, readStamp, SAVE_VERSION, DEFAULT_MINUTES, type PlacedRecord } from './save/storage';
 import { CHANNEL_NAME, SaveGuard, wroteElsewhere } from './save/tabs';
 import { PLACEABLES, type PlaceableKind } from './world/props';
 import { parseLaunchParams, warmupStart } from './core/params';
@@ -185,6 +187,34 @@ function persist(): void {
 }
 
 // ── UI ────────────────────────────────────────────────────────────────────
+// ── Edits: every change to the town is a command in the history (src/edit/history.ts) ──
+/** True while a fresh edit is applied: it announces itself (pop, sound, neighbours notice); undo and redo restore quietly. */
+let freshEdit = false;
+const history = new History({
+  place: (r) => build.place(r as PlacedRecord, freshEdit),
+  remove: (id) => build.remove(id),
+  move: (id, x, z, ry) => build.move(id, x, z, ry),
+});
+build.onCommit = (c) => {
+  freshEdit = true;
+  try {
+    history.perform(c);
+  } finally {
+    freshEdit = false;
+  }
+  hud.setHistory(history.canUndo, history.canRedo);
+};
+function undoRedo(redo: boolean): void {
+  build.dropHeld(); // anything being carried goes back first
+  const c = redo ? history.redo() : history.undo();
+  if (c) bus.emit('sfx', { name: 'click' });
+  hud.setHistory(history.canUndo, history.canRedo);
+}
+/** When the placed wind chimes ring (a named stream, so it is deterministic per run). */
+const chimeRng = stream('ambience/chimes');
+/** Alt held: place freely, without the grid snap. */
+let freePlace = false;
+
 const setTool = (m: ToolMode, k?: PlaceableKind) => {
   build.setMode(m, k);
   kbCursor = null;
@@ -281,9 +311,13 @@ const hud = new Hud(hudRoot, {
     diffusionSetting = s;
     setDiffusion(s);
   },
+  undo: () => undoRedo(false),
+  redo: () => undoRedo(true),
   reset: () => {
     setTool('view');
     for (const r of build.records()) build.remove(r.id);
+    history.clear(); // a reset is a fresh start, not an edit to undo
+    hud.setHistory(false, false);
     residents.restoreMemory({}); // removal already made everyone forget; this is belt and braces for orphans
     // Save the reset state now (settings included) rather than deleting the save: deleting it would also
     // throw away the player's look and volumes until the next autosave.
@@ -678,9 +712,13 @@ canvas.addEventListener('pointermove', (e) => {
     }
     return;
   }
-  if (build.mode !== 'view') build.pointer(ray.ray);
-  else canvas.classList.toggle('pointing', pickAgent() !== null);
+  freePlace = e.altKey;
+  if (build.mode !== 'view') {
+    build.pointer(ray.ray, freePlace);
+    hud.setReason(build.reason ? t(`reason.${build.reason}` as MsgKey) : null, e.clientX, e.clientY);
+  } else canvas.classList.toggle('pointing', pickAgent() !== null);
 });
+canvas.addEventListener('pointerleave', () => hud.setReason(null, 0, 0));
 canvas.addEventListener('pointerup', (e) => {
   const wasDrag = drag?.moved || gestured;
   const mine = drag?.id === e.pointerId; // a press that began on the HUD and was released here is not a click
@@ -699,7 +737,7 @@ canvas.addEventListener('pointerup', (e) => {
     // Touch has no hover, so the first tap previews (ghost and ring) and a second tap on the same
     // spot commits: the same preview → validate → commit as a mouse, and no accidental removals.
     const before = build.targetKey();
-    build.pointer(ray.ray);
+    build.pointer(ray.ray, e.altKey);
     if (e.pointerType === 'mouse' || (before !== null && before === build.targetKey())) build.click();
     return;
   }
@@ -830,6 +868,14 @@ function pickAgent(): Agent | null {
 
 window.addEventListener('keydown', (e) => {
   const t = e.target as HTMLElement;
+  // Undo / redo: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z or Ctrl+Y (not while typing in a field)
+  const mod = e.ctrlKey || e.metaKey;
+  const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable;
+  if (mod && !e.altKey && !typing && (e.key.toLowerCase() === 'z' || (e.key.toLowerCase() === 'y' && e.ctrlKey))) {
+    e.preventDefault();
+    if (!photo && !hud.modalOpen) undoRedo(e.key.toLowerCase() === 'y' || e.shiftKey);
+    return;
+  }
   // Leave browser and OS shortcuts alone: Ctrl+P prints, Cmd+R reloads, Ctrl+E searches...
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
@@ -848,17 +894,19 @@ window.addEventListener('keydown', (e) => {
     // one layer per press: preview, panel, card, then photo mode, then the build tool
     if (hud.closeTopmost()) return;
     if (photo) hud.togglePhoto(false);
+    else if (build.carrying)
+      build.dropHeld(); // put the carried thing back, stay in move mode
     else setTool('view');
     return;
   }
   if (hud.modalOpen) return; // the photo preview is up: only Esc (and Tab, inside it) act
   // holding a toggle key would flicker it on and off at the key-repeat rate
-  if (e.repeat && ['b', 'x', 'delete', 'p', 'm', 'h', '?', ' '].includes(k)) {
+  if (e.repeat && ['b', 'x', 'v', 'delete', 'p', 'm', 'h', '?', ' '].includes(k)) {
     if (k === ' ') e.preventDefault();
     return;
   }
   // the HUD is hidden in photo mode: no building, and no help it can't show
-  if (photo && ['b', 'x', 'delete', 'r', 'h', '?', 'n', 'l', 'enter'].includes(k)) return;
+  if (photo && ['b', 'x', 'v', 'delete', 'r', 'h', '?', 'n', 'l', 'enter'].includes(k)) return;
   // Build or remove by keyboard: arrows move a cursor on the ground (screen-aligned), Enter commits
   if (build.mode !== 'view' && (k.startsWith('arrow') || k === 'enter')) {
     e.preventDefault();
@@ -898,7 +946,8 @@ window.addEventListener('keydown', (e) => {
   } else if (k >= '1' && k <= '4') clock.jumpTo([5.8, 12, 17.9, 21.5][Number(k) - 1]!);
   else if (k === 'b') setTool(build.mode === 'build' ? 'view' : 'build');
   else if (k === 'x' || k === 'delete') setTool(build.mode === 'remove' ? 'view' : 'remove');
-  else if (k === 'r') build.rotate();
+  else if (k === 'r') build.rotate(e.shiftKey ? -1 : 1);
+  else if (k === 'v') setTool(build.mode === 'move' ? 'view' : 'move');
   else if (k === 'm') void hud.toggleSound();
   else if (k === 'p') hud.togglePhoto(!photo);
   else if (k === 'h' || k === '?') hud.toggleHelp();
@@ -1153,6 +1202,15 @@ function frame(now: number): void {
     hud.setClock(clock.label(), clock.day, clock.season);
     hud.refreshCard();
     hud.renderPeople();
+    // wind chimes ring now and then, more often in rain and wind (a named stream: deterministic)
+    if (sound.playing && chimeRng.chance(0.04 + world.weather.rain * 0.06)) {
+      const chimes = build.records().filter((r) => PLACEABLES[r.kind].chime);
+      if (chimes.length) {
+        const c = chimes[Math.floor(chimeRng.next() * chimes.length)]!;
+        bus.emit('sfx', { name: 'chime', x: c.x, z: c.z });
+        if (captions) hud.caption(t('caption.chime'));
+      }
+    }
     const raining = rain > 0.3;
     if (raining !== wasRaining) {
       wasRaining = raining;
@@ -1263,6 +1321,9 @@ Object.assign(window, {
     world,
     residents,
     build,
+    history,
+    /** The town's placed things, sorted: undo/redo of any edits must return it byte for byte. */
+    worldHash: () => JSON.stringify({ placed: build.records().sort((a, b) => (a.id < b.id ? -1 : 1)), nav: grid.occupancyHash }),
     sound,
     tutorial,
     memories,
