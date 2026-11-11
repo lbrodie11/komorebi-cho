@@ -40,7 +40,14 @@ Done (second pass):
 - **Acceptance, Kenta:** a vending machine placed by the way home from school: he notices it passing, goes to it the same evening, and his diary says "tried the new vending machine" (tested headless; 3 of 4 seeds by early evening, the fourth before midnight, all with the diary line).
 - Fixes found by the fuzz: a slot under another placed object can't be used; no thinking pause while still on a seat; noticing in passing records novelty and a diary note.
 
-Still to do: weather behaviour (umbrellas animating, sheltering, drifting to lit places, snow footprints), the observe camera and the routine-change highlight, reaction animations, the next journal rules and the neighborhood clipboard, more needs (hunger, curiosity, comfort), and the 20-minute fast-forward check for repeated diary lines.
+Done (third pass):
+- **Weather:** umbrellas open and close (animated; closed under cover). A sudden shower gets people sitting out to their feet and under the bakery's or florist's awning (they move with the shops), the arch, or the café's terrace; the kids go home when it rains hard. After dark, the café and anything near a placed lantern draw people in. Snow (winter's rain) slows walking and leaves footprints that shrink away.
+- **Readability:** Follow on the card (Smooth only): the camera reframes gently when the neighbour nears the edge; any pan, zoom, turn or Esc stops it. Someone who changed their day for something the player placed, in the last in-game day, has a soft ring at their feet and a card line ("Changed their day for the bench you placed"). Reactions: a little hop for something new, a puzzled lean for a `?` (not with reduced motion).
+- **Journal:** two new rules, "a rainy-day regular" (the same placed thing used in the rain on 3 days) and "a new routine" (a placed thing became someone's favourite); snapshots keep each person's pose and facing, and the panels re-render them sitting or crouching as they were.
+- **Fast-forward check:** the 48-hour soak now also asserts nobody idle for 30 s, no A-B-A flip-flop between two things of a kind within 20 game minutes, and no diary line repeated two days running.
+- The cats: a controlled test (three minutes at normal speed, with and without Mitsuko as a cat person).
+
+Still to do: more needs (hunger, comfort), pointing (the residents have no arms yet: prompt 09), "the cat's spot" (cats need names first: Mitsuko's roster), and the neighborhood clipboard, which needs a carried prop and walk work (prompt 09).
 
 ## Tasks
 1. **Utility with response curves.**

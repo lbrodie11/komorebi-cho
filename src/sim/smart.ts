@@ -32,6 +32,8 @@ export interface SmartObject {
   /** Concurrent "come look at this" visitors, capped to avoid swarms. */
   inspectors: number;
   openHours?: [number, number];
+  /** It gives light (a placed lantern, a vending machine): after dark, people drift toward it. */
+  glow?: boolean;
   /** A placed object's footprint radius: a slot of anything else that falls under it can't be used. */
   radius?: number;
   /** How many can use it in comfort (its slots are the hard limit); by default, all of them. */

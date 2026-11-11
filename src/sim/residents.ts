@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Rng, stream } from '../core/rng';
-import { hourInRange } from '../core/clock';
+import { hourInRange, type Season } from '../core/clock';
 import { clamp } from '../core/math';
 import { Passage } from './passage';
 import { PlaceMemory, type PlaceMemoryData } from './places';
@@ -8,7 +8,7 @@ import { curve, pick, score } from './utility';
 import { Diary, type DiaryEntry } from './diary';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
-import { DOORS, EXITS, PASSAGES } from '../world/layout';
+import { DOORS, EXITS, PASSAGES, SHELTERS } from '../world/layout';
 import { groundHeight } from '../world/terrain';
 import type { NavGrid } from './grid';
 import { PERSONAS, type Persona } from './personas';
@@ -16,7 +16,7 @@ import type { Pose, Slot, SmartKind, SmartObject, SmartRegistry } from './smart'
 import { bubbleMaterial, type BubbleIcon } from './bubbles';
 import { msg, type Msg, type MsgKey } from '../i18n';
 
-type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger' | 'queue' | 'search';
+type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger' | 'queue' | 'search' | 'shelter';
 
 interface Task {
   kind: TaskKind;
@@ -49,6 +49,18 @@ const AVOID_RADIUS = 1.2;
  */
 const FAVOURITE_BONUS = 0.3;
 const NOVELTY_PULL = 1.4;
+/** A day in game minutes. */
+const DAY = 1440;
+/** After dark, a place this close (m) to a placed lantern counts as lit. */
+const LIT_RADIUS = 3;
+/** Rain heavier than this is a shower; snow slows walking to this share of pace. */
+const SHOWER = 0.35;
+const SNOW_PACE = 0.75;
+/** Shops with an awning to shelter under (their door, which moves with them). */
+const AWNING_SHOPS = ['bakery', 'florist'] as const;
+/** Footprints in the snow: how many at once, and how long each lasts (real seconds). */
+const FOOTPRINTS = 240;
+const PRINT_LIFE = 90;
 /** Game minutes until doing the same kind of thing again appeals as much as before. */
 const SATED_MINUTES = 60;
 /** A bow's length (s), how often a pair greets at most (game minutes), and a chat turn (s). */
@@ -90,6 +102,19 @@ export class Agent {
   readonly needs = { fatigue: 0.2, thirst: 0.2, social: 0.3 };
   /** Seconds left of a bow (to a neighbour passing by). */
   bowT = 0;
+  /** A reaction playing (a hop, a puzzled lean) and how far into it (s). */
+  react: { kind: 'hop' | 'lean'; t: number } | null = null;
+  /** Reduced motion: no hops or leans. */
+  still = false;
+  /** When they last changed their day for something the player placed (game minutes), and what. */
+  changedAt = -Infinity;
+  changedThing: Msg | null = null;
+  /** The soft ring at their feet while that's recent (the routine-change highlight). */
+  readonly ring: THREE.Mesh;
+  /** How far the umbrella is open (0..1, animated). */
+  umbrellaOpen = 0;
+  /** Distance walked since the last footprint in the snow (m). */
+  stride = 0;
   readonly known = new Set<string>();
   lastInspect = -999;
   /** How well they know each place, and which they like best (prompt 08). */
@@ -184,6 +209,12 @@ export class Agent {
     this.umbrella.position.y = 1.86;
     this.umbrella.visible = false;
     this.root.add(this.umbrella);
+    // the routine-change highlight: a soft ring at their feet (Residents shows it while it's recent)
+    const ringMat = new THREE.MeshBasicMaterial({ color: '#ffd37a', transparent: true, opacity: 0.55, depthWrite: false });
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.38, 16).rotateX(-Math.PI / 2), ringMat);
+    this.ring.position.y = 0.03;
+    this.ring.visible = false;
+    this.root.add(this.ring);
     this.bubble = new THREE.Sprite(bubbleMaterial('notice'));
     this.bubble.scale.set(0.9, 0.9, 1);
     this.bubble.position.y = 2.25;
@@ -206,6 +237,9 @@ export class Agent {
   say(icon: BubbleIcon, seconds = 2.5): void {
     this.bubble.material = bubbleMaterial(icon);
     this.bubbleT = seconds;
+    // and say it with the body: a little hop for something new, a puzzled lean for a `?`
+    if (icon === 'notice' || icon === 'sparkle' || icon === 'heart') this.react = { kind: 'hop', t: 0 };
+    else if (icon === 'question') this.react = { kind: 'lean', t: 0 };
   }
 
   placeAt(x: number, z: number): void {
@@ -253,8 +287,23 @@ export class Agent {
       this.legs[0]!.rotation.x = swing;
       this.legs[1]!.rotation.x = -swing;
     }
+    // reactions: a hop (0.5 s), a puzzled lean (1.2 s)
+    this.root.rotation.z = 0;
+    if (this.react && !this.still) {
+      this.react.t += dt;
+      const len = this.react.kind === 'hop' ? 0.5 : 1.2;
+      const k = Math.sin((Math.PI * Math.min(this.react.t, len)) / len);
+      if (this.react.kind === 'hop') y += k * 0.16 * this.scale;
+      else this.root.rotation.z = k * 0.2;
+      if (this.react.t >= len) this.react = null;
+    } else this.react = null;
     this.root.position.y = y;
-    this.umbrella.visible = rain > 0.25 && !this.hidden && this.task?.kind !== 'jog';
+    // the umbrella opens and closes (it isn't just there): up in the rain, down under an awning
+    const want = rain > 0.25 && !this.hidden && this.task?.kind !== 'jog' && this.task?.kind !== 'shelter' ? 1 : 0;
+    this.umbrellaOpen = clamp(this.umbrellaOpen + Math.sign(want - this.umbrellaOpen) * dt * 2.5, 0, 1);
+    const u = this.umbrellaOpen;
+    this.umbrella.visible = u > 0.02;
+    this.umbrella.scale.set(0.25 + 0.75 * u, 0.6 + 0.4 * u, 0.25 + 0.75 * u);
     if (this.bubbleT > 0) {
       this.bubbleT -= dt;
       this.bubble.visible = true;
@@ -272,6 +321,8 @@ export interface ResidentInfo {
   favorite: Msg | null;
   /** Their diary, newest first (the last two days). */
   diary: Msg[];
+  /** Something the player placed that changed their day, in the last in-game day. */
+  changed: Msg | null;
 }
 
 /** A neighbour as a message parameter: their short name, in the reader's language. */
@@ -295,12 +346,24 @@ export class Residents {
   private pathBudget = 0;
   /** Game minutes, kept in step with the world clock by main (place memory fades on it). */
   minutes = 0;
+  /** Show the routine-change rings (Settings), and reduced motion (no hops or leans). */
+  highlights = true;
+  reducedMotion = false;
+  /** The season, kept in step by main (winter precipitation is snow). */
+  season: Season = 'spring';
+  /** When the current shower started (game minutes), for "sudden rain"; -Infinity while dry. */
+  private showerFrom = -Infinity;
+  /** Footprints in the snow: a ring of small marks that shrink away. */
+  private readonly prints: THREE.InstancedMesh;
+  private readonly printAge: Float32Array;
+  private printNext = 0;
   /** Narrow passages where walkers take turns (the bridge). */
   private readonly passages = PASSAGES.map((s) => new Passage(s));
   /** Seconds of simulation, for passage waits. */
   private clockS = 0;
-  /** The hour of the current tick. */
+  /** The hour and rain of the current tick. */
   private hourNow = 0;
+  private rainNow = 0;
 
   constructor(
     private readonly scene: THREE.Object3D,
@@ -311,6 +374,14 @@ export class Residents {
     seed = 0,
   ) {
     this.agents = PERSONAS.map((p, i) => new Agent(p, m, i, seed));
+    const mark = new THREE.PlaneGeometry(0.11, 0.2).rotateX(-Math.PI / 2);
+    this.prints = new THREE.InstancedMesh(mark, m.solid('#8a8f99', 1), FOOTPRINTS);
+    this.prints.count = FOOTPRINTS;
+    this.printAge = new Float32Array(FOOTPRINTS).fill(PRINT_LIFE);
+    const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = 0; i < FOOTPRINTS; i++) this.prints.setMatrixAt(i, hidden);
+    this.prints.frustumCulled = false;
+    scene.add(this.prints);
     // haunts: the places they already call theirs (Mitsuko's pond bench)
     for (const a of this.agents)
       for (const id of a.p.haunts ?? []) {
@@ -335,6 +406,7 @@ export class Residents {
       doing: a.hidden ? this.hiddenLabel(a) : (a.task?.label ?? msg('task.thinking')),
       knows: a.known.size,
       favorite: this.topFavourite(a),
+      changed: this.minutes - a.changedAt < DAY ? a.changedThing : null,
       diary: a.diary.entries
         .slice(-2)
         .reverse()
@@ -370,10 +442,15 @@ export class Residents {
     this.pathBudget = PATHS_PER_TICK;
     this.clockS += dt;
     this.hourNow = hour;
+    this.rainNow = rain;
+    this.weatherPass(rain);
+    this.agePrints(dt);
     this.syncPassages();
     this.diaryDay(rain);
     this.socialPass(gm);
     for (const a of this.agents) {
+      a.ring.visible = this.highlights && !a.hidden && this.minutes - a.changedAt < DAY;
+      a.still = this.reducedMotion;
       if (!a.hidden && !a.shuffle && a.regionChecked !== this.grid.version) this.recover(a);
       a.needs.thirst = clamp(a.needs.thirst + gm * 0.004, 0, 1);
       a.needs.social = clamp(a.needs.social + gm * 0.003, 0, 1);
@@ -488,7 +565,11 @@ export class Residents {
       for (const o of this.smart.available(kind, hour)) {
         if (o.placed && !a.known.has(o.id)) continue;
         if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
-        const s = score(base, [dPen(o), this.crowdFactor(a, o), this.satiation(a, kind)]) * this.placeFactor(a, o) * this.socialFactor(a, o);
+        const s =
+          score(base, [dPen(o), this.crowdFactor(a, o), this.satiation(a, kind)]) *
+          this.placeFactor(a, o) *
+          this.socialFactor(a, o) *
+          this.lightFactor(o, hour);
         opts.push({ score: s, key: o.id, kind, make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
       }
       // every counter busy: queueing is an option, a less attractive one
@@ -516,6 +597,8 @@ export class Residents {
         useOpt('sand', 0.5 + like('sand'), () => msg('task.sand'), [8, 15]);
       }
     }
+    // caught by a sudden shower: shelter under an awning, the arch or the café's terrace
+    if (rain > SHOWER && this.suddenShower) opts.push({ score: 1.8, key: 'shelter', kind: 'shelter', make: () => this.shelterTask(a) });
     // a favourite the player removed: go and look for it, once
     for (const [id, label] of a.missing) {
       const at = a.places.where(id);
@@ -575,9 +658,9 @@ export class Residents {
           };
         },
       });
-    // go home early when it pours or gets late
+    // go home early when it pours or gets late (the kids, at once, when it rains hard)
     opts.push({
-      score: 0.08 + rain * 0.5 + (night ? 0.8 : 0),
+      score: 0.08 + rain * 0.5 + (night ? 0.8 : 0) + (isKid && rain > 0.7 ? 3 : 0),
       key: 'home',
       kind: 'home',
       make: () => ({
@@ -634,6 +717,11 @@ export class Residents {
    */
   private remember(a: Agent, o: SmartObject): void {
     a.lastDid.set(o.kind, this.minutes);
+    // using something the player placed changes their day: the highlight (and the card) say so
+    if (o.placed) {
+      a.changedAt = this.minutes;
+      a.changedThing = thing(o.label);
+    }
     const r = a.places.used(o.id, o.x, o.z, this.minutes);
     const fav = this.favouriteOf(a, o.kind);
     const was = a.favs.get(o.kind);
@@ -647,6 +735,7 @@ export class Residents {
       // the first favourite they ever had of a kind is who they are, not news
       if (was !== undefined) {
         a.diary.note(day, 'newFavorite', thing(o.label));
+        if (o.placed) this.bus.emit('routine', { who: a.p.id, id: o.id });
         return this.story(msg('story.newFavorite', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
       }
     }
@@ -654,6 +743,98 @@ export class Residents {
       a.diary.note(day, 'again', thing(o.label));
       this.story(msg('story.triesAgain', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
     }
+  }
+
+  /**
+   * Weather (prompt 08): a shower that starts catches people out. In its first half hour, those
+   * sitting about outdoors get up and head for shelter (an awning, the arch, the café's terrace).
+   * Snow (winter's rain) slows everyone a little and leaves footprints that fade.
+   */
+  private weatherPass(rain: number): void {
+    if (rain > SHOWER && this.showerFrom === -Infinity) {
+      this.showerFrom = this.minutes;
+      for (const a of this.agents) {
+        if (a.hidden || !a.task || !a.task.interruptible) continue;
+        const outdoors =
+          a.task.kind === 'wander' || a.task.kind === 'jog' || (a.task.kind === 'use' && a.task.obj?.kind !== 'cafe' && a.task.obj?.kind !== 'shop');
+        if (outdoors) this.endTask(a);
+      }
+    } else if (rain < SHOWER * 0.6) this.showerFrom = -Infinity;
+  }
+
+  /** Is it a sudden shower (it started less than half an hour ago)? */
+  private get suddenShower(): boolean {
+    return this.minutes - this.showerFrom < 30;
+  }
+
+  /** Is what's falling snow? */
+  snowing(rain: number): boolean {
+    return this.season === 'winter' && rain > 0.1;
+  }
+
+  /** Where people shelter from a sudden shower: under the awnings (they move with their shops), the arch, the café's terrace. */
+  private shelters(): { x: number; z: number; face: number }[] {
+    const out: { x: number; z: number; face: number }[] = [];
+    for (const id of AWNING_SHOPS) {
+      const d = DOORS[id];
+      if (d) out.push({ x: d.x + 0.35, z: d.z, face: Math.PI / 2 });
+    }
+    return [...out, ...SHELTERS];
+  }
+
+  private shelterTask(a: Agent): Task | null {
+    let best: { x: number; z: number; face: number } | null = null,
+      bd = Infinity;
+    for (const s of this.shelters()) {
+      const d = Math.hypot(s.x - a.x, s.z - a.z);
+      if (d < bd) [best, bd] = [s, d];
+    }
+    if (!best) return null;
+    // a few can share one: stand a little apart
+    const ang = a.rng.range(0, Math.PI * 2),
+      r = a.rng.range(0, 0.6);
+    const spot = this.grid.nearestOpen(best.x + Math.cos(ang) * r, best.z + Math.sin(ang) * r, 3);
+    if (!spot) return null;
+    return { kind: 'shelter', label: msg('task.sheltering'), goal: spot, dwell: a.rng.range(15, 35), pose: 'stand', face: best.face, interruptible: true };
+  }
+
+  /** Footprints: drop one every stride while walking in snow; all of them shrink away over PRINT_LIFE seconds. */
+  private footprints(a: Agent, moved: number, rain: number): void {
+    if (!this.snowing(rain) || a.hidden) return;
+    a.stride += moved;
+    if (a.stride < 0.45) return;
+    a.stride = 0;
+    const side = this.printNext % 2 ? 0.08 : -0.08;
+    const ry = a.root.rotation.y;
+    const m = new THREE.Matrix4().compose(
+      new THREE.Vector3(a.x + Math.cos(ry) * side, groundHeight(a.x, a.z) + 0.02, a.z - Math.sin(ry) * side),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry),
+      new THREE.Vector3(1, 1, 1),
+    );
+    this.prints.setMatrixAt(this.printNext, m);
+    this.printAge[this.printNext] = 0;
+    this.printNext = (this.printNext + 1) % FOOTPRINTS;
+    this.prints.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Age the footprints: they shrink away (fading would need a material each). */
+  private agePrints(dt: number): void {
+    let changed = false;
+    const m = new THREE.Matrix4(),
+      p = new THREE.Vector3(),
+      q = new THREE.Quaternion(),
+      s = new THREE.Vector3();
+    for (let i = 0; i < FOOTPRINTS; i++) {
+      if (this.printAge[i]! >= PRINT_LIFE) continue;
+      this.printAge[i]! += dt;
+      this.prints.getMatrixAt(i, m);
+      m.decompose(p, q, s);
+      const k = Math.max(0, 1 - this.printAge[i]! / PRINT_LIFE);
+      m.compose(p, q, s.set(k, 1, k));
+      this.prints.setMatrixAt(i, m);
+      changed = true;
+    }
+    if (changed) this.prints.instanceMatrix.needsUpdate = true;
   }
 
   /** The day the diaries are on; each resident's own named stream picks their details. */
@@ -676,6 +857,17 @@ export class Residents {
   private satiation(a: Agent, kind: string): number {
     const since = this.minutes - (a.lastDid.get(kind) ?? -Infinity);
     return curve.logistic(since / SATED_MINUTES, 8, 0.6);
+  }
+
+  /**
+   * After dark, people drift toward light: the café, and anything within a few meters of a lantern
+   * someone placed. (By day, light is everywhere and this is 1.)
+   */
+  private lightFactor(o: SmartObject, hour: number): number {
+    if (hour > 5.5 && hour < 18) return 1;
+    if (o.kind === 'cafe') return 1.6;
+    for (const p of this.smart.objects.values()) if (p.glow && Math.hypot(p.x - o.x, p.z - o.z) < LIT_RADIUS) return 1.5;
+    return 1;
   }
 
   /** Friends at a place make it more inviting, more so the more they want company (kids play together). */
@@ -997,7 +1189,9 @@ export class Residents {
 
   private walk(a: Agent, dt: number): void {
     const t = a.task!;
-    let move = a.p.speed * dt;
+    let move = a.p.speed * dt * (this.snowing(this.rainNow) ? SNOW_PACE : 1);
+    const x0 = a.x,
+      z0 = a.z;
     // a sidestep first (only onto open ground), then on along the path, which re-aims from wherever they are
     if (a.pathIdx < a.path.length) {
       const [tx, tz] = a.path[a.pathIdx]!;
@@ -1042,6 +1236,7 @@ export class Residents {
       move -= s;
       if (s >= d) a.pathIdx++;
     }
+    this.footprints(a, Math.hypot(a.x - x0, a.z - z0), this.rainNow);
     if (a.pathIdx >= a.path.length) {
       if (t.exact) {
         // short glide onto the slot (benches, chairs and swings sit inside obstacle footprints)

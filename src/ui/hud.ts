@@ -82,6 +82,8 @@ export interface HudActions {
   meet(id: string): void;
   /** Bring the camera to a neighbor. */
   showMe(id: string): void;
+  /** Follow this neighbour with the camera (null: stop). */
+  follow(id: string | null): void;
   /** The bench hint's sparkle was pressed. */
   hintPressed(): void;
   resetTutorial(): void;
@@ -173,6 +175,8 @@ export class Hud {
   private readonly removeBtn: HTMLButtonElement;
   private readonly moveBtn: HTMLButtonElement;
   private readonly undoBtn: HTMLButtonElement;
+  /** Follow (the camera keeps the neighbour in view), on the card; Smooth only. */
+  private readonly followBtn: HTMLButtonElement;
   /** Narrower / Wider, shown while a shop is carried (the on-screen [ and ], for touch). */
   private readonly shopSize: HTMLElement;
   private readonly redoBtn: HTMLButtonElement;
@@ -373,7 +377,14 @@ export class Hud {
     x.classList.add('x');
     const show = this.btn(null, 'card.follow', 'card.follow', () => this.cardId && this.act.showMe(this.cardId));
     show.classList.add('show-me');
-    this.card.append(this.cardBody, show, x);
+    // Follow: Smooth only (in the pixel looks the camera snaps to whole render pixels and following judders)
+    this.followBtn = this.btn(null, 'card.followOn', 'card.followTitle', () => {
+      const on = this.followBtn.getAttribute('aria-pressed') !== 'true';
+      this.act.follow(on && this.cardId ? this.cardId : null);
+    });
+    this.followBtn.classList.add('show-me');
+    this.followBtn.setAttribute('aria-pressed', 'false');
+    this.card.append(this.cardBody, show, this.followBtn, x);
 
     this.buildSettings();
     this.buildHelp();
@@ -1156,6 +1167,7 @@ export class Hud {
     this.speedBtns.forEach((b, i) => pressed(b, i === idx));
   }
   setPixel(p: PixelPreset): void {
+    this.followBtn.hidden = p !== 'smooth'; // Follow judders in the pixel looks (whole-pixel camera steps)
     this.forgetMemoryImages();
     for (const [k, b] of this.pixelBtns) pressed(b, k === p); // the chosen look, for screen readers too
   }
@@ -1169,6 +1181,11 @@ export class Hud {
   }
 
   /** Undo and redo are only offered when there is something to undo or redo. */
+  /** Following someone, or not (the Follow button shows it). */
+  setFollowing(on: boolean): void {
+    this.followBtn.setAttribute('aria-pressed', String(on));
+  }
+
   /** Show Narrower / Wider while a shop is being carried. */
   setShopCarry(on: boolean): void {
     if (this.shopSize.hidden === !on) return;
@@ -1291,6 +1308,11 @@ export class Hud {
     const knows = el('div', 'role knows');
     knows.textContent = t('card.knows', { n: i.knows });
     this.cardBody.append(h, role, p, doing);
+    if (i.changed) {
+      const ch = el('div', 'role changed');
+      ch.textContent = t('card.changed', { thing: i.changed });
+      this.cardBody.append(ch);
+    }
     if (i.favorite) {
       const fav = el('div', 'role favorite');
       fav.textContent = t('card.favorite', { thing: i.favorite });

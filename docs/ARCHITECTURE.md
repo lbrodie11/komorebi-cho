@@ -31,6 +31,8 @@ Anti-oscillation:
 
 **Choosing** (`src/sim/utility.ts`): each option scores weight × considerations (needs through response curves, distance, crowding, satiation for what they just did), compensated so more considerations don't sink a score, times place memory and friends there. The pick draws one mood per kind of activity and keeps what they chose last of a kind unless a rival is 15% better. Decisions are 0.5–2 s apart. **Social:** friendships are persona data; passing neighbours bow, friends wave from across the way, friends on one bench chat in turns. **Diaries** (`src/sim/diary.ts`): a line a day from the day's real events, on the card and in the save.
 
+**Weather and light:** a sudden shower sends people sitting out to shelter (`SHELTERS` in layout.ts, plus the awnings, found from their shops' doors); umbrellas animate open and shut; kids go home in hard rain; after dark the café and placed lanterns pull people in; snow slows walking and leaves footprints (an instanced ring buffer that shrinks away). **Readability:** Follow (Smooth only) keeps a neighbour in view and stops at any camera change; a ring marks anyone who changed their day for something the player placed in the last in-game day; hops and puzzled leans say what the bubbles say.
+
 Edits: `BuildTool.place` stamps the grid, registers the smart object and calls `Residents.onPlaced`. That picks nearby curious agents, at most 2 inspectors per object and 3 reactions per edit, and sends them to look. `noticePass` lets passers-by discover things later. Only agents who know an object will use it.
 
 ## Pixel pass (src/render/post.ts)

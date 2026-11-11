@@ -6,6 +6,8 @@
  *   - noticed:   the first resident to notice a placed object (one per object)
  *   - favorite:  a resident used the same placed object at least 3 times, on at least 2 different days
  *   - together:  two residents used the same placed object at the same time (one per pair per object)
+ *   - rainy:     a resident used the same placed object while it rained, on RAINY_DAYS different days
+ *   - routine:   a placed object became a resident's favourite place of its kind (a new routine)
  * Captions are message templates, like the story feed. Memories are capped per in-game day, so
  * fast-forward can't flood the journal, and the journal keeps the newest MEMORIES_MAX.
  *
@@ -16,7 +18,7 @@
  */
 import type { Season } from '../core/clock';
 
-export type MemoryKind = 'noticed' | 'favorite' | 'together';
+export type MemoryKind = 'noticed' | 'favorite' | 'together' | 'rainy' | 'routine';
 
 export interface SnapshotObject {
   id: string;
@@ -35,8 +37,8 @@ export interface Snapshot {
   focus: { x: number; z: number };
   /** Placed objects within SNAPSHOT_RADIUS of the focus, as they were. */
   objects: SnapshotObject[];
-  /** The residents in the memory, where they stood. */
-  people: { id: string; x: number; z: number }[];
+  /** The residents in the memory, where they stood, how (sitting, crouching...) and which way they faced. */
+  people: { id: string; x: number; z: number; pose?: string; ry?: number }[];
 }
 
 export interface Memory {
@@ -62,6 +64,8 @@ export const MEMORIES_PER_DAY = 3;
 export const FAVORITE_USES = 3;
 export const FAVORITE_DAYS = 2;
 export const SNAPSHOT_RADIUS = 8;
+/** A rainy-day regular: used the same placed thing in the rain on this many days. */
+export const RAINY_DAYS = 3;
 
 /** What the recorder needs to know about the world at the moment a fact happens. */
 export interface WorldView {
@@ -69,14 +73,16 @@ export interface WorldView {
   season: Season;
   rain: number;
   objects: readonly SnapshotObject[];
-  /** Where a resident is now. */
-  where(id: string): { x: number; z: number } | null;
+  /** Where a resident is now, and how. */
+  where(id: string): { x: number; z: number; pose?: string; ry?: number } | null;
 }
 
 export class MemoryRecorder {
   private list: Memory[] = [];
   /** `${who}|${objectId}` → in-game days on which it was used, and the use count. */
   private uses = new Map<string, { n: number; days: Set<number> }>();
+  /** `${who}|${objectId}` → in-game days on which it was used in the rain. */
+  private rainyDays = new Map<string, Set<number>>();
   private told = new Set<string>();
   private perDay = new Map<number, number>();
   private seq = 0;
@@ -110,12 +116,26 @@ export class MemoryRecorder {
       const m = this.add('favorite', [f.who], f.objectId, w);
       if (m) out.push(m);
     }
+    if (w.rain > 0.3) {
+      const r = this.rainyDays.get(k) ?? new Set<number>();
+      r.add(day);
+      this.rainyDays.set(k, r);
+      if (r.size >= RAINY_DAYS) {
+        const m = this.add('rainy', [f.who], f.objectId, w);
+        if (m) out.push(m);
+      }
+    }
     for (const other of f.with) {
       if (other === f.who) continue;
       const m = this.add('together', [f.who, other].sort(), f.objectId, w);
       if (m) out.push(m);
     }
     return out;
+  }
+
+  /** A placed object became someone's favourite of its kind: a new routine. */
+  routine(who: string, objectId: string, w: WorldView): Memory | null {
+    return this.add('routine', [who], objectId, w);
   }
 
   /** A placed object was removed: its use counts go (the memories stay; their snapshots hold it). */
@@ -140,7 +160,7 @@ export class MemoryRecorder {
     const near = w.objects.filter((o) => Math.hypot(o.x - obj.x, o.z - obj.z) <= SNAPSHOT_RADIUS).map((o) => ({ ...o }));
     const people = who.flatMap((id) => {
       const p = w.where(id);
-      return p ? [{ id, x: round(p.x), z: round(p.z) }] : [];
+      return p ? [{ id, x: round(p.x), z: round(p.z), ...(p.pose ? { pose: p.pose } : {}), ...(p.ry !== undefined ? { ry: round(p.ry) } : {}) }] : [];
     });
     const m: Memory = {
       id: `m${day}-${this.seq++}`,

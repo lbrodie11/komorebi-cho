@@ -131,10 +131,12 @@ if (saved) {
   captions = saved.settings.captions;
   textScale = (TEXT_SCALES as readonly number[]).includes(saved.settings.textScale) ? (saved.settings.textScale as TextScale) : 1;
   world.reducedMotion = saved.settings.reducedMotion;
+  residents.reducedMotion = saved.settings.reducedMotion;
   diffusionSetting = saved.settings.diffusion;
   diffusion = params.diffusion ?? diffusionSetting;
 } else if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
   world.reducedMotion = true; // a new player who asked their OS for less motion gets it here too
+  residents.reducedMotion = true;
 }
 let reducedMotion = world.reducedMotion;
 build.reducedMotion = reducedMotion;
@@ -284,6 +286,7 @@ const hud = new Hud(hudRoot, {
   setReducedMotion: (v) => {
     reducedMotion = v;
     world.reducedMotion = v;
+    residents.reducedMotion = v;
     build.reducedMotion = v;
     iso.instant = v;
   },
@@ -302,6 +305,7 @@ const hud = new Hud(hudRoot, {
     else if (Math.abs(z - iso.zoom) > 1e-3) cameraStep(() => iso.zoomTo(z));
   },
   meet: (id) => meet(id),
+  follow: (id) => setFollow(id),
   showMe: (id) => {
     const a = residents.agents.find((g) => g.p.id === id);
     if (a && !a.hidden) {
@@ -374,7 +378,7 @@ function worldView(): WorldView {
     objects: build.records(),
     where: (id) => {
       const a = residents.agents.find((g) => g.p.id === id);
-      return a && !a.hidden ? { x: a.x, z: a.z } : null;
+      return a && !a.hidden ? { x: a.x, z: a.z, pose: a.pose, ry: a.root.rotation.y } : null;
     },
   };
 }
@@ -391,6 +395,9 @@ bus.on('noticed', ({ who, id }) => {
 });
 bus.on('used', ({ who, id, with: others }) => {
   if (!params.scripted) for (const m of memories.used({ who, objectId: id, with: others }, worldView())) announce(m);
+});
+bus.on('routine', ({ who, id }) => {
+  if (!params.scripted) announce(memories.routine(who, id, worldView()));
 });
 bus.on('objectRemoved', ({ id }) => memories.removed(id));
 hud.setMemorySource({ list: () => memories.memories, render: (m, cut) => renderMemory(m, cut) });
@@ -617,6 +624,39 @@ function flingVelocity(now: number): { x: number; y: number } {
 }
 /** The last mouse or pen position over the canvas, to refresh the build preview when the camera moves under it. */
 let lastPointer: { clientX: number; clientY: number } | null = null;
+/**
+ * Follow a neighbour (prompt 08): chosen on their card, Smooth only. The camera reframes gently,
+ * only when they near the edge of the view. Any pan, zoom or turn by the player (the camera moving
+ * other than where following put it), or Esc, stops it.
+ */
+let followId: string | null = null;
+let followSet: { x: number; z: number; zoom: number; yaw: number } | null = null;
+function setFollow(id: string | null): void {
+  followId = id;
+  followSet = null;
+  hud.setFollowing(!!id);
+  if (id) followFrame(true);
+}
+function followFrame(start = false): void {
+  if (!followId) return;
+  const g = iso.targetGoal;
+  if (
+    !start &&
+    followSet &&
+    (Math.abs(g.x - followSet.x) > 1e-3 || Math.abs(g.z - followSet.z) > 1e-3 || iso.zoom !== followSet.zoom || iso.yaw !== followSet.yaw)
+  )
+    return setFollow(null); // the player took the camera
+  const a = residents.agents.find((x) => x.p.id === followId);
+  if (a && !a.hidden) {
+    const v = new THREE.Vector3(a.x, a.root.position.y + 1, a.z).project(iso.camera);
+    // only near the edge (or at the start): bring them back toward the middle
+    if (start || Math.abs(v.x) > 0.6 || Math.abs(v.y) > 0.6) {
+      g.set(a.x, g.y, a.z);
+      if (reducedMotion) iso.target.copy(g);
+    }
+  }
+  followSet = { x: g.x, z: g.z, zoom: iso.zoom, yaw: iso.yaw };
+}
 /** The carried shop, narrower or wider ([ / ], or the Narrower / Wider buttons). */
 function resizeShop(dir: 1 | -1): void {
   build.resizeShop(dir);
@@ -919,7 +959,8 @@ window.addEventListener('keydown', (e) => {
   // Space and Enter on a focused button press that button (keyboard users rely on it); they don't pause
   if (t.tagName === 'BUTTON' && (k === ' ' || k === 'enter')) return;
   if (k === 'escape') {
-    // one layer per press: preview, panel, card, then photo mode, then the build tool
+    // one layer per press: following, preview, panel, card, then photo mode, then the build tool
+    if (followId) return setFollow(null);
     if (hud.closeTopmost()) return;
     if (photo) hud.togglePhoto(false);
     else if (build.carrying)
@@ -1130,7 +1171,7 @@ function renderMemory(m: Memory, cut: 0 | 1 | 2): string | null {
   const c = MEMORY_CUTS[cut];
   const cam = { yaw: iso.yaw, zoom: iso.zoom, goal: iso.zoomGoal, t: iso.target.clone(), tg: iso.targetGoal.clone(), bounds: iso.bounds };
   const weather = { rain: world.weather.rain, wet: world.weather.wetness, lamp: world.lampLevel };
-  const people = residents.agents.map((a) => ({ a, visible: a.root.visible, pos: a.root.position.clone() }));
+  const people = residents.agents.map((a) => ({ a, visible: a.root.visible, pos: a.root.position.clone(), pose: a.pose, ry: a.root.rotation.y }));
   const hidden: THREE.Object3D[] = [];
   const unstage: (() => void)[] = [];
   let url: string | null;
@@ -1149,6 +1190,10 @@ function renderMemory(m: Memory, cut: 0 | 1 | 2): string | null {
       if (!a) continue;
       a.root.visible = true;
       a.root.position.set(p.x, groundHeight(p.x, p.z), p.z);
+      // as they were: sitting on the bench, crouching by the cat bowl, facing the way they faced
+      a.pose = (p.pose as typeof a.pose | undefined) ?? 'stand';
+      if (p.ry !== undefined) a.root.rotation.y = p.ry;
+      a.animate(0, false, snap.rain, time);
     }
     const then = new WorldClock(0);
     then.minutes = snap.minutes;
@@ -1167,9 +1212,12 @@ function renderMemory(m: Memory, cut: 0 | 1 | 2): string | null {
   } finally {
     for (const o of hidden) o.visible = true;
     for (const f of unstage) f();
-    for (const { a, visible, pos } of people) {
+    for (const { a, visible, pos, pose, ry } of people) {
       a.root.visible = visible;
       a.root.position.copy(pos);
+      a.pose = pose;
+      a.root.rotation.y = ry;
+      a.animate(0, false, world.weather.rain, time);
     }
     world.weather.rain = weather.rain;
     world.weather.wetness = weather.wet;
@@ -1223,9 +1271,11 @@ function frame(now: number): void {
   const sky = skyAt(hour, rain, clock.season);
   world.update(dt, time, clock, sky, gm);
   build.showIslands();
+  followFrame();
   const s0 = performance.now();
   if (!frozen) {
     residents.minutes = clock.minutes; // place memory fades on the world's clock
+    residents.season = clock.season; // winter's rain is snow
     residents.update(dt, gm, hour, rain, time);
     animals.update(dt, time, hour, rain, clock.season, residents.agents);
   }

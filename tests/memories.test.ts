@@ -36,6 +36,29 @@ describe('neighborhood memories', () => {
     expect(r.used({ who: 'sora', objectId: 'b1', with: ['rin'] }, view(DAY + 600))).toEqual([]);
   });
 
+  it('remembers a rainy-day regular: the same placed thing used in the rain on three days', () => {
+    const r = new MemoryRecorder();
+    const wet = (minutes: number): WorldView => ({ ...view(minutes), rain: 0.8 });
+    // (the favorite rule fires along the way: only the rainy one is checked here)
+    const kinds = (day: number) => r.used({ who: 'kenta', objectId: 'b1', with: [] }, wet(day * DAY + 900)).map((m) => m.kind);
+    expect(kinds(0)).not.toContain('rainy');
+    expect(kinds(1)).not.toContain('rainy');
+    expect(kinds(2)).toContain('rainy');
+    // a dry day doesn't count
+    const r2 = new MemoryRecorder();
+    for (const d of [0, 1]) r2.used({ who: 'kenta', objectId: 'b1', with: [] }, wet(d * DAY + 900));
+    expect(r2.used({ who: 'kenta', objectId: 'b1', with: [] }, view(2 * DAY + 900)).map((m) => m.kind)).not.toContain('rainy');
+  });
+
+  it('remembers a new routine once, and keeps how people were (sitting, which way they faced)', () => {
+    const r = new MemoryRecorder();
+    const seated: WorldView = { ...view(900), where: () => ({ x: 1, z: 2, pose: 'sit', ry: 1.5 }) };
+    const m = r.routine('mitsuko', 'b1', seated)!;
+    expect(m.kind).toBe('routine');
+    expect(m.snapshot.people).toEqual([{ id: 'mitsuko', x: 1, z: 2, pose: 'sit', ry: 1.5 }]);
+    expect(r.routine('mitsuko', 'b1', seated)).toBeNull();
+  });
+
   it('caps memories per in-game day, so fast-forward cannot flood the journal', () => {
     const r = new MemoryRecorder();
     const objs = Array.from({ length: 10 }, (_, i) => ({ id: `o${i}`, kind: 'bench', x: i * 20, z: 0, ry: 0 }));

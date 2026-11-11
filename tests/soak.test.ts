@@ -53,6 +53,12 @@ describe('soak', () => {
     const waits = new Map<string, number>();
     let longestWait = 0;
     const still = new Map<string, { x: number; z: number; since: number }>();
+    // prompt 08: nobody idle forever, nobody flip-flopping between two things of a kind
+    const idle = new Map<string, number>();
+    let longestIdle = 0;
+    const chose = new Map<string, { kind: string; id: string; at: number }[]>();
+    let flipFlops = 0;
+    const lastTask = new Map<string, unknown>();
     const steps = 20 * 60 * 48;
     for (let s = 0; s < steps; s++) {
       t += dt;
@@ -76,6 +82,22 @@ describe('soak', () => {
       }
       for (const a of residents.agents) {
         expect(Number.isFinite(a.x) && Number.isFinite(a.z) && Number.isFinite(a.root.position.y)).toBe(true);
+        const idleFor = !a.hidden && !a.task ? (idle.get(a.p.id) ?? 0) + dt : 0;
+        idle.set(a.p.id, idleFor);
+        longestIdle = Math.max(longestIdle, idleFor);
+        if (a.task !== lastTask.get(a.p.id)) {
+          lastTask.set(a.p.id, a.task);
+          const o = a.task?.obj;
+          if (a.task?.kind === 'use' && o) {
+            const list = chose.get(a.p.id) ?? [];
+            const same = list.filter((c) => c.kind === o.kind);
+            const [x, y] = [same.at(-2), same.at(-1)];
+            // A, then B, then A again, all within 20 game minutes: dithering
+            if (x && y && x.id === o.id && y.id !== o.id && clock.minutes - x.at < 20) flipFlops++;
+            list.push({ kind: o.kind, id: o.id, at: clock.minutes });
+            chose.set(a.p.id, list.slice(-12));
+          }
+        }
         // waiting a turn at the bridge is fine (a deadlock is not: see below)
         const w = a.waitingFor ? (waits.get(a.p.id) ?? 0) + dt : 0;
         waits.set(a.p.id, w);
@@ -91,6 +113,15 @@ describe('soak', () => {
     }
     expect(maxStill).toBeLessThan(5);
     expect(longestWait).toBeLessThan(20);
+    expect(longestIdle).toBeLessThan(30);
+    expect(flipFlops).toBe(0);
+    // diaries: written each midnight, never the same line two days running
+    const { fmt } = await import('../src/i18n');
+    expect(residents.agents.some((a) => a.diary.entries.length >= 2)).toBe(true);
+    for (const a of residents.agents) {
+      const lines = a.diary.entries.map((e) => fmt(e.msg));
+      for (let i = 1; i < lines.length; i++) expect(lines[i]).not.toBe(lines[i - 1]);
+    }
     expect(residents.agents.some((a) => a.known.size > 0)).toBe(true);
   }, 120_000);
 });

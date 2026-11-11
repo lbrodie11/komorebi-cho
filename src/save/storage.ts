@@ -62,7 +62,8 @@ export interface SaveData extends SaveStamp {
 const TEXT_SCALES = [1, 1.25, 1.5];
 /** The shopping street as first laid out: saved shop extents are checked against it. */
 const SHOP_ROW_BASE = SHOPS.map(({ id, z0, z1 }) => ({ id, z0, z1 }));
-const MEMORY_KINDS = ['noticed', 'favorite', 'together'];
+const MEMORY_KINDS = ['noticed', 'favorite', 'together', 'rainy', 'routine'];
+const POSES = ['stand', 'sit', 'pray', 'crouch', 'sweep'];
 const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
 /** A saved memory, field by field; anything malformed drops just that memory. */
@@ -76,7 +77,9 @@ function sanitizeMemory(v: unknown): Memory | null {
     (o): o is { id: string; kind: string; x: number; z: number; ry: number } =>
       isObj(o) && typeof o.id === 'string' && typeof o.kind === 'string' && finite(o.x) && finite(o.z) && finite(o.ry),
   );
-  const people = s.people.filter((p): p is { id: string; x: number; z: number } => isObj(p) && typeof p.id === 'string' && finite(p.x) && finite(p.z));
+  const people = s.people
+    .filter((p): p is { id: string; x: number; z: number; pose?: unknown; ry?: unknown } => isObj(p) && typeof p.id === 'string' && finite(p.x) && finite(p.z))
+    .map(({ id, x, z, pose, ry }) => ({ id, x, z, ...(typeof pose === 'string' && POSES.includes(pose) ? { pose } : {}), ...(finite(ry) ? { ry } : {}) }));
   return {
     id: v.id,
     kind: v.kind as Memory['kind'],

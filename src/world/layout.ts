@@ -425,6 +425,14 @@ export const MICRO_HOME: MicroHomeSpec = {
 export const APATO: ApatoSpec = { x: -2, z: -11, y: TG, w: 6.8, d: 2.8, h: 5.4, wall: { tex: 'plaster', color: '#e8dcc2', rx: 2, ry: 1.5 }, age: 0.6 };
 export const TEMPLE: TempleSpec = { x: 9.5, z: -10.9, y: TG, w: 6, d: 2.4, h: 2.6, wall: { tex: 'wood', color: '#5a3622', rx: 2, ry: 1 }, age: 0.9, moss: 0.5 };
 export const ARCH: ArchSpec = { x: -9.25, z: 9.6, y: G, span: 2.6, h: 4.4, sign: SIGNS.arch };
+/**
+ * Fixed places to shelter from a sudden shower (the shop awnings move with their shops, so the
+ * residents find those from the doors): under the arch, and under the café's terrace awning.
+ */
+export const SHELTERS: readonly { x: number; z: number; face: number }[] = [
+  { x: -9.25, z: 9.6, face: 0 },
+  { x: 11.2, z: 2.3, face: -Math.PI / 2 },
+];
 export const CAFE: CafeSpec = {
   pts: [
     [10.6, -3.6],

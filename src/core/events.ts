@@ -39,6 +39,8 @@ export type GameEvents = {
   story: { msg: Msg; who?: string; /** A greeting, not an event: shown in the feed, not kept in Notes. */ fleeting?: boolean };
   /** A placed object was used, or inspected, by a resident (drives the first-minutes hints). */
   noticed: { who: string; id: string };
+  /** Something the player placed became a resident's favourite of its kind (drives a Memory). */
+  routine: { who: string; id: string };
   /** A resident used a placed object; `with` are the others using it at the same moment (drives Memories). */
   used: { who: string; id: string; with: string[] };
   bell: { hour: number };
