@@ -40,11 +40,11 @@ src/sim       grid (nav + A*), smart (affordances/reservations), personas (the n
               animals, bubbles, warmup (fixed-step warm-up for seeded runs)
 src/audio     engine (graph), theory (pure), music (generative piano), ambience (soundscape), sound (facade + sfx)
 src/ui        hud (DOM), build (placement tool), debug (?debug overlay), wordmark (bitmap font), style.css
-src/save      storage (versioned localStorage + migrations)
+src/save      storage (versioned localStorage + migrations + validation), tabs (one saving tab at a time)
 tests/        vitest: core, sim, audio, render maths (lut, shadow, pixel scale), art (glyphs, weathering, leaves, sky keys)
 prompts/      the roadmap: numbered work orders, done in order
 docs/         ARCHITECTURE, COLOR, CONTRIBUTING, VERSIONS
-scripts/      diffusion-shots.mjs (reproducible reference screenshots; Playwright installed --no-save)
+scripts/      diffusion-shots.mjs (reproducible reference screenshots), ui-audit.mjs (every control, touch, two tabs); Playwright installed --no-save
 ```
 
 ## Commands

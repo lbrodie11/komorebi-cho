@@ -170,6 +170,28 @@ button.px.warn {
 .toolbar .more {
   display: contents;
 }
+.save-note {
+  display: none;
+  box-sizing: border-box;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  font-size: 13px;
+  max-width: 100%;
+}
+.save-note.open {
+  display: flex;
+}
+.save-note .text {
+  color: var(--amber);
+  /* wrap the sentence, never push the button off a phone screen */
+  flex: 1 1 14em;
+  min-width: 0;
+}
+.save-note button {
+  flex: none;
+}
 .toolbar .more-toggle {
   display: none;
 }

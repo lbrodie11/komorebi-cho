@@ -5,6 +5,7 @@ import type { WeatherMode } from '../world/weather';
 import type { ToolMode } from './build';
 import type { ResidentInfo } from '../sim/residents';
 import { PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
+import type { PauseReason } from '../save/tabs';
 
 export interface HudActions {
   toggleSound(): Promise<boolean>;
@@ -67,6 +68,7 @@ export class Hud {
   private readonly help = el('div', 'help panel');
   private readonly palette = el('div', 'palette panel');
   private readonly bar = el('div', 'toolbar panel');
+  private readonly saveNote = el('div', 'save-note panel');
   private readonly photoBar = el('div', 'photo-bar panel');
   private readonly modal = el('div', 'modal');
   private readonly speedBtns: HTMLButtonElement[] = [];
@@ -244,8 +246,9 @@ export class Hud {
     this.storyBox.setAttribute('role', 'log');
     this.storyBox.setAttribute('aria-live', 'polite');
     this.storyBox.setAttribute('aria-label', 'What the neighbourhood is up to');
+    this.saveNote.setAttribute('role', 'status');
     const dock = el('div', 'dock');
-    dock.append(this.palette, bar);
+    dock.append(this.saveNote, this.palette, bar);
 
     this.splash = el('div', 'splash');
     const sp = el('div', 'panel', `Turn on sound for the full experience · ${coarsePointer() ? 'tap' : 'press'} <b>?</b> for controls`);
@@ -313,6 +316,31 @@ export class Hud {
 
   toggleHelp(): void {
     this.toggle(this.help);
+  }
+
+  /**
+   * Another tab is saving the town (save/tabs.ts). Say so, gently, and offer to switch: this tab
+   * stays fully playable, it just won't keep changes. `null` hides the note.
+   */
+  setSaveNote(reason: PauseReason | null, takeOver: () => void): void {
+    this.saveNote.innerHTML = '';
+    this.saveNote.classList.toggle('open', reason !== null);
+    if (!reason) return;
+    const text = el('span', 'text');
+    text.textContent =
+      reason === 'other-tab'
+        ? 'Komorebi-chō is open in another tab, so changes here won’t be saved.'
+        : 'You carried on in another tab, so changes here won’t be saved.';
+    const use = btn(
+      'Use this tab',
+      () => {
+        use.disabled = true;
+        use.textContent = 'Switching…';
+        takeOver();
+      },
+      'Save from this tab instead. It reloads with the latest town.',
+    );
+    this.saveNote.append(text, use);
   }
 
   /** Is the photo preview up? Game keys wait while it is (only Esc and Tab act). */

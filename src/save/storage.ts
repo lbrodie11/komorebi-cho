@@ -3,6 +3,7 @@ import type { WeatherMode } from '../world/weather';
 import type { PlaceableKind } from '../world/props';
 import { DEFAULT_PIXEL, PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
 import { LEGACY_DIFFUSION_DEFAULT, sanitizeDiffusion } from '../render/diffusion';
+import type { SaveStamp } from './tabs';
 
 export const SAVE_VERSION = 2;
 const KEY = 'komorebi-cho/save';
@@ -15,7 +16,7 @@ export interface PlacedRecord {
   ry: number;
 }
 
-export interface SaveData {
+export interface SaveData extends SaveStamp {
   version: number;
   minutes: number;
   season: Season;
@@ -70,6 +71,9 @@ export function sanitize(d: Record<string, unknown>): SaveData {
   }
   return {
     version: SAVE_VERSION,
+    // which tab wrote it, and when (save/tabs.ts); optional, so no version bump
+    ...(typeof d.writer === 'string' ? { writer: d.writer } : {}),
+    ...(finite(d.savedAt) ? { savedAt: d.savedAt } : {}),
     minutes: finite(d.minutes) && d.minutes >= 0 ? d.minutes : DEFAULT_MINUTES,
     season: (SEASONS as readonly unknown[]).includes(d.season) ? (d.season as Season) : 'spring',
     weather: (WEATHER_MODES as readonly unknown[]).includes(d.weather) ? (d.weather as WeatherMode) : 'auto',
@@ -103,6 +107,19 @@ export function load(): SaveData | null {
     }
     if (v !== SAVE_VERSION) return null;
     return sanitize(d);
+  } catch {
+    return null;
+  }
+}
+
+/** Just the stamp of what's on disk, for the pre-write check in save/tabs.ts (no migration, no sanitising). */
+export function readStamp(): SaveStamp | null {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const d: unknown = JSON.parse(raw);
+    if (!isObj(d)) return null;
+    return { writer: typeof d.writer === 'string' ? d.writer : undefined, savedAt: finite(d.savedAt) ? d.savedAt : undefined };
   } catch {
     return null;
   }

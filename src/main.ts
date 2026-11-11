@@ -17,7 +17,8 @@ import { BuildTool, type ToolMode } from './ui/build';
 import { Hud } from './ui/hud';
 import { DebugOverlay } from './ui/debug';
 import { Sound } from './audio/sound';
-import { load, save, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
+import { load, save, readStamp, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
+import { CHANNEL_NAME, SaveGuard, wroteElsewhere } from './save/tabs';
 import { PLACEABLES, type PlaceableKind } from './world/props';
 import { parseLaunchParams, warmupStart } from './core/params';
 import { warmUp } from './sim/warmup';
@@ -115,10 +116,39 @@ if (saved) {
 }
 let reducedMotion = world.reducedMotion;
 build.reducedMotion = reducedMotion;
+
+/** One tab saves at a time (save/tabs.ts). Scripted runs take no part: they never touch the save. */
+const guard = params.scripted
+  ? null
+  : new SaveGuard({
+      id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+      locks: 'locks' in navigator ? navigator.locks : null,
+      channel: typeof BroadcastChannel === 'function' ? new BroadcastChannel(CHANNEL_NAME) : null,
+      session: (() => {
+        try {
+          return sessionStorage;
+        } catch {
+          return null; // sandboxed frame
+        }
+      })(),
+      reload: () => location.reload(),
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    });
+/** The newest save this tab knows about: the one it loaded, or its own last write. */
+let knownAt = saved?.savedAt ?? 0;
 function persist(): void {
-  if (params.scripted) return;
+  if (!guard?.canSave) return;
+  // Another tab wrote since we last knew (no Web Locks here, or mid hand-over): step back, don't overwrite.
+  if (wroteElsewhere(readStamp(), guard.id, knownAt)) {
+    guard.pause('moved');
+    return;
+  }
+  const savedAt = Math.max(Date.now(), knownAt + 1);
+  knownAt = savedAt;
   save({
     version: SAVE_VERSION,
+    writer: guard.id,
+    savedAt,
     minutes: clock.minutes,
     season: clock.season,
     weather: world.weather.mode,
@@ -197,6 +227,11 @@ const hud = new Hud(hudRoot, {
     bus.emit('story', { text: 'The neighbourhood is as it was.' });
   },
 });
+if (guard) {
+  guard.onChange = (reason) => hud.setSaveNote(reason, () => guard.takeOver());
+  guard.beforeRelease = persist; // save the latest before the other tab takes over
+  void guard.start();
+}
 hud.setSpeed(clock.speed, clock.paused);
 hud.setVolumes(sound.musicVolume, sound.ambienceVolume);
 hud.setReducedMotion(reducedMotion);
