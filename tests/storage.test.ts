@@ -173,6 +173,13 @@ describe('saves: hints, Notes and the newer settings', () => {
     expect(loadRaw({ ...base, shops: 'junk' }).shops).toEqual({});
   });
 
+  it('keeps what residents know of places, and nothing that is not an object', () => {
+    const places = { mitsuko: { 'bench-pond-a': { f: 3, at: 0, x: -2.6, z: -2.6, seen: 0, day: 0, days: 3 } } };
+    expect(loadRaw({ ...base, places }).places).toEqual(places);
+    expect(loadRaw({ ...base, places: [1] }).places).toEqual({});
+    expect(loadRaw(base).places).toEqual({});
+  });
+
   it('validates effects volume, captions and text size', () => {
     const s = loadRaw({ ...base, settings: { effects: 2, captions: 'yes', textScale: 3 } }).settings;
     expect(s.effects).toBe(1);

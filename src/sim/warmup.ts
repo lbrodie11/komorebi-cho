@@ -32,6 +32,7 @@ export function warmUp(p: SimParts, fromHour: number, toHour: number, dt = 1 / 2
     const hour = clock.hour;
     const rain = world.weather.rain;
     world.update(dt, t, clock, skyAt(hour, rain, clock.season), gm);
+    residents.minutes = clock.minutes;
     residents.update(dt, gm, hour, rain, t);
     animals.update(dt, t, hour, rain, clock.season, residents.agents);
     slow += dt;

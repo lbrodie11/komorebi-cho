@@ -1290,7 +1290,13 @@ export class Hud {
     doing.textContent = t('card.now', { doing: i.doing });
     const knows = el('div', 'role knows');
     knows.textContent = t('card.knows', { n: i.knows });
-    this.cardBody.append(h, role, p, doing, knows);
+    this.cardBody.append(h, role, p, doing);
+    if (i.favorite) {
+      const fav = el('div', 'role favorite');
+      fav.textContent = t('card.favorite', { thing: i.favorite });
+      this.cardBody.append(fav);
+    }
+    this.cardBody.append(knows);
   }
 
   /**

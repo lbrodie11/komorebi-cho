@@ -30,6 +30,10 @@ Working method:
 ## Goal
 Residents who feel like *people with lives*, and whose adaptation to the player's edits is unmistakable.
 
+Done (the thin slice, task 9): `src/sim/places.ts` place memory: familiarity in days of use with a two-day half-life, favourites as habits (3 days) with a 15% hysteresis margin, novelty that pulls the curious for a few days. Choices weigh familiarity, the favourite and novelty. Mitsuko's pond bench is a haunt (persona data). The three-day arc runs on its own: she tries a new bench, comes back another day ("Mitsuko tries the new bench again"), and adopts it ("Mitsuko has a new favorite spot: the bench"). Remove it and she goes to look for it (`?`, "Mitsuko looks for the bench. It's gone."), then settles on another. The card shows "Favorite spot: the pond bench". The cats settle within 2 m of her while she sits. Place memory is saved. The town's benches have names of their own (the pond bench, the bench under the sakura). Tests: the unit rules, and the whole arc headless (four seeds checked), including removal and the cats.
+
+Still to do: the rest of the tasks (response curves and staggered re-evaluation, more needs, the social layer, diaries, weather behaviour, the observe camera and routine-change highlight, the next journal rules), and the acceptance runs with Kenta and the vending machine.
+
 ## Tasks
 1. **Utility with response curves.**
    - Scores are `weight × Π curve_i(input_i)` (logistic, quadratic, step), with Dave Mark's compensation factor for many considerations.

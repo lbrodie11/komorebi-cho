@@ -29,6 +29,10 @@ export interface Persona {
   speed: number;
   /** How much a crowd puts them off (1 by default; kids hardly mind, the quiet ones mind more). */
   crowdAversion?: number;
+  /** Places they already call theirs (smart object ids): familiar from the start. */
+  haunts?: string[];
+  /** Cats come and sit near them. */
+  catFriend?: boolean;
 }
 
 /**
@@ -96,6 +100,8 @@ export const PERSONAS: Persona[] = [
   {
     id: 'mitsuko',
     crowdAversion: 1.3,
+    haunts: ['bench-pond-a'],
+    catFriend: true,
     colors: { top: '#c46a7a', legs: '#45291b', skin: '#e8c3a0', hair: '#eef2f5' },
     accessory: 'cane',
     home: 'kyosho',

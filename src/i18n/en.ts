@@ -131,6 +131,10 @@ export const en = {
 
   // ── Things, as they appear inside sentences ──
   'noun.bench': 'bench',
+  'noun.bench-pond-a': 'pond bench',
+  'noun.bench-pond-b': 'bench by the bridge',
+  'noun.bench-sakura': 'bench under the sakura',
+  'noun.bench-play': 'playground bench',
   'noun.sakura': 'sakura',
   'noun.lantern': 'stone lantern',
   'noun.vending': 'vending machine',
@@ -176,6 +180,7 @@ export const en = {
   // ── Resident card ──
   'card.label': 'Resident',
   'card.now': 'Now: {doing}',
+  'card.favorite': 'Favorite spot: the {thing}',
   'card.knows': '{n, plural, =0 {Hasn’t noticed anything you made yet.} one {Has noticed # thing you made.} other {Has noticed # things you made.}}',
   'card.follow': 'Show me',
 
@@ -295,6 +300,9 @@ export const en = {
   'story.bellMorning': 'The temple bell rings in the morning.',
   'story.bellEvening': 'The evening bell. Time to head home.',
   'story.useBench': '{who} tries out the new bench.',
+  'story.triesAgain': '{who} tries the new {thing} again.',
+  'story.newFavorite': '{who} has a new favorite spot: the {thing}.',
+  'story.looksFor': '{who} looks for the {thing}. It’s gone.',
   'story.useVending': '{who} buys a drink from the new vending machine.',
   'story.useCatbowl': '{who} fills the new cat bowl.',
   'story.useOther': '{who} stops to admire the new {thing}.',
@@ -314,6 +322,7 @@ export const en = {
   'task.drink': 'Buying a drink',
   'task.browsing': 'Browsing at {thing}',
   'task.queueing': 'Waiting in line at {thing}',
+  'task.lookingFor': 'Looking for the {thing}',
   'task.koi': 'Watching the koi from the bridge',
   'task.shrine': 'Praying at the little shrine',
   'task.temple': 'Visiting the temple',

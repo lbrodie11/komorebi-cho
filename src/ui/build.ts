@@ -537,6 +537,7 @@ export class BuildTool {
   remove(id: string): void {
     const p = this.placed.get(id);
     if (!p) return;
+    this.residents.onGone(id); // a favourite gone: someone will come looking
     this.residents.onRemoved(id);
     this.smart.remove(id);
     this.grid.stamp({ x: p.x, z: p.z, r: p.radius }, -1);

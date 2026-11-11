@@ -31,6 +31,8 @@ export interface SaveData extends SaveStamp {
   /** Shop-houses the player moved or resized: their frontage (z0..z1) by id. Optional on disk. */
   shops?: Record<string, { z0: number; z1: number }>;
   memory: Record<string, string[]>;
+  /** What each resident knows of places: familiarity and favourites (prompt 08). Optional on disk. */
+  places?: Record<string, unknown>;
   /** First-minutes hints already done ('place', 'react', 'meet'). */
   tutorial: string[];
   /** Journal memories (sim/memories.ts), oldest first. Optional on disk. */
@@ -172,6 +174,8 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     placed: placed.map(({ id, kind, x, z, ry }) => ({ id, kind, x, z, ry: ry % (Math.PI * 2) })),
     shops: sanitizeShops(d.shops, SHOP_ROW_BASE),
     memory,
+    // per resident, per place: checked field by field when restored (sim/places.ts)
+    places: isObj(d.places) ? d.places : {},
     // a save from before the hints existed belongs to a returning player: they never need them
     tutorial: Array.isArray(d.tutorial) ? d.tutorial.filter((x): x is string => typeof x === 'string') : ['meet', 'place', 'react'],
     notes,

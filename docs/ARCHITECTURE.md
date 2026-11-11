@@ -27,6 +27,8 @@ Anti-oscillation:
 - decisions happen only between tasks
 - interruptions go through `endTask()`, which releases the reservation, adds a stand-up delay and shows a bubble
 
+**Place memory** (`src/sim/places.ts`, prompt 08). Each resident remembers places: familiarity counts *days* of use (the first visit of a day adds 1, later ones a little), fades with a two-day half-life and tops out at 6. A favourite is a habit (used on 3 different days) and keeps its place unless a rival is 15% more familiar. In a choice, familiarity pulls a little, the favourite a little more, and something new pulls the curious for a few days (novelty halves every 4). So a new bench can win Mitsuko over: she tries it, comes back another day ("tries the new bench again"), and by the third day it's her favourite ("has a new favorite spot"). Remove a favourite and she goes to where it stood with a `?`, says so, then settles on another. Haunts (persona data: Mitsuko's pond bench) start as settled habits. The card shows "Favorite spot". Cats settle near a cat person (`catFriend`) while she sits. Place memory is saved.
+
 Edits: `BuildTool.place` stamps the grid, registers the smart object and calls `Residents.onPlaced`. That picks nearby curious agents, at most 2 inspectors per object and 3 reactions per edit, and sends them to look. `noticePass` lets passers-by discover things later. Only agents who know an object will use it.
 
 ## Pixel pass (src/render/post.ts)

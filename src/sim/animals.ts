@@ -151,12 +151,21 @@ export class Animals {
       c.sleeping = night || rain > 0.6 || c.rest > 8;
       c.root.scale.y = c.sleeping ? 0.75 + Math.sin(time * 1.5) * 0.03 : 1;
       if (c.rest <= 0) {
+        // a cat person sitting out (Mitsuko): the cats come and settle near her, within 2 m
+        const friend = agents.find((a) => a.p.catFriend && !a.hidden && a.arrived && a.pose === 'sit');
+        let goal: [number, number] | null = null;
+        if (friend && c.rng.chance(0.75)) {
+          const ang = c.rng.range(0, Math.PI * 2),
+            r = c.rng.range(0.8, 1.6);
+          goal = this.grid.nearestOpen(friend.x + Math.cos(ang) * r, friend.z + Math.sin(ang) * r, 2);
+        }
         const bowls = [...this.smart.objects.values()].filter((o) => o.kind === 'catbowl');
-        const goal: [number, number] = bowls.length && c.rng.chance(0.6) ? [bowls[0]!.x + c.rng.range(-0.5, 0.5), bowls[0]!.z + 0.5] : c.rng.pick(CAT_SPOTS);
+        goal ??= bowls.length && c.rng.chance(0.6) ? [bowls[0]!.x + c.rng.range(-0.5, 0.5), bowls[0]!.z + 0.5] : c.rng.pick(CAT_SPOTS);
         const p = this.grid.findPath(c.root.position.x, c.root.position.z, goal[0], goal[1]);
         c.path = p ?? [];
         c.idx = 1;
-        c.rest = c.rng.range(8, 30) * (night ? 3 : 1);
+        // beside her, a cat stays a while
+        c.rest = c.rng.range(8, 30) * (night ? 3 : 1) * (friend && Math.hypot(goal[0] - friend.x, goal[1] - friend.z) < 2 ? 1.6 : 1);
       }
     }
     for (const s of this.sleepers) s.scale.y = 1 + Math.sin(time * 1.4 + s.position.x) * 0.08;

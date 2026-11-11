@@ -3,6 +3,7 @@ import { Rng } from '../core/rng';
 import { hourInRange } from '../core/clock';
 import { clamp } from '../core/math';
 import { Passage } from './passage';
+import { PlaceMemory, type PlaceMemoryData } from './places';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
 import { DOORS, EXITS, PASSAGES } from '../world/layout';
@@ -13,7 +14,7 @@ import type { Pose, Slot, SmartKind, SmartObject, SmartRegistry } from './smart'
 import { bubbleMaterial, type BubbleIcon } from './bubbles';
 import { msg, type Msg, type MsgKey } from '../i18n';
 
-type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger' | 'queue';
+type TaskKind = 'home' | 'commute' | 'work' | 'inside' | 'use' | 'wander' | 'inspect' | 'jog' | 'deliver' | 'linger' | 'queue' | 'search';
 
 interface Task {
   kind: TaskKind;
@@ -40,6 +41,12 @@ const PERSONA_SEED = 77;
 /** One neighbour: a little rig of boxes plus a brain made of a schedule, three needs and a utility picker. */
 /** How close (m) another resident must be before a walker sidesteps (two walkers close at ~2.4 m/s). */
 const AVOID_RADIUS = 1.2;
+/**
+ * Extra pull of a favourite (enough to keep a habit, not to shut out something better), and of
+ * something new to the curious (it fades with familiarity's half-life, slower once they've tried it).
+ */
+const FAVOURITE_BONUS = 0.3;
+const NOVELTY_PULL = 1.4;
 /** People within this distance (m) of something make it feel crowded. */
 const CROWD_RADIUS = 2;
 /** Game minutes someone waits in a shop's line before giving up. */
@@ -68,6 +75,12 @@ export class Agent {
   readonly needs = { fatigue: 0.2, thirst: 0.2 };
   readonly known = new Set<string>();
   lastInspect = -999;
+  /** How well they know each place, and which they like best (prompt 08). */
+  places = new PlaceMemory();
+  /** Their favourite of each kind as last told (so a new favourite is told once). */
+  readonly favs = new Map<string, string>();
+  /** Favourites the player removed, to go and look for once (id → the place's noun label). */
+  readonly missing = new Map<string, string>();
   /** The narrow passage they are waiting to enter (it is the other way's turn), if any. */
   waitingFor: string | null = null;
   /** Waiting for a path search (searches are rationed per tick, so many re-plans never land in one frame). */
@@ -225,6 +238,8 @@ export interface ResidentInfo {
   id: string;
   doing: Msg;
   knows: number;
+  /** Their favourite place, if they have one (its noun). */
+  favorite: Msg | null;
 }
 
 /** A neighbour as a message parameter: their short name, in the reader's language. */
@@ -243,10 +258,11 @@ export class Residents {
   readonly agents: Agent[];
   private readonly pickables: THREE.Object3D[] = [];
   private storyCooldown = 0;
-  private minutes = 0;
   private readonly toldUse = new Set<string>();
   /** Path searches left this tick (PATHS_PER_TICK). */
   private pathBudget = 0;
+  /** Game minutes, kept in step with the world clock by main (place memory fades on it). */
+  minutes = 0;
   /** Narrow passages where walkers take turns (the bridge). */
   private readonly passages = PASSAGES.map((s) => new Passage(s));
   /** Seconds of simulation, for passage waits. */
@@ -263,6 +279,14 @@ export class Residents {
     seed = 0,
   ) {
     this.agents = PERSONAS.map((p, i) => new Agent(p, m, i, seed));
+    // haunts: the places they already call theirs (Mitsuko's pond bench)
+    for (const a of this.agents)
+      for (const id of a.p.haunts ?? []) {
+        const o = smart.objects.get(id);
+        if (!o) continue;
+        a.places.haunt(id, o.x, o.z, 0);
+        a.favs.set(o.kind, id); // already theirs: a change from it is news
+      }
     for (const a of this.agents) {
       scene.add(a.root);
       this.pickables.push(a.body);
@@ -278,7 +302,18 @@ export class Residents {
       id: a.p.id,
       doing: a.hidden ? this.hiddenLabel(a) : (a.task?.label ?? msg('task.thinking')),
       knows: a.known.size,
+      favorite: this.topFavourite(a),
     };
+  }
+
+  /** The place they know best of all, if it's familiar enough to be a favourite. */
+  private topFavourite(a: Agent): Msg | null {
+    const id = a.places.favourite(
+      [...this.smart.objects.values()].filter((o) => o.kind !== 'shop').map((o) => o.id),
+      this.minutes,
+    );
+    const o = id ? this.smart.objects.get(id) : undefined;
+    return o ? thing(o.label) : null;
   }
 
   private hiddenLabel(a: Agent): Msg {
@@ -409,7 +444,7 @@ export class Residents {
       for (const o of this.smart.available(kind, hour)) {
         if (o.placed && !a.known.has(o.id)) continue;
         if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
-        const score = base * dPen(o) * this.crowdFactor(a, o);
+        const score = base * dPen(o) * this.crowdFactor(a, o) * this.placeFactor(a, o);
         opts.push({ score, make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
       }
       // every counter busy: queueing is an option, a less attractive one
@@ -435,6 +470,32 @@ export class Residents {
         useOpt('swing', 0.6 + like('swing'), () => msg('task.swings'), [6, 12], 'note');
         useOpt('sand', 0.5 + like('sand'), () => msg('task.sand'), [8, 15]);
       }
+    }
+    // a favourite the player removed: go and look for it, once
+    for (const [id, label] of a.missing) {
+      const at = a.places.where(id);
+      opts.push({
+        score: 2,
+        make: () => {
+          a.missing.delete(id);
+          const spot = at && this.grid.nearestOpen(at.x, at.z, 4);
+          if (!spot) return (a.places.forget(id), null);
+          return {
+            kind: 'search',
+            label: msg('task.lookingFor', { thing: thing(label) }),
+            goal: spot,
+            dwell: a.rng.range(1.5, 3),
+            pose: 'stand',
+            interruptible: true,
+            onArrive: () => {
+              a.say('question', 2.2);
+              a.places.forget(id);
+              this.story(msg('story.looksFor', { who: who(a.p.id), thing: thing(label) }), a.p.id);
+            },
+          };
+        },
+      });
+      break;
     }
     // wandering the park
     opts.push({
@@ -498,6 +559,41 @@ export class Residents {
     ];
     const i = a.rng.int(0, 3);
     return { kind: 'jog', label: msg('task.jogging'), goal: loop[i]!, dwell: 0.2, pose: 'stand', interruptible: true };
+  }
+
+  /**
+   * Place memory in a choice (prompt 08): familiar places pull a little, a favourite pulls more,
+   * and something new pulls the curious until it's familiar (novelty fades with the same half-life).
+   */
+  private placeFactor(a: Agent, o: SmartObject): number {
+    const now = this.minutes;
+    const fam = a.places.familiarity(o.id, now);
+    const fav = this.favouriteOf(a, o.kind) === o.id ? FAVOURITE_BONUS : 0;
+    const nov = o.placed && a.known.has(o.id) ? a.p.curiosity * NOVELTY_PULL * a.places.novelty(o.id, now) * (fam < 1 ? 1 : 0.8) : 0;
+    return 1 + fav + 0.1 * fam + nov;
+  }
+
+  /** Their favourite of a kind among what's there now (null if none is familiar enough). */
+  favouriteOf(a: Agent, kind: SmartKind): string | null {
+    const ids: string[] = [];
+    for (const o of this.smart.objects.values()) if (o.kind === kind) ids.push(o.id);
+    return a.places.favourite(ids, this.minutes, a.favs.get(kind) ?? null);
+  }
+
+  /**
+   * They used a place: it grows familiar. Coming back on a later day is worth a line ("tries the
+   * new bench again"), and so is a new favourite. Told once each, and never two at once.
+   */
+  private remember(a: Agent, o: SmartObject): void {
+    const r = a.places.used(o.id, o.x, o.z, this.minutes);
+    const fav = this.favouriteOf(a, o.kind);
+    const was = a.favs.get(o.kind);
+    if (fav && fav !== was) {
+      a.favs.set(o.kind, fav);
+      // the first favourite they ever had of a kind is who they are, not news
+      if (was !== undefined && fav === o.id) return this.story(msg('story.newFavorite', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
+    }
+    if (r === 'again' && o.placed) this.story(msg('story.triesAgain', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
   }
 
   /**
@@ -576,6 +672,7 @@ export class Residents {
       onArrive: () => {
         if (o.kind === 'vending' || o.kind === 'cafe') a.needs.thirst = 0;
         if (o.kind === 'bench' || o.kind === 'cafe') a.needs.fatigue = 0;
+        this.remember(a, o);
         if (o.placed) {
           const others = this.agents.filter((b) => b !== a && !b.hidden && b.arrived && b.task?.obj?.id === o.id).map((b) => b.p.id);
           this.bus.emit('used', { who: a.p.id, id: o.id, with: others });
@@ -626,13 +723,20 @@ export class Residents {
       const t = a.task;
       if (t.obj) a.avoid.set(t.obj.id, this.minutes + 90);
       this.endTask(a, 'question');
+      // getting up from a seat (inside its footprint): step off onto open ground before standing to think
+      if (!this.grid.isOpenAt(a.x, a.z)) {
+        const off = this.grid.nearestOpenLevel(a.x, a.z, 3);
+        if (off) a.shuffle = { fx: a.x, fz: a.z, tx: off[0], tz: off[1], t: 0, dur: 0.45 };
+      }
       a.task = { kind: 'linger', label: msg('task.anotherWay'), goal: [a.x, a.z], dwell: a.rng.range(1, 2.5), pose: 'stand', interruptible: true };
       a.arrived = true;
       a.dwellLeft = a.task.dwell;
       return;
     }
     a.path = path;
-    a.pathIdx = 1;
+    // from a seat (a closed cell inside a bench's footprint) step off to the path's first open cell
+    // first, rather than cutting straight across the bench to the second
+    a.pathIdx = this.grid.isOpenAt(a.x, a.z) ? 1 : 0;
   }
 
   private endTask(a: Agent, icon?: BubbleIcon): void {
@@ -859,6 +963,7 @@ export class Residents {
     this.endTask(a);
     o.inspectors++;
     a.known.add(o.id);
+    a.places.noticed(o.id, o.x, o.z, this.minutes);
     a.lastInspect = performance.now();
     const ang = Math.atan2(a.x - ev.x, a.z - ev.z);
     const r = 1.2;
@@ -976,6 +1081,25 @@ export class Residents {
     }
   }
 
+  /**
+   * The player removed something for good (not a move). Anyone whose favourite it was will go and
+   * look for it, once: a `?` where it stood, a line, then they settle on another.
+   */
+  onGone(id: string): void {
+    const o = this.smart.objects.get(id);
+    if (!o) return;
+    for (const a of this.agents) if (this.favouriteOf(a, o.kind) === id) a.missing.set(id, o.label);
+  }
+
+  /** Forget places that no longer exist, without looking for them (a reset of the town). */
+  forgetGone(): void {
+    for (const a of this.agents) {
+      a.missing.clear();
+      for (const id of a.places.ids) if (!this.smart.objects.has(id)) a.places.forget(id);
+      for (const [kind, id] of a.favs) if (!this.smart.objects.has(id)) a.favs.delete(kind);
+    }
+  }
+
   onRemoved(id: string): void {
     for (const a of this.agents) {
       a.known.delete(id);
@@ -989,6 +1113,23 @@ export class Residents {
   private story(m: Msg, whoId?: string): void {
     this.storyCooldown = 2;
     this.bus.emit('story', { msg: m, who: whoId });
+  }
+
+  /** What each resident knows of places (familiarity, favourites), for the save. */
+  placesData(): Record<string, PlaceMemoryData> {
+    const out: Record<string, PlaceMemoryData> = {};
+    for (const a of this.agents) out[a.p.id] = a.places.toJSON();
+    return out;
+  }
+  restorePlaces(d: Record<string, unknown>): void {
+    for (const a of this.agents) {
+      if (!(a.p.id in d)) continue;
+      a.places = PlaceMemory.from(d[a.p.id]);
+      for (const kind of ['bench', 'cafe', 'view', 'catbowl', 'admire', 'vending'] as const) {
+        const f = this.favouriteOf(a, kind);
+        if (f) a.favs.set(kind, f);
+      }
+    }
   }
 
   /** Persistable snapshot of what residents remember. */

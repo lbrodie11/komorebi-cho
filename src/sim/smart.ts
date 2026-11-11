@@ -112,7 +112,8 @@ const SHOP_QUEUE: readonly (readonly [number, number])[] = [
 ];
 
 export function registerStaticObjects(r: SmartRegistry): void {
-  for (const b of BENCHES) r.add({ id: b.id, kind: 'bench', label: 'bench', x: b.x, z: b.z, slots: benchSlots(b.x, b.z, b.ry) });
+  // each of the town's benches has a name of its own ("the pond bench"): people have favourites
+  for (const b of BENCHES) r.add({ id: b.id, kind: 'bench', label: b.id, x: b.x, z: b.z, slots: benchSlots(b.x, b.z, b.ry) });
   VENDING.forEach((v, i) => r.add({ id: `vending-${i}`, kind: 'vending', label: 'vending', x: v.x, z: v.z, slots: [frontSlot(v.x, v.z, 0, 0.85)] }));
   const shops: [string, string, number, [number, number]][] = [
     ['ramen', 'ramen', -2, [11, 23]],

@@ -120,6 +120,8 @@ if (saved) {
   for (const [id, e] of Object.entries(saved.shops ?? {})) applyShop(id, e.z0, e.z1, false);
   for (const r of saved.placed) if (r.kind in PLACEABLES && build.canPlace(r.kind, r.x, r.z, { ignoreResidents: true })) build.place(r, false);
   residents.restoreMemory(saved.memory);
+  residents.minutes = clock.minutes;
+  residents.restorePlaces(saved.places ?? {});
   pixelSetting = saved.settings.pixel;
   pixel = params.pixel ?? pixelSetting;
   sound.musicVolume = saved.settings.music;
@@ -177,6 +179,7 @@ function persist(): void {
     placed: build.records(),
     shops: world.shopStreet.changed(),
     memory: residents.memory(),
+    places: residents.placesData(),
     tutorial: tutorial.flags,
     memories: [...memories.memories],
     notes: hud.noteList,
@@ -330,6 +333,7 @@ const hud = new Hud(hudRoot, {
     history.clear(); // a reset is a fresh start, not an edit to undo
     hud.setHistory(false, false);
     residents.restoreMemory({}); // removal already made everyone forget; this is belt and braces for orphans
+    residents.forgetGone(); // a fresh start: nobody goes looking for what the reset took away
     // Save the reset state now (settings included) rather than deleting the save: deleting it would also
     // throw away the player's look and volumes until the next autosave.
     persist();
@@ -1219,6 +1223,7 @@ function frame(now: number): void {
   build.showIslands();
   const s0 = performance.now();
   if (!frozen) {
+    residents.minutes = clock.minutes; // place memory fades on the world's clock
     residents.update(dt, gm, hour, rain, time);
     animals.update(dt, time, hour, rain, clock.season, residents.agents);
   }
