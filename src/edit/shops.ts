@@ -51,23 +51,35 @@ export function shopAt(row: readonly ShopExtent[], x: number, z: number): ShopEx
 }
 
 /**
- * Saved shop extents, checked against the street as first laid out: unknown ids, bad numbers
- * and any extent that breaks the row's rules (with the others applied) are dropped.
+ * Saved shop extents, checked as the street they make together: a move is only valid in its
+ * final row (a shop may have grown into room another gave up, saved in any order). Unknown ids
+ * and bad numbers are dropped; a shop that breaks a rule on its own goes back to where it was first
+ * laid out; then, while two shops overlap, the first moved one in row order goes back
+ * (deterministic; a save the game wrote always passes whole).
  */
 export function sanitizeShops(v: unknown, base: readonly ShopExtent[]): Record<string, { z0: number; z1: number }> {
-  const out: Record<string, { z0: number; z1: number }> = {};
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return out;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return {};
   const row = base.map((s) => ({ ...s }));
   for (const [id, e] of Object.entries(v as Record<string, unknown>)) {
     const s = row.find((r) => r.id === id);
     if (!s || typeof e !== 'object' || e === null) continue;
     const { z0, z1 } = e as { z0?: unknown; z1?: unknown };
     if (typeof z0 !== 'number' || typeof z1 !== 'number' || !Number.isFinite(z0) || !Number.isFinite(z1)) continue;
-    // the others as saved so far, this one where it was: does the saved extent still fit?
-    if (shopCheck(row, id, z0, z1)) continue;
     s.z0 = z0;
     s.z1 = z1;
-    out[id] = { z0, z1 };
+  }
+  const back = (s: ShopExtent) => Object.assign(s, { z0: base.find((x) => x.id === s.id)!.z0, z1: base.find((x) => x.id === s.id)!.z1 });
+  // a shop that breaks a rule on its own (too narrow, too wide, past the end) goes back first, so it can't take a valid neighbour with it
+  for (const s of row) if (shopCheck([], s.id, s.z0, s.z1)) back(s);
+  for (let guard = 0; guard <= row.length; guard++) {
+    const bad = row.find((s) => shopCheck(row, s.id, s.z0, s.z1) !== null && base.some((b) => b.id === s.id && (b.z0 !== s.z0 || b.z1 !== s.z1)));
+    if (!bad) break;
+    back(bad);
+  }
+  const out: Record<string, { z0: number; z1: number }> = {};
+  for (const s of row) {
+    const b = base.find((x) => x.id === s.id)!;
+    if (s.z0 !== b.z0 || s.z1 !== b.z1) out[s.id] = { z0: s.z0, z1: s.z1 };
   }
   return out;
 }

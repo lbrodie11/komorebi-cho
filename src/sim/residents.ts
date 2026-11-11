@@ -310,7 +310,7 @@ export class Residents {
       }
       if (!a.task) this.plan(a, hour, rain);
       if (a.task) this.step(a, dt, gm, hour, rain);
-      a.animate(dt, !a.hidden && !a.arrived && a.standUp <= 0 && a.path.length > 0, rain, time);
+      a.animate(dt, !a.hidden && !a.arrived && a.standUp <= 0 && a.path.length > 0 && !a.waitingFor, rain, time);
     }
   }
 
@@ -391,6 +391,7 @@ export class Residents {
     a.placeAt(x, z);
     a.hidden = false;
     a.root.visible = true;
+    a.regionChecked = -1; // out of a door the player may have sealed in meanwhile: check where they are
   }
 
   /** Utility AI: score every reachable option, pick the best (with a little personality noise). */

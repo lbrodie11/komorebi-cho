@@ -185,3 +185,15 @@ describe('seasonal accent budget', () => {
     expect(EMISSIVE.lantern * Math.max(...Object.values(ACCENT_BUDGET))).toBeLessThan(EMISSIVE.streetlamp);
   });
 });
+
+describe('light pools', () => {
+  it('reuses a retired pool slot, so shop rebuilds never grow the pool list', async () => {
+    const { LightPools } = await import('../src/world/lightpools');
+    const p = new LightPools();
+    const spill = { x: 0, z: 0, ry: 0, width: 1, depth: 1 };
+    const a = p.addSpill(spill, 0, '#ffaa58', 0.4);
+    p.addSpill(spill, 0, '#ffaa58', 0.4);
+    p.retire(a);
+    expect(p.addSpill(spill, 0, '#ffaa58', 0.4)).toBe(a);
+  });
+});

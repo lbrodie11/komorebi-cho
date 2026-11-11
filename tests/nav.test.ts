@@ -70,6 +70,22 @@ describe('nav regions and islands (prompt 07)', () => {
     void world;
   });
 
+  it('checks where someone comes out of a door the player sealed in while they were inside', async () => {
+    const { residents } = await buildSim(9);
+    const grid = (residents as unknown as { grid: NavGrid }).grid;
+    const a = residents.agents[0]!;
+    // inside (hidden) at a door; the player rings it while they're in
+    a.hidden = true;
+    a.hiddenAt = [0, 2];
+    a.regionChecked = grid.version + 5; // whatever was last checked
+    ring(grid, 0, 2, 1.4);
+    a.regionChecked = grid.version; // as if checked since: emerging must check again anyway
+    a.task = null;
+    (residents as unknown as { emerge(a: unknown): void }).emerge(a);
+    for (let s = 0; s < 120; s++) residents.update(1 / 20, 0.05, 10, 0, s / 20);
+    expect(a.hidden || !grid.trapped(a.x, a.z)).toBe(true);
+  });
+
   it('rations path searches: a crowd re-planning at once spreads over ticks', async () => {
     const { residents } = await buildSim(4);
     const grid = (residents as unknown as { grid: NavGrid }).grid;

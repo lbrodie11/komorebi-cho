@@ -204,5 +204,6 @@ export class ShopStreet {
       const i = kit.windows.indexOf(w);
       if (i >= 0) kit.windows.splice(i, 1);
     }
+    kit.forget(meshes);
   }
 }

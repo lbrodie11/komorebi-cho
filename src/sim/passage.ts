@@ -60,11 +60,18 @@ export class Passage {
 
   /**
    * Once a tick: who is walking inside now (id → heading). Those who left or stopped are no longer
-   * traffic; anyone walking inside without having asked (they set off from a viewing spot) joins.
+   * traffic; anyone walking inside without having asked (they set off from a viewing spot) joins,
+   * and if they go against the traffic the passage drains before anyone else gets in.
    */
   sync(walkersInside: ReadonlyMap<string, -1 | 1>, waitersStillWaiting: ReadonlySet<string>): void {
     for (const id of [...this.crossing.keys()]) if (!walkersInside.has(id)) this.crossing.delete(id);
-    for (const [id, d] of walkersInside) if (!this.crossing.has(id)) this.crossing.set(id, d);
+    for (const [id, d] of walkersInside) {
+      if (this.crossing.has(id)) continue;
+      this.crossing.set(id, d);
+      // someone set off from a viewing spot against the traffic: let nobody else in until it clears
+      if (this.dir === 0) this.dir = d;
+      else if (d !== this.dir) this.draining = true;
+    }
     for (const id of [...this.waiting.keys()]) if (!waitersStillWaiting.has(id)) this.waiting.delete(id);
     if (this.crossing.size === 0) {
       this.dir = 0;

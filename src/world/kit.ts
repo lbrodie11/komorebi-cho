@@ -72,6 +72,11 @@ export class Kit {
     }
   }
 
+  /** Let go of meshes taken out of the scene (a rebuilt shop): the kit no longer keeps them alive. */
+  forget(objects: ReadonlySet<THREE.Object3D>): void {
+    for (let i = this.weatheredMeshes.length - 1; i >= 0; i--) if (objects.has(this.weatheredMeshes[i]!.mesh)) this.weatheredMeshes.splice(i, 1);
+  }
+
   add<T extends THREE.Object3D>(o: T, shadows = true): T {
     if (shadows)
       o.traverse((c) => {

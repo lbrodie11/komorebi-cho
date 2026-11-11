@@ -215,6 +215,11 @@ export class NavGrid {
 
   /** The nearest open cell centre of region `region` within `maxRing` cells of a point. */
   private nearestInRegion(x: number, z: number, region: number, maxRing: number): [number, number] | null {
+    return this.spiral(x, z, maxRing, (i, j) => this.comp[j * this.cols + i] === region);
+  }
+
+  /** The nearest cell centre (ring by ring outward from the point's cell) where `ok` holds. */
+  private spiral(x: number, z: number, maxRing: number, ok: (i: number, j: number) => boolean): [number, number] | null {
     const [ci, cj] = this.cellOf(x, z);
     for (let r = 0; r <= maxRing; r++) {
       let best: [number, number] | null = null;
@@ -224,7 +229,7 @@ export class NavGrid {
           if (Math.abs(di) !== r && Math.abs(dj) !== r) continue;
           const i = ci + di,
             j = cj + dj;
-          if (!this.inBounds(i, j) || this.comp[j * this.cols + i] !== region) continue;
+          if (!this.inBounds(i, j) || !ok(i, j)) continue;
           const c = this.center(i, j);
           const d = Math.hypot(c[0] - x, c[1] - z);
           if (d < bd) {
@@ -251,25 +256,7 @@ export class NavGrid {
 
   /** Nearest open cell centre to a point (spiral search), for snapping goals. */
   nearestOpen(x: number, z: number, maxRing = 8): [number, number] | null {
-    const [ci, cj] = this.cellOf(x, z);
-    if (this.open(ci, cj)) return this.center(ci, cj);
-    for (let r = 1; r <= maxRing; r++) {
-      let best: [number, number] | null = null;
-      let bd = Infinity;
-      for (let dj = -r; dj <= r; dj++)
-        for (let di = -r; di <= r; di++) {
-          if (Math.abs(di) !== r && Math.abs(dj) !== r) continue;
-          if (!this.open(ci + di, cj + dj)) continue;
-          const c = this.center(ci + di, cj + dj);
-          const d = Math.hypot(c[0] - x, c[1] - z);
-          if (d < bd) {
-            bd = d;
-            best = c;
-          }
-        }
-      if (best) return best;
-    }
-    return null;
+    return this.spiral(x, z, maxRing, (i, j) => this.open(i, j));
   }
 
   private canStep(i: number, j: number, ni: number, nj: number): boolean {

@@ -43,4 +43,12 @@ describe('shop row rules', () => {
     expect(sanitizeShops({ nope: { z0: 0, z1: 3 }, ramen: { z0: 'x', z1: 1 } }, row)).toEqual({});
     expect(sanitizeShops([1, 2], row)).toEqual({});
   });
+
+  it('accepts a saved street as a whole, whatever order the shops were saved in', () => {
+    // the ramen shop grew into room the bakery gave up; saved ramen first
+    const saved = { ramen: { z0: -3.6, z1: 0.6 }, bakery: { z0: 0.8, z1: 3.2 } };
+    expect(sanitizeShops(saved, row)).toEqual(saved);
+    // a shop that breaks the final row goes back where it was; the rest stay
+    expect(sanitizeShops({ ramen: { z0: -3.6, z1: 0.6 } }, row)).toEqual({});
+  });
 });

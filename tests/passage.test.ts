@@ -30,6 +30,21 @@ describe('narrow passages take turns (prompt 07)', () => {
     expect(p.request('w', -1, MAX_WAIT + 1)).toBe(true);
   });
 
+  it('drains when someone sets off against the traffic from a viewing spot', () => {
+    const p = new Passage(spec);
+    expect(p.request('a', 1, 0)).toBe(true);
+    p.sync(
+      new Map<string, -1 | 1>([
+        ['a', 1],
+        ['viewer', -1],
+      ]),
+      new Set(),
+    );
+    expect(p.request('b', 1, 1)).toBe(false); // same way as the traffic, but it must clear first
+    p.sync(new Map(), new Set(['b']));
+    expect(p.request('b', 1, 2)).toBe(true);
+  });
+
   it('never has two people crossing the bridge head-on, and both get across', async () => {
     const { residents } = await buildSim(6);
     for (const x of residents.agents) x.hidden = true;

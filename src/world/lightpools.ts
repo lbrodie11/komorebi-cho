@@ -77,6 +77,8 @@ interface Pool {
 export class LightPools {
   readonly group = new THREE.Group();
   private readonly pools: Pool[] = [];
+  /** Retired slots, reused by the next pool (shop rebuilds retire and add pools on every edit). */
+  private readonly free: number[] = [];
   private readonly maps: Record<Shape, THREE.DataTexture> = { round: falloffTexture('round'), spill: falloffTexture('spill') };
 
   private make(geo: THREE.BufferGeometry, shape: Shape, color: string, peak: number): number {
@@ -99,7 +101,13 @@ export class LightPools {
     mesh.visible = false;
     mesh.renderOrder = 1;
     this.group.add(mesh);
-    this.pools.push({ mesh, mat, color: new THREE.Color(color), peak });
+    const pool = { mesh, mat, color: new THREE.Color(color), peak };
+    const reuse = this.free.pop();
+    if (reuse !== undefined) {
+      this.pools[reuse] = pool;
+      return reuse;
+    }
+    this.pools.push(pool);
     return this.pools.length - 1;
   }
 
@@ -142,6 +150,7 @@ export class LightPools {
     p.mesh.removeFromParent();
     p.mesh.geometry.dispose();
     p.mat.dispose();
+    this.free.push(i);
   }
 
   /** Brightness of pool `i`, 0..1 of its peak. */
