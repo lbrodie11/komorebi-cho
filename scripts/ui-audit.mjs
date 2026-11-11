@@ -15,6 +15,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const base = process.argv[2] || 'http://localhost:4173/';
+// How long a page may take to boot: generous, since software GL on a busy machine can take minutes
+const BOOT_MS = Number(process.env.BOOT_MS) || 180000;
 const out = process.argv[3] || 'shots/ui-audit';
 fs.mkdirSync(out, { recursive: true });
 
@@ -41,7 +43,7 @@ async function boot(browser, opts = {}) {
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await page.goto(base + (opts.query || ''), DOM_READY);
   try {
-    await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: opts.timeout || 90000 });
+    await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: opts.timeout || BOOT_MS });
   } catch {
     /* reported by caller */
   }
@@ -57,8 +59,8 @@ const byText = (page, scope, text) => page.locator(`${scope} button`, { hasText:
  * Navigate to DOM ready, then wait for frames (ready()). Not the 'load' event: under software WebGL
  * (SwiftShader) heavy frames can starve it for many seconds, and it isn't what any check is about.
  */
-const DOM_READY = { waitUntil: 'domcontentloaded' };
-const ready = (p) => p.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: 90000 });
+const DOM_READY = { waitUntil: 'domcontentloaded', timeout: BOOT_MS };
+const ready = (p) => p.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: BOOT_MS });
 const disk = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('komorebi-cho/save') || 'null'));
 const persist = (p) => p.evaluate(() => window.dispatchEvent(new Event('pagehide')));
 const note = (p) => p.evaluate(() => (document.querySelector('.save-note.open') ? document.querySelector('.save-note .text').textContent : null));
@@ -593,7 +595,7 @@ await (async () => {
     await cb.check();
     await K(page, () => window.dispatchEvent(new Event('pagehide')));
     await page.reload(DOM_READY);
-    await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: 90000 });
+    await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: BOOT_MS });
     const restored = await K(page, () => {
       const r = [...document.querySelectorAll('.settings input[type=range]')].map((i) => i.value);
       return { music: r[0], amb: r[1], rm: document.querySelector('.settings input[type=checkbox]').checked, world: window.__komorebi.world.reducedMotion };
@@ -625,8 +627,8 @@ await (async () => {
     ],
     ['JSON null', 'null'],
   ]) {
-    // the same boot allowance as every other boot: a loaded machine with software GL can take 20 s+
-    const { ctx, page, errors } = await boot(browser, { save: raw, timeout: 90000 });
+    // the same boot allowance as every other boot
+    const { ctx, page, errors } = await boot(browser, { save: raw });
     const ok = await K(page, () => (window.__komorebi?.frames ?? 0) > 3 && Number.isFinite(window.__komorebi.clock.minutes)).catch(() => false);
     check(`corrupt save (${name}) still boots`, ok && errors.length === 0, errors.slice(0, 2).join(' | '));
     await ctx.close();

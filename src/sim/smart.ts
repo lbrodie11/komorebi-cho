@@ -32,6 +32,8 @@ export interface SmartObject {
   /** Concurrent "come look at this" visitors, capped to avoid swarms. */
   inspectors: number;
   openHours?: [number, number];
+  /** A placed object's footprint radius: a slot of anything else that falls under it can't be used. */
+  radius?: number;
   /** How many can use it in comfort (its slots are the hard limit); by default, all of them. */
   soft?: number;
   /** Standing spots where people wait their turn when every slot is taken (shops), nearest first. */
@@ -54,14 +56,22 @@ export class SmartRegistry {
   isOpen(o: SmartObject, hour: number): boolean {
     return !o.openHours || hourInRange(hour, o.openHours[0], o.openHours[1]);
   }
-  /** All objects of a kind with at least one free slot. */
+  /**
+   * Can someone stand in this slot of `o`? Not if something else was placed over it (the fox statues
+   * set down right where you'd stand to admire the planter).
+   */
+  usable(o: SmartObject, s: Slot): boolean {
+    for (const p of this.objects.values()) if (p !== o && p.radius && Math.hypot(p.x - s.x, p.z - s.z) < p.radius * 0.7) return false;
+    return true;
+  }
+  /** All objects of a kind with at least one free, usable slot. */
   available(kind: SmartKind, hour: number): SmartObject[] {
     const out: SmartObject[] = [];
-    for (const o of this.objects.values()) if (o.kind === kind && this.isOpen(o, hour) && o.slots.some((s) => !s.takenBy)) out.push(o);
+    for (const o of this.objects.values()) if (o.kind === kind && this.isOpen(o, hour) && o.slots.some((s) => !s.takenBy && this.usable(o, s))) out.push(o);
     return out;
   }
   reserve(o: SmartObject, who: string): Slot | null {
-    const s = o.slots.find((sl) => !sl.takenBy);
+    const s = o.slots.find((sl) => !sl.takenBy && this.usable(o, sl));
     if (!s) return null;
     s.takenBy = who;
     return s;

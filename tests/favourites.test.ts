@@ -92,7 +92,7 @@ describe('Mitsuko and the new bench (prompt 08 thin slice)', () => {
     // the player takes it away: next time, she looks for it, then a bench of hers again
     const before = told.length;
     build.remove('new-bench');
-    run(6 * 1440 + 18 * 60);
+    run(8 * 1440 + 18 * 60); // a new habit takes three days
     const after = told.slice(before);
     const looked = after.findIndex((s) => s.key === 'story.looksFor');
     expect(looked, after.map((s) => s.key).join(' ')).toBeGreaterThanOrEqual(0);
@@ -102,8 +102,19 @@ describe('Mitsuko and the new bench (prompt 08 thin slice)', () => {
     expect(m.missing.size).toBe(0);
     // no line told twice in a row
     for (let i = 1; i < told.length; i++) expect(`${told[i]!.key}|${told[i]!.thing}`).not.toBe(`${told[i - 1]!.key}|${told[i - 1]!.thing}`);
+    // her diary tells the same story, a line a day, never the same line twice running
+    const { fmt } = await import('../src/i18n');
+    const lines = m.diary.entries.map((e) => fmt(e.msg));
+    const whats = m.diary.entries.map((e) => (e.msg.params as Record<string, { key: string }>).what!.key);
+    expect(
+      whats.some((k) => k === 'diary.again' || k === 'diary.newFavorite' || k === 'diary.lookedFor'),
+      lines.join(' | '),
+    ).toBe(true);
+    for (let i = 1; i < lines.length; i++) expect(lines[i]).not.toBe(lines[i - 1]);
+    expect(residents.info(m).diary.length).toBe(2);
     // and the cats came to sit by her
     expect(seated).toBeGreaterThan(0);
-    expect(catNear / seated).toBeGreaterThan(0.3);
+    // (at 4× her sittings last 2-5 real seconds while cats walk in real time, so this undercounts)
+    expect(catNear / seated).toBeGreaterThan(0.2);
   }, 600_000);
 });

@@ -37,7 +37,7 @@ src/world     layout (THE DATA), grammar/ (building specs → parts → geometry
               weathering (pure per-vertex maths), lighting (window schedules, spill, brightness hierarchy),
               lightpools (ground pool decals), buildings, shopstreet (the shop row, rebuildable shop by shop), nature, props (+ placeables), crowd (light sharing),
               weather, world (assembly + time-driven updates)
-src/sim       grid (nav + A*, regions/islands), town (the town's grid + anchors), passage (narrow passages take turns), smart (affordances/reservations/queues), places (familiarity, favourites), personas (the neighbours), residents (schedule → needs → utility → action), memories (true-to-sim journal events + scene snapshots),
+src/sim       grid (nav + A*, regions/islands), town (the town's grid + anchors), passage (narrow passages take turns), smart (affordances/reservations/queues), places (familiarity, favourites), utility (curves, hysteresis), diary, personas (the neighbours), residents (schedule → needs → utility → action), memories (true-to-sim journal events + scene snapshots),
               animals, bubbles, warmup (fixed-step warm-up for seeded runs)
 src/audio     engine (graph), theory (pure), music (generative piano), ambience (soundscape), sound (facade + sfx)
 src/ui        hud (DOM), build (placement tool), debug (?debug overlay), wordmark (bitmap font), style.css

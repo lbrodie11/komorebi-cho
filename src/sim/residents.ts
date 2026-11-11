@@ -1,9 +1,11 @@
 import * as THREE from 'three';
-import { Rng } from '../core/rng';
+import { Rng, stream } from '../core/rng';
 import { hourInRange } from '../core/clock';
 import { clamp } from '../core/math';
 import { Passage } from './passage';
 import { PlaceMemory, type PlaceMemoryData } from './places';
+import { curve, pick, score } from './utility';
+import { Diary, type DiaryEntry } from './diary';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
 import { DOORS, EXITS, PASSAGES } from '../world/layout';
@@ -47,6 +49,18 @@ const AVOID_RADIUS = 1.2;
  */
 const FAVOURITE_BONUS = 0.3;
 const NOVELTY_PULL = 1.4;
+/** Game minutes until doing the same kind of thing again appeals as much as before. */
+const SATED_MINUTES = 60;
+/** A bow's length (s), how often a pair greets at most (game minutes), and a chat turn (s). */
+const BOW_SECONDS = 0.8;
+const GREET_EVERY = 60;
+const CHAT_TURN = 2.4;
+
+/** How close two neighbours are (0..1): either side's word counts. */
+export function friendship(a: { p: Persona }, b: { p: Persona }): number {
+  return Math.max(a.p.friends?.[b.p.id] ?? 0, b.p.friends?.[a.p.id] ?? 0);
+}
+
 /** People within this distance (m) of something make it feel crowded. */
 const CROWD_RADIUS = 2;
 /** Game minutes someone waits in a shop's line before giving up. */
@@ -72,7 +86,10 @@ export class Agent {
   bubbleT = 0;
   walkPhase = 0;
   pose: Pose = 'stand';
-  readonly needs = { fatigue: 0.2, thirst: 0.2 };
+  /** Needs, 0..1: tiredness, thirst, and wanting company (prompt 08). */
+  readonly needs = { fatigue: 0.2, thirst: 0.2, social: 0.3 };
+  /** Seconds left of a bow (to a neighbour passing by). */
+  bowT = 0;
   readonly known = new Set<string>();
   lastInspect = -999;
   /** How well they know each place, and which they like best (prompt 08). */
@@ -81,6 +98,14 @@ export class Agent {
   readonly favs = new Map<string, string>();
   /** Favourites the player removed, to go and look for once (id → the place's noun label). */
   readonly missing = new Map<string, string>();
+  /** A line a day, from what really happened (prompt 08). */
+  readonly diary = new Diary();
+  /** When they last did each kind of thing (game minutes): just had a drink, they don't want another. */
+  readonly lastDid = new Map<string, number>();
+  /** What they chose last of each kind of activity (the hysteresis margin keeps it unless clearly beaten). */
+  readonly lastPick = new Map<string, string>();
+  /** Simulation seconds until they decide what's next (decisions are staggered, 0.5–2 s apart). */
+  thinkUntil = 0;
   /** The narrow passage they are waiting to enter (it is the other way's turn), if any. */
   waitingFor: string | null = null;
   /** Waiting for a path search (searches are rationed per tick, so many re-plans never land in one frame). */
@@ -216,6 +241,11 @@ export class Agent {
       default:
         break;
     }
+    // a small bow to a neighbour passing by
+    if (this.bowT > 0) {
+      this.bowT = Math.max(0, this.bowT - dt);
+      this.body.rotation.x = Math.max(this.body.rotation.x, 0.45 * Math.sin((Math.PI * this.bowT) / BOW_SECONDS));
+    }
     if (this.pose === 'sit') {
       this.legs[0]!.rotation.x = legX;
       this.legs[1]!.rotation.x = legX;
@@ -240,6 +270,8 @@ export interface ResidentInfo {
   knows: number;
   /** Their favourite place, if they have one (its noun). */
   favorite: Msg | null;
+  /** Their diary, newest first (the last two days). */
+  diary: Msg[];
 }
 
 /** A neighbour as a message parameter: their short name, in the reader's language. */
@@ -303,6 +335,10 @@ export class Residents {
       doing: a.hidden ? this.hiddenLabel(a) : (a.task?.label ?? msg('task.thinking')),
       knows: a.known.size,
       favorite: this.topFavourite(a),
+      diary: a.diary.entries
+        .slice(-2)
+        .reverse()
+        .map((e) => e.msg),
     };
   }
 
@@ -335,15 +371,19 @@ export class Residents {
     this.clockS += dt;
     this.hourNow = hour;
     this.syncPassages();
+    this.diaryDay(rain);
+    this.socialPass(gm);
     for (const a of this.agents) {
       if (!a.hidden && !a.shuffle && a.regionChecked !== this.grid.version) this.recover(a);
       a.needs.thirst = clamp(a.needs.thirst + gm * 0.004, 0, 1);
+      a.needs.social = clamp(a.needs.social + gm * 0.003, 0, 1);
       if (a.shuffle) {
         this.shuffleStep(a, dt);
         a.animate(dt, true, rain, time);
         continue;
       }
-      if (!a.task) this.plan(a, hour, rain);
+      // decisions are staggered: a beat between one thing and the next, never all at once
+      if (!a.task && this.clockS >= a.thinkUntil) this.plan(a, hour, rain);
       if (a.task) this.step(a, dt, gm, hour, rain);
       a.animate(dt, !a.hidden && !a.arrived && a.standUp <= 0 && a.path.length > 0 && !a.waitingFor, rain, time);
     }
@@ -429,12 +469,16 @@ export class Residents {
     a.regionChecked = -1; // out of a door the player may have sealed in meanwhile: check where they are
   }
 
-  /** Utility AI: score every reachable option, pick the best (with a little personality noise). */
+  /**
+   * Utility AI (prompt 08): score every reachable option as weight × considerations (response curves
+   * for the needs, distance and crowding as considerations, with compensation), then pick with a
+   * mood drawn per kind of activity and a hysteresis margin for what they chose last of each kind.
+   */
   private freeTime(a: Agent, hour: number, rain: number): void {
     const p = a.p;
     const like = (k: SmartKind | 'wander' | 'jog' | 'deliver') => p.likes[k] ?? 0;
     const night = hour > 20.5 || hour < 5.5;
-    type Option = { score: number; make: () => Task | null };
+    type Option = { score: number; key: string; kind: string; make: () => Task | null };
     const opts: Option[] = [];
     const dist = (o: { x: number; z: number }) => Math.hypot(o.x - a.x, o.z - a.z);
     const dPen = (o: { x: number; z: number }) => 1 / (1 + dist(o) / 22);
@@ -444,19 +488,20 @@ export class Residents {
       for (const o of this.smart.available(kind, hour)) {
         if (o.placed && !a.known.has(o.id)) continue;
         if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
-        const score = base * dPen(o) * this.crowdFactor(a, o) * this.placeFactor(a, o);
-        opts.push({ score, make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
+        const s = score(base, [dPen(o), this.crowdFactor(a, o), this.satiation(a, kind)]) * this.placeFactor(a, o) * this.socialFactor(a, o);
+        opts.push({ score: s, key: o.id, kind, make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
       }
       // every counter busy: queueing is an option, a less attractive one
       for (const o of this.smart.queueable(kind, hour)) {
         if ((a.avoid.get(o.id) ?? -1) > this.minutes) continue;
-        const score = base * dPen(o) * this.crowdFactor(a, o) * 0.55;
-        opts.push({ score, make: () => this.queueTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
+        const s = score(base, [dPen(o), this.crowdFactor(a, o)]) * 0.55;
+        opts.push({ score: s, key: `queue:${o.id}`, kind, make: () => this.queueTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
       }
     };
     const isKid = !!p.kid;
-    useOpt('bench', (0.25 + a.needs.fatigue * 0.8 + like('bench')) * rainPen, () => msg('task.sitting'), [8, 20], 'note');
-    useOpt('vending', a.needs.thirst * 1.1 + like('vending') * 0.5, () => msg('task.drink'), [1.2, 2], 'cup');
+    // needs through response curves: tiredness matters little until it suddenly does; thirst builds
+    useOpt('bench', (0.25 + curve.logistic(a.needs.fatigue, 8, 0.5) * 0.8 + like('bench')) * rainPen, () => msg('task.sitting'), [8, 20], 'note');
+    useOpt('vending', curve.quadratic(a.needs.thirst) * 1.4 + like('vending') * 0.5, () => msg('task.drink'), [1.2, 2], 'cup');
     if (!night) {
       useOpt('shop', 0.25 + like('shop'), (o) => msg('task.browsing', { thing: thing(o.label) }), [3, 7]);
       useOpt('view', (0.3 + like('view')) * rainPen, () => msg('task.koi'), [3, 8], 'sparkle');
@@ -476,6 +521,8 @@ export class Residents {
       const at = a.places.where(id);
       opts.push({
         score: 2,
+        key: `search:${id}`,
+        kind: 'search',
         make: () => {
           a.missing.delete(id);
           const spot = at && this.grid.nearestOpen(at.x, at.z, 4);
@@ -490,6 +537,7 @@ export class Residents {
             onArrive: () => {
               a.say('question', 2.2);
               a.places.forget(id);
+              a.diary.note(Math.floor(this.minutes / 1440), 'lookedFor', thing(label));
               this.story(msg('story.looksFor', { who: who(a.p.id), thing: thing(label) }), a.p.id);
             },
           };
@@ -500,15 +548,19 @@ export class Residents {
     // wandering the park
     opts.push({
       score: (0.3 + like('wander')) * rainPen,
+      key: 'wander',
+      kind: 'wander',
       make: () => {
         const pt = this.grid.randomOpenIn(() => a.rng.next(), -7.5, 7.8, -3.5, 8.2);
         return pt ? { kind: 'wander', label: msg('task.stroll'), goal: pt, dwell: a.rng.range(0.5, 2), pose: 'stand', interruptible: true } : null;
       },
     });
-    if (like('jog') > 0 && !night && rain < 0.4) opts.push({ score: like('jog'), make: () => this.jogTask(a) });
+    if (like('jog') > 0 && !night && rain < 0.4) opts.push({ score: like('jog'), key: 'jog', kind: 'jog', make: () => this.jogTask(a) });
     if (like('deliver') > 0 && hourInRange(hour, 9, 18))
       opts.push({
         score: like('deliver'),
+        key: 'deliver',
+        kind: 'deliver',
         make: () => {
           const ids = ['ramen', 'bakery', 'florist', 'books', 'kissaten', 'aptA', 'aptB', 'aptC', 'sento'];
           const d = DOORS[a.rng.pick(ids)]!;
@@ -526,6 +578,8 @@ export class Residents {
     // go home early when it pours or gets late
     opts.push({
       score: 0.08 + rain * 0.5 + (night ? 0.8 : 0),
+      key: 'home',
+      kind: 'home',
       make: () => ({
         kind: 'home',
         label: msg('task.headingHome'),
@@ -537,17 +591,11 @@ export class Residents {
       }),
     });
 
-    let best: Option | null = null;
-    let bestScore = -1;
-    for (const o of opts) {
-      const s = o.score * a.rng.range(0.75, 1.25);
-      if (s > bestScore) {
-        bestScore = s;
-        best = o;
-      }
-    }
+    const best = pick(opts, () => a.rng.range(0.75, 1.25), a.lastPick);
     const t = best?.make();
-    if (t) this.assign(a, t);
+    if (!best || !t) return;
+    a.lastPick.set(best.kind, best.key);
+    this.assign(a, t);
   }
 
   private jogTask(a: Agent): Task {
@@ -585,15 +633,123 @@ export class Residents {
    * new bench again"), and so is a new favourite. Told once each, and never two at once.
    */
   private remember(a: Agent, o: SmartObject): void {
+    a.lastDid.set(o.kind, this.minutes);
     const r = a.places.used(o.id, o.x, o.z, this.minutes);
     const fav = this.favouriteOf(a, o.kind);
     const was = a.favs.get(o.kind);
-    if (fav && fav !== was) {
+    const day = Math.floor(this.minutes / 1440);
+    if (fav === o.id) a.diary.note(day, 'favorite', thing(o.label));
+    if (r === 'first' && o.placed) a.diary.note(day, 'tried', thing(o.label));
+    // a new favourite is taken (and told) when they're there, not while they sit somewhere else, and
+    // not while they still mean to go and look for the one that went (first the `?`, then settling)
+    if (fav && fav !== was && fav === o.id && a.missing.size === 0) {
       a.favs.set(o.kind, fav);
       // the first favourite they ever had of a kind is who they are, not news
-      if (was !== undefined && fav === o.id) return this.story(msg('story.newFavorite', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
+      if (was !== undefined) {
+        a.diary.note(day, 'newFavorite', thing(o.label));
+        return this.story(msg('story.newFavorite', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
+      }
     }
-    if (r === 'again' && o.placed) this.story(msg('story.triesAgain', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
+    if (r === 'again' && o.placed) {
+      a.diary.note(day, 'again', thing(o.label));
+      this.story(msg('story.triesAgain', { who: who(a.p.id), thing: thing(o.label) }), a.p.id);
+    }
+  }
+
+  /** The day the diaries are on; each resident's own named stream picks their details. */
+  private diaryOn = -1;
+  private readonly diaryRng = new Map<string, Rng>();
+  /** Midnight: everyone who was out writes yesterday's line. Otherwise note the weather they're out in. */
+  private diaryDay(rain: number): void {
+    const day = Math.floor(this.minutes / 1440);
+    if (this.diaryOn !== -1 && day !== this.diaryOn)
+      for (const a of this.agents) {
+        let r = this.diaryRng.get(a.p.id);
+        if (!r) this.diaryRng.set(a.p.id, (r = stream(`diary/${a.p.id}`)));
+        a.diary.close(this.diaryOn, r);
+      }
+    this.diaryOn = day;
+    for (const a of this.agents) a.diary.weather(day, rain, !a.hidden);
+  }
+
+  /** Having just done something, wanting it again recovers over an hour (no drink after drink after drink). */
+  private satiation(a: Agent, kind: string): number {
+    const since = this.minutes - (a.lastDid.get(kind) ?? -Infinity);
+    return curve.logistic(since / SATED_MINUTES, 8, 0.6);
+  }
+
+  /** Friends at a place make it more inviting, more so the more they want company (kids play together). */
+  private socialFactor(a: Agent, o: SmartObject): number {
+    let pull = 0;
+    for (const b of this.agents) if (b !== a && !b.hidden && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) pull += friendship(a, b);
+    return 1 + pull * (0.4 + a.needs.social);
+  }
+
+  /** When each pair last greeted (game minutes), and the chats already told today. */
+  private readonly greeted = new Map<string, number>();
+  private readonly toldChats = new Set<string>();
+
+  /**
+   * The social layer (prompt 08), once a tick over every pair in view: neighbours passing close bow;
+   * friends across the lane wave; friends sitting together chat, in turns (alternating bubbles), which
+   * is what company is for. Each pair greets at most once an hour.
+   */
+  private socialPass(gm: number): void {
+    const out = this.agents.filter((a) => !a.hidden);
+    for (let i = 0; i < out.length; i++)
+      for (let j = i + 1; j < out.length; j++) {
+        const a = out[i]!,
+          b = out[j]!;
+        const d = Math.hypot(a.x - b.x, a.z - b.z);
+        if (d > 7) continue;
+        const f = friendship(a, b);
+        const seated = (x: Agent) => x.arrived && x.pose === 'sit';
+        if (seated(a) && seated(b) && a.task?.obj && a.task.obj === b.task?.obj && f >= 0.2) {
+          this.chat(a, b, gm);
+          continue;
+        }
+        const walking = (x: Agent) => !x.arrived && x.path.length > 0 && !x.shuffle;
+        if (!walking(a) && !walking(b)) continue;
+        const key = a.p.id < b.p.id ? `${a.p.id}|${b.p.id}` : `${b.p.id}|${a.p.id}`;
+        if ((this.greeted.get(key) ?? -Infinity) + GREET_EVERY > this.minutes) continue;
+        if (d < 1.6 && !seated(a) && !seated(b)) {
+          // passing on the lane: a small bow each (everyone here knows everyone)
+          this.greeted.set(key, this.minutes);
+          a.bowT = b.bowT = BOW_SECONDS;
+        } else if (d > 3 && f >= 0.5 && !seated(a) && !seated(b) && this.closestApproach(a, b) > 2) {
+          // friends across the lane, not about to pass each other (then they'll bow): a wave
+          this.greeted.set(key, this.minutes);
+          a.say('wave', 1.4);
+          b.say('wave', 1.4);
+        }
+      }
+  }
+
+  /** How close two people will come in the next few seconds, walking as they are (m). */
+  private closestApproach(a: Agent, b: Agent): number {
+    const vel = (x: Agent): [number, number] => {
+      if (x.arrived || x.pathIdx >= x.path.length) return [0, 0];
+      const [tx, tz] = x.path[x.pathIdx]!;
+      const d = Math.hypot(tx - x.x, tz - x.z) || 1;
+      return [((tx - x.x) / d) * x.p.speed, ((tz - x.z) / d) * x.p.speed];
+    };
+    const [ax, az] = vel(a),
+      [bx, bz] = vel(b);
+    let best = Infinity;
+    for (let t = 0; t <= 5; t += 0.25) best = Math.min(best, Math.hypot(a.x + ax * t - b.x - bx * t, a.z + az * t - b.z - bz * t));
+    return best;
+  }
+
+  /** Two friends on one bench: they talk in turns; company is what they wanted. Told once a day per pair. */
+  private chat(a: Agent, b: Agent, gm: number): void {
+    const [p, q] = a.p.id < b.p.id ? [a, b] : [b, a];
+    const speaker = Math.floor(this.clockS / CHAT_TURN) % 2 === 0 ? p : q;
+    if (speaker.bubbleT <= 0) speaker.say('chat', CHAT_TURN * 0.7);
+    for (const x of [a, b]) x.needs.social = Math.max(0, x.needs.social - gm * 0.05);
+    const key = `${p.p.id}|${q.p.id}|${Math.floor(this.minutes / 1440)}`;
+    if (this.toldChats.has(key) || this.storyCooldown > 0) return;
+    this.toldChats.add(key);
+    this.story(msg('story.chat', { a: who(p.p.id), b: who(q.p.id), thing: thing(a.task!.obj!.label) }), p.p.id);
   }
 
   /**
@@ -602,7 +758,8 @@ export class Residents {
    */
   private crowdFactor(a: Agent, o: SmartObject): number {
     let n = 0;
-    for (const b of this.agents) if (b !== a && !b.hidden && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) n++;
+    // friends there aren't a crowd: they're a reason to go (socialFactor)
+    for (const b of this.agents) if (b !== a && !b.hidden && friendship(a, b) < 0.3 && Math.hypot(b.x - o.x, b.z - o.z) < CROWD_RADIUS) n++;
     const density = n / Math.max(1, o.soft ?? o.slots.length);
     return 1 / (1 + density * (a.p.crowdAversion ?? 1));
   }
@@ -747,6 +904,8 @@ export class Residents {
     a.pose = 'stand';
     a.task = null;
     a.waitingFor = null;
+    // a beat before the next thing, unless they're on a seat (inside its footprint): step off first
+    a.thinkUntil = this.grid.isOpenAt(a.x, a.z) ? this.clockS + a.rng.range(0.5, 2) : this.clockS;
     a.path = [];
     a.arrived = false;
     if (icon) a.say(icon, 1.6);
@@ -964,6 +1123,7 @@ export class Residents {
     o.inspectors++;
     a.known.add(o.id);
     a.places.noticed(o.id, o.x, o.z, this.minutes);
+    if (o.placed) a.diary.note(Math.floor(this.minutes / 1440), 'noticed', thing(o.label));
     a.lastInspect = performance.now();
     const ang = Math.atan2(a.x - ev.x, a.z - ev.z);
     const r = 1.2;
@@ -998,7 +1158,12 @@ export class Residents {
           this.inspect(a, o, { id: o.id, kind: o.kind, x: o.x, z: o.z, novelty: 0.5 }, hour);
           break;
         }
-        if (Math.hypot(a.x - o.x, a.z - o.z) < 3.2) a.known.add(o.id);
+        if (Math.hypot(a.x - o.x, a.z - o.z) < 3.2 && !a.known.has(o.id)) {
+          // seen in passing: they know it's there now, it's new to them, and it goes in the diary
+          a.known.add(o.id);
+          a.places.noticed(o.id, o.x, o.z, this.minutes);
+          a.diary.note(Math.floor(this.minutes / 1440), 'noticed', thing(o.label));
+        }
       }
     }
   }
@@ -1113,6 +1278,16 @@ export class Residents {
   private story(m: Msg, whoId?: string): void {
     this.storyCooldown = 2;
     this.bus.emit('story', { msg: m, who: whoId });
+  }
+
+  /** Each resident's diary, for the save. */
+  diariesData(): Record<string, DiaryEntry[]> {
+    const out: Record<string, DiaryEntry[]> = {};
+    for (const a of this.agents) if (a.diary.entries.length) out[a.p.id] = [...a.diary.entries];
+    return out;
+  }
+  restoreDiaries(d: Record<string, DiaryEntry[]>): void {
+    for (const a of this.agents) if (d[a.p.id]) a.diary.entries = d[a.p.id]!.slice(-7);
   }
 
   /** What each resident knows of places (familiarity, favourites), for the save. */

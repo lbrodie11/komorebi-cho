@@ -31,6 +31,8 @@ export interface SaveData extends SaveStamp {
   /** Shop-houses the player moved or resized: their frontage (z0..z1) by id. Optional on disk. */
   shops?: Record<string, { z0: number; z1: number }>;
   memory: Record<string, string[]>;
+  /** Each resident's diary: the last week of entries (prompt 08). Optional on disk. */
+  diaries?: Record<string, { day: number; msg: Msg }[]>;
   /** What each resident knows of places: familiarity and favourites (prompt 08). Optional on disk. */
   places?: Record<string, unknown>;
   /** First-minutes hints already done ('place', 'react', 'meet'). */
@@ -131,6 +133,23 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const unit = (v: unknown, fallback: number): number => (finite(v) ? Math.min(1, Math.max(0, v)) : fallback);
 
+/** Saved diaries: per resident, at most a week of entries, each a well-formed message. */
+function sanitizeDiaries(v: unknown): Record<string, { day: number; msg: Msg }[]> {
+  const out: Record<string, { day: number; msg: Msg }[]> = {};
+  if (!isObj(v)) return out;
+  for (const [who, list] of Object.entries(v)) {
+    if (!Array.isArray(list)) continue;
+    const ok: { day: number; msg: Msg }[] = [];
+    for (const e of list.slice(-7)) {
+      if (!isObj(e) || !finite(e.day)) continue;
+      const m = sanitizeMsg(e.msg);
+      if (m) ok.push({ day: Math.max(0, Math.floor(e.day)), msg: m });
+    }
+    if (ok.length) out[who] = ok;
+  }
+  return out;
+}
+
 /**
  * Shape-check a migrated save. Anything malformed falls back field by field rather than
  * discarding the whole save, so one bad value never costs a player their neighbourhood,
@@ -174,6 +193,7 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     placed: placed.map(({ id, kind, x, z, ry }) => ({ id, kind, x, z, ry: ry % (Math.PI * 2) })),
     shops: sanitizeShops(d.shops, SHOP_ROW_BASE),
     memory,
+    diaries: sanitizeDiaries(d.diaries),
     // per resident, per place: checked field by field when restored (sim/places.ts)
     places: isObj(d.places) ? d.places : {},
     // a save from before the hints existed belongs to a returning player: they never need them

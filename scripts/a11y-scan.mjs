@@ -18,7 +18,7 @@ const axeSource = fs.readFileSync(createRequire(import.meta.url).resolve('axe-co
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 await page.goto(base, { waitUntil: 'domcontentloaded' });
-await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: 90000 });
+await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: Number(process.env.BOOT_MS) || 180000 }); // software GL on a busy machine can take minutes
 await page.addScriptTag({ content: axeSource });
 
 const click = (label) => page.locator(`#hud button[aria-label="${label}"]`).click();

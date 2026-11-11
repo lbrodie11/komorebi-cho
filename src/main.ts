@@ -122,6 +122,7 @@ if (saved) {
   residents.restoreMemory(saved.memory);
   residents.minutes = clock.minutes;
   residents.restorePlaces(saved.places ?? {});
+  residents.restoreDiaries(saved.diaries ?? {});
   pixelSetting = saved.settings.pixel;
   pixel = params.pixel ?? pixelSetting;
   sound.musicVolume = saved.settings.music;
@@ -180,6 +181,7 @@ function persist(): void {
     shops: world.shopStreet.changed(),
     memory: residents.memory(),
     places: residents.placesData(),
+    diaries: residents.diariesData(),
     tutorial: tutorial.flags,
     memories: [...memories.memories],
     notes: hud.noteList,

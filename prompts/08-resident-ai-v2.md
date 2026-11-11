@@ -32,7 +32,15 @@ Residents who feel like *people with lives*, and whose adaptation to the player'
 
 Done (the thin slice, task 9): `src/sim/places.ts` place memory: familiarity in days of use with a two-day half-life, favourites as habits (3 days) with a 15% hysteresis margin, novelty that pulls the curious for a few days. Choices weigh familiarity, the favourite and novelty. Mitsuko's pond bench is a haunt (persona data). The three-day arc runs on its own: she tries a new bench, comes back another day ("Mitsuko tries the new bench again"), and adopts it ("Mitsuko has a new favorite spot: the bench"). Remove it and she goes to look for it (`?`, "Mitsuko looks for the bench. It's gone."), then settles on another. The card shows "Favorite spot: the pond bench". The cats settle within 2 m of her while she sits. Place memory is saved. The town's benches have names of their own (the pond bench, the bench under the sakura). Tests: the unit rules, and the whole arc headless (four seeds checked), including removal and the cats.
 
-Still to do: the rest of the tasks (response curves and staggered re-evaluation, more needs, the social layer, diaries, weather behaviour, the observe camera and routine-change highlight, the next journal rules), and the acceptance runs with Kenta and the vending machine.
+Done (second pass):
+- **Utility** (`src/sim/utility.ts`): needs through response curves (logistic tiredness, quadratic thirst), weight × considerations with Dave Mark's compensation, a mood drawn per kind of activity (variety without dithering), a 15% hysteresis margin for what was chosen last of each kind, satiation (a drink just had makes another unappealing for an hour), and decisions staggered 0.5–2 s apart. Test: two benches 3% apart never flip-flop over 400 decisions.
+- **Needs:** fatigue, thirst and now social (company), which chatting satisfies.
+- **Social layer:** friendships in persona data (the kids, Mitsuko and Genzo, the shopkeepers). Neighbours passing close bow; friends a few meters away, not about to pass, wave; friends on one bench chat in alternating bubbles (told once a day). Friends make a place inviting instead of crowded, so the kids end up playing together.
+- **Diaries** (`src/sim/diary.ts`): one line a day per resident, written at midnight from the day's most notable real event, its weather and a seeded detail never repeated two days running ("Tuesday — the bench is my spot now. Rain. The bell at six."). The last two show on the card; a week is saved.
+- **Acceptance, Kenta:** a vending machine placed by the way home from school: he notices it passing, goes to it the same evening, and his diary says "tried the new vending machine" (tested headless; 3 of 4 seeds by early evening, the fourth before midnight, all with the diary line).
+- Fixes found by the fuzz: a slot under another placed object can't be used; no thinking pause while still on a seat; noticing in passing records novelty and a diary note.
+
+Still to do: weather behaviour (umbrellas animating, sheltering, drifting to lit places, snow footprints), the observe camera and the routine-change highlight, reaction animations, the next journal rules and the neighborhood clipboard, more needs (hunger, curiosity, comfort), and the 20-minute fast-forward check for repeated diary lines.
 
 ## Tasks
 1. **Utility with response curves.**

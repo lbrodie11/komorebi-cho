@@ -505,6 +505,7 @@ export class BuildTool {
       id: rec.id,
       kind: this.smartKind(rec.kind),
       label: rec.kind,
+      radius: def.radius,
       x: rec.x,
       z: rec.z,
       slots: this.slots(rec),
@@ -567,7 +568,17 @@ export class BuildTool {
     p.object.visible = true;
     this.grid.stamp({ x, z, r: p.radius }, 1);
     this.residents.shuffleAside(x, z, p.radius);
-    const o = this.smart.add({ id, kind: this.smartKind(p.kind), label: p.kind, x, z, slots: this.slots(p), placed: true, createdAt: performance.now() });
+    const o = this.smart.add({
+      id,
+      kind: this.smartKind(p.kind),
+      label: p.kind,
+      radius: p.radius,
+      x,
+      z,
+      slots: this.slots(p),
+      placed: true,
+      createdAt: performance.now(),
+    });
     if (def.glow) this.relight();
     this.bus.emit('sfx', { name: 'place', x, z });
     const ev = { id, kind: p.kind, x, z, novelty: def.novelty * 0.5 };

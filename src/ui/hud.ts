@@ -1297,6 +1297,18 @@ export class Hud {
       this.cardBody.append(fav);
     }
     this.cardBody.append(knows);
+    if (i.diary.length) {
+      const d = el('div', 'diary');
+      const h4 = el('h4');
+      h4.textContent = t('card.diary');
+      d.append(h4);
+      for (const m of i.diary) {
+        const line = el('p');
+        line.textContent = fmt(m);
+        d.append(line);
+      }
+      this.cardBody.append(d);
+    }
   }
 
   /**

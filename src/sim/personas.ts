@@ -33,6 +33,8 @@ export interface Persona {
   haunts?: string[];
   /** Cats come and sit near them. */
   catFriend?: boolean;
+  /** How close they are to others (0..1, by persona id); either side's word counts. */
+  friends?: Record<string, number>;
 }
 
 /**
@@ -43,6 +45,7 @@ export interface Persona {
 export const PERSONAS: Persona[] = [
   {
     id: 'haru',
+    friends: { aiko: 0.5 },
     colors: { top: '#45291b', legs: '#2e2a42', skin: '#e8c3a0', hair: '#cfd2d4', accent: '#f6efe0' },
     accessory: 'apron',
     home: 'aptC',
@@ -65,6 +68,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'taro',
+    friends: { emi: 0.5 },
     colors: { top: '#f6efe0', legs: '#16141f', skin: '#c99e7a', hair: '#16141f', accent: '#9a2b22' },
     accessory: 'hat',
     home: 'aptA',
@@ -87,6 +91,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'nana',
+    friends: { yuki: 0.6 },
     crowdAversion: 1.6,
     colors: { top: '#6a5a9a', legs: '#2e2a42', skin: '#e8c3a0', hair: '#16141f' },
     accessory: 'bag',
@@ -99,6 +104,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'mitsuko',
+    friends: { genzo: 0.6, daichi: 0.4 },
     crowdAversion: 1.3,
     haunts: ['bench-pond-a'],
     catFriend: true,
@@ -124,6 +130,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'kenta',
+    friends: { hiro: 0.4, kaito: 0.3 },
     colors: { top: '#1f2c45', legs: '#1f2c45', skin: '#e8c3a0', hair: '#16141f', accent: '#ffd37a' },
     accessory: 'bag',
     home: 'aptB',
@@ -159,6 +166,7 @@ export const PERSONAS: Persona[] = [
   },
   {
     id: 'rin',
+    friends: { sora: 1 },
     crowdAversion: 0.3,
     kid: true,
     colors: { top: '#e59b9b', legs: '#f6efe0', skin: '#e8c3a0', hair: '#2a1912' },
