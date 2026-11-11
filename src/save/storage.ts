@@ -7,7 +7,7 @@ import { isKey, type Msg, type Params } from '../i18n';
 import type { Memory } from '../sim/memories';
 import type { SaveStamp } from './tabs';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 const KEY = 'komorebi-cho/save';
 
 export interface PlacedRecord {
@@ -109,6 +109,12 @@ const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, 
   1: (d) => {
     const settings = (d.settings ?? {}) as Record<string, unknown>;
     return { ...d, version: 2, settings: { ...settings, pixel: settings.pixel === 'chunky' ? 'chunky' : 'classic' } };
+  },
+  // v2 → v3: Smooth became the default look (2026-11-11), and saves from before it existed were
+  // migrated to Classic. Move everyone to Smooth once; Settings switches back in one click.
+  2: (d) => {
+    const settings = (d.settings ?? {}) as Record<string, unknown>;
+    return { ...d, version: 3, settings: { ...settings, pixel: 'smooth' } };
   },
 };
 

@@ -28,7 +28,7 @@ npm run lint && npm run typecheck && npm test && npm run build
 | Input | Action |
 |---|---|
 | Drag / WASD | Pan |
-| Scroll, pinch / +, − | Zoom (0.8× to 3×), toward the cursor. Smooth glides; the pixel looks step 0.8×, 1×, 1.5×, 2×, 3× |
+| Scroll, pinch / +, − | Zoom (0.65× to 3×), toward the cursor. Smooth glides; the pixel looks step 0.65×, 0.8×, 1×, 1.5×, 2×, 3× |
 | F / Home | Fit the whole town in view |
 | Q / E | Rotate 90° |
 | Space | Pause time |

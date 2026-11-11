@@ -23,27 +23,23 @@ const v1 = (pixel: string) => ({
 });
 
 describe('save migrations', () => {
-  it('v1 "fine" (the old default, ~266 px tall) becomes "classic"', () => {
-    mem.set('komorebi-cho/save', JSON.stringify(v1('fine')));
-    const d = load();
-    expect(d?.version).toBe(SAVE_VERSION);
-    expect(d?.settings.pixel).toBe('classic');
-    expect(d?.minutes).toBe(1000);
+  it('moves v1 and v2 saves to Smooth once (the default since 2026-11-11), keeping everything else', () => {
+    for (const old of [v1('fine'), v1('chunky'), { ...v1('classic'), version: 2 }]) {
+      mem.set('komorebi-cho/save', JSON.stringify(old));
+      const d = load();
+      expect(d?.version).toBe(SAVE_VERSION);
+      expect(d?.settings.pixel).toBe('smooth');
+      expect(d?.minutes).toBe(1000);
+    }
   });
 
-  it('v1 "chunky" stays chunky', () => {
-    mem.set('komorebi-cho/save', JSON.stringify(v1('chunky')));
-    expect(load()?.settings.pixel).toBe('chunky');
-  });
-
-  it('keeps a valid look, and replaces an unknown one with the default (Smooth)', () => {
-    mem.set('komorebi-cho/save', JSON.stringify({ ...v1('classic'), version: 2, settings: { ...v1('classic').settings, pixel: 'smooth' } }));
-    expect(load()?.settings.pixel).toBe('smooth');
-    mem.set('komorebi-cho/save', JSON.stringify({ ...v1('classic'), version: 2, settings: { ...v1('classic').settings, pixel: 'blurry' } }));
-    expect(load()?.settings.pixel).toBe('smooth');
-    // saves from before Smooth keep the look their players had
-    mem.set('komorebi-cho/save', JSON.stringify({ ...v1('classic'), version: 2 }));
+  it('keeps a version 3 player’s chosen look, and replaces an unknown one with the default (Smooth)', () => {
+    mem.set('komorebi-cho/save', JSON.stringify({ ...v1('classic'), version: 3 }));
     expect(load()?.settings.pixel).toBe('classic');
+    mem.set('komorebi-cho/save', JSON.stringify({ ...v1('chunky'), version: 3 }));
+    expect(load()?.settings.pixel).toBe('chunky');
+    mem.set('komorebi-cho/save', JSON.stringify({ ...v1('blurry'), version: 3 }));
+    expect(load()?.settings.pixel).toBe('smooth');
   });
 
   it('rejects saves from the future', () => {

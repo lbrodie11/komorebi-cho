@@ -25,7 +25,7 @@ FIT.push(new THREE.Vector3(-14.9, 14.8, -11.9));
 const CENTRE = new THREE.Vector3(0, 3.9, 0);
 
 describe('camera zoom', () => {
-  it('steps through 0.8×, 1×, 1.5×, 2×, 3× in the palette looks, and stops at the ends', () => {
+  it('steps through 0.65×, 0.8×, 1×, 1.5×, 2×, 3× in the palette looks, and stops at the ends', () => {
     const c = make();
     c.setZoomNow(MIN_ZOOM);
     const seen = [c.zoom];
@@ -73,7 +73,7 @@ describe('camera zoom', () => {
     }
   });
 
-  it('clamps to 0.8×..3×', () => {
+  it('clamps to 0.65×..3×', () => {
     const c = make(16 / 9, true);
     c.zoomTo(50);
     expect(c.zoomGoal).toBe(MAX_ZOOM);

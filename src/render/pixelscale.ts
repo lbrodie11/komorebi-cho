@@ -9,7 +9,8 @@
  * band, and then all three presets coincide. That is the price of square pixels.
  */
 export type PixelPreset = 'fine' | 'classic' | 'chunky' | 'smooth';
-export const PIXEL_PRESETS: readonly PixelPreset[] = ['fine', 'classic', 'chunky', 'smooth'];
+/** In Settings order: Smooth, the default, first. */
+export const PIXEL_PRESETS: readonly PixelPreset[] = ['smooth', 'fine', 'classic', 'chunky'];
 /** The palette presets' render-height band. */
 export const RENDER_H_MIN = 220;
 export const RENDER_H_MAX = 300;

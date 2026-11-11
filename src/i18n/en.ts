@@ -141,7 +141,7 @@ export const en = {
   'look.fineTitle': 'Fine pixels',
   'look.classicTitle': 'Classic pixels',
   'look.chunkyTitle': 'Chunky pixels',
-  'look.smoothTitle': 'Smooth: finer pixels and full-color shading',
+  'look.smoothTitle': 'Smooth (the default): finer pixels and full-color shading',
   'settings.music': 'Music',
   'settings.ambience': 'Ambience',
   'settings.effects': 'Effects',

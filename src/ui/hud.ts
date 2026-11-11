@@ -7,6 +7,7 @@ import type { ToolMode } from './build';
 import type { ResidentInfo } from '../sim/residents';
 import { PERSONAS } from '../sim/personas';
 import { PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
+import { MIN_ZOOM } from '../render/camera';
 import { fmt, msg, t, type Msg, type MsgKey } from '../i18n';
 import type { Memory } from '../sim/memories';
 import { fragment, panel, scene, sheet, unsafeRaw } from '@frame12/static';
@@ -334,7 +335,7 @@ export class Hud {
     );
     const zs = this.zoomSlider;
     zs.type = 'range';
-    zs.min = '0.8';
+    zs.min = String(MIN_ZOOM);
     zs.max = '3';
     zs.step = '0.01';
     zs.value = '1';

@@ -3,7 +3,7 @@ import { clamp, damp } from '../core/math';
 
 /**
  * Orthographic 2:1 dimetric camera (pitch = atan(1/2), classic pixel-art
- * isometric) with 90-degree rotation steps, a zoom range of 0.8× to 3×, and texel snapping.
+ * isometric) with 90-degree rotation steps, a zoom range of 0.65× to 3×, and texel snapping.
  *
  * Nothing ever crawls:
  * - Texel snapping: the camera position is rounded to whole render-target
@@ -23,10 +23,10 @@ import { clamp, damp } from '../core/math';
  * plinth, the chimney top and some sky margin fit a 16:9 view.
  */
 export const BASE_HALF_H = 20;
-export const MIN_ZOOM = 0.8;
+export const MIN_ZOOM = 0.65;
 export const MAX_ZOOM = 3;
-/** Discrete zoom levels for the palette looks (0.8× is the wide "postcard" view). */
-export const ZOOM_STEPS = [0.8, 1, 1.5, 2, 3] as const;
+/** Discrete zoom levels for the palette looks (0.65× is the wide "postcard" view). */
+export const ZOOM_STEPS = [0.65, 0.8, 1, 1.5, 2, 3] as const;
 /** Smooth zoom easing rate: settles in about 200 ms. */
 const ZOOM_RATE = 15;
 /** The legacy scripted zoom indices (freeze({ zoom })) mean 1×, 2×, 3×. */
@@ -231,7 +231,7 @@ export class IsoCamera {
   /**
    * The zoom that frames the whole town (plinth and chimney) with room for the HUD, or the
    * closest allowed to it: a portrait phone can't fit the whole town without everything going
-   * tiny, so it gets the widest view (0.8×) centred on the street instead.
+   * tiny, so it gets the widest view (0.65×) centred on the street instead.
    */
   fitZoom(points: readonly THREE.Vector3[], centre: THREE.Vector3): number {
     const e = this.extent(points, centre);
