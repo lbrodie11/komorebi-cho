@@ -70,6 +70,8 @@ export interface HudActions {
   setTextScale(s: TextScale): void;
   undo(): void;
   redo(): void;
+  /** The carried shop: narrower (-1) or wider (+1). */
+  resizeShop(dir: 1 | -1): void;
   /** One zoom step in (1) or out (-1), about the centre. */
   zoom(dir: 1 | -1): void;
   /** Fit the whole town. */
@@ -171,6 +173,8 @@ export class Hud {
   private readonly removeBtn: HTMLButtonElement;
   private readonly moveBtn: HTMLButtonElement;
   private readonly undoBtn: HTMLButtonElement;
+  /** Narrower / Wider, shown while a shop is carried (the on-screen [ and ], for touch). */
+  private readonly shopSize: HTMLElement;
   private readonly redoBtn: HTMLButtonElement;
   private readonly reasonTip = el('div', 'reason-tip');
   private readonly settingsBtn: HTMLButtonElement;
@@ -269,6 +273,12 @@ export class Hud {
     this.undoBtn = this.btn('undo', null, 'bar.undo', () => this.act.undo());
     this.redoBtn = this.btn('redo', null, 'bar.redo', () => this.act.redo());
     this.undoBtn.disabled = this.redoBtn.disabled = true;
+    this.shopSize = el('span', 'shopsize');
+    this.shopSize.append(
+      this.btn(null, 'bar.narrower', 'bar.narrowerTitle', () => this.act.resizeShop(-1)),
+      this.btn(null, 'bar.wider', 'bar.widerTitle', () => this.act.resizeShop(1)),
+    );
+    this.shopSize.hidden = true;
     for (const b of [pause, play, fast, this.buildBtn, this.removeBtn, this.moveBtn]) b.setAttribute('aria-pressed', 'false');
     // Time-of-day, weather and season are the "advanced" controls: always shown on wide screens,
     // folded behind "More" on phones so the toolbar stays one row and the diorama stays visible.
@@ -307,6 +317,7 @@ export class Hud {
       el('span', 'sep'),
       this.buildBtn,
       this.moveBtn,
+      this.shopSize,
       this.removeBtn,
       this.undoBtn,
       this.redoBtn,
@@ -1158,6 +1169,12 @@ export class Hud {
   }
 
   /** Undo and redo are only offered when there is something to undo or redo. */
+  /** Show Narrower / Wider while a shop is being carried. */
+  setShopCarry(on: boolean): void {
+    if (this.shopSize.hidden === !on) return;
+    this.shopSize.hidden = !on;
+  }
+
   setHistory(canUndo: boolean, canRedo: boolean): void {
     this.undoBtn.disabled = !canUndo;
     this.redoBtn.disabled = !canRedo;

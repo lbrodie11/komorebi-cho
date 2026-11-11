@@ -226,6 +226,13 @@ button.px.warn {
 .toolbar .more {
   display: contents;
 }
+/* Narrower / Wider: only while a shop is carried */
+.toolbar .shopsize {
+  display: contents;
+}
+.toolbar .shopsize[hidden] {
+  display: none;
+}
 .save-note {
   display: none;
   box-sizing: border-box;

@@ -322,6 +322,7 @@ const hud = new Hud(hudRoot, {
   },
   undo: () => undoRedo(false),
   redo: () => undoRedo(true),
+  resizeShop: (dir) => resizeShop(dir),
   reset: () => {
     setTool('view');
     for (const r of build.records()) build.remove(r.id);
@@ -609,6 +610,12 @@ function flingVelocity(now: number): { x: number; y: number } {
 }
 /** The last mouse or pen position over the canvas, to refresh the build preview when the camera moves under it. */
 let lastPointer: { clientX: number; clientY: number } | null = null;
+/** The carried shop, narrower or wider ([ / ], or the Narrower / Wider buttons). */
+function resizeShop(dir: 1 | -1): void {
+  build.resizeShop(dir);
+  // the ghost changed under a still cursor: so may the reason beside it
+  if (lastPointer) hud.setReason(reasonText(), lastPointer.clientX, lastPointer.clientY);
+}
 /** Why the spot under the cursor won't take what's being placed or carried, in words (or null). */
 const reasonText = (): string | null => (build.reason ? t(`reason.${build.reason}` as MsgKey) : null);
 function setNdc(e: { clientX: number; clientY: number }): void {
@@ -961,11 +968,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'b') setTool(build.mode === 'build' ? 'view' : 'build');
   else if (k === 'x' || k === 'delete') setTool(build.mode === 'remove' ? 'view' : 'remove');
   else if (k === 'r') build.rotate(e.shiftKey ? -1 : 1);
-  else if ((k === '[' || k === ']') && build.carryingShop) {
-    build.resizeShop(k === ']' ? 1 : -1);
-    // the ghost changed under a still cursor: so may the reason beside it
-    if (lastPointer) hud.setReason(reasonText(), lastPointer.clientX, lastPointer.clientY);
-  } else if (k === 'v') setTool(build.mode === 'move' ? 'view' : 'move');
+  else if ((k === '[' || k === ']') && build.carryingShop) resizeShop(k === ']' ? 1 : -1);
+  else if (k === 'v') setTool(build.mode === 'move' ? 'view' : 'move');
   else if (k === 'm') void hud.toggleSound();
   else if (k === 'p') hud.togglePhoto(!photo);
   else if (k === 'h' || k === '?') hud.toggleHelp();
@@ -1212,6 +1216,7 @@ function frame(now: number): void {
   const sky = skyAt(hour, rain, clock.season);
   world.update(dt, time, clock, sky, gm);
   build.showIslands();
+  hud.setShopCarry(build.carryingShop);
   const s0 = performance.now();
   if (!frozen) {
     residents.update(dt, gm, hour, rain, time);

@@ -382,6 +382,50 @@ await (async () => {
     await page.keyboard.press('Escape');
     check('Escape leaves remove mode', (await K(page, () => window.__komorebi.build.mode)) === 'view');
 
+    // Move a shop-house: pick it up, narrower with the on-screen button, wider with ], put it down, undo
+    {
+      await byLabel(page, 'Move things you placed, or a shop on the street (V)').click();
+      // the bakery's plan, on screen (the camera looks at the shopping street)
+      await K(page, () => {
+        const k = window.__komorebi;
+        k.iso.target.set(-11, 1, 2);
+        k.iso.targetGoal.set(-11, 1, 2);
+      });
+      await page.waitForTimeout(300);
+      const at = await K(page, () => {
+        const k = window.__komorebi;
+        const r = document.getElementById('view').getBoundingClientRect();
+        const v = new k.iso.camera.position.constructor(-12.5, 0.42, 1.5).project(k.iso.camera);
+        return { sx: r.left + ((v.x + 1) / 2) * r.width, sy: r.top + ((1 - v.y) / 2) * r.height };
+      });
+      await page.mouse.move(at.sx, at.sy);
+      await page.mouse.move(at.sx + 1, at.sy);
+      await page.mouse.click(at.sx + 1, at.sy);
+      const held = await K(page, () => window.__komorebi.build.carryingShop);
+      check('move tool picks up a shop-house', held);
+      await page.waitForTimeout(150); // the size buttons follow once a frame
+      const shown = await K(page, () => !document.querySelector('.shopsize').hidden);
+      check('Narrower / Wider appear while a shop is carried', shown);
+      const front0 = await K(page, () => window.__komorebi.build.heldShop?.front ?? 0);
+      await byLabel(page, 'Make the shop narrower ([)').click();
+      await byLabel(page, 'Make the shop narrower ([)').click();
+      await page.keyboard.press(']');
+      const front1 = await K(page, () => window.__komorebi.build.heldShop?.front ?? 0);
+      check('the shop resizes by button and by key', Math.abs(front1 - (front0 - 0.5)) < 1e-6, `${front0} → ${front1}`);
+      await page.mouse.move(at.sx + 1, at.sy);
+      await page.mouse.click(at.sx + 1, at.sy);
+      const moved = await K(page, () => ({
+        log: window.__komorebi.history.log.at(-1)?.op,
+        changed: Object.keys(window.__komorebi.world.shopStreet.changed()),
+      }));
+      check('putting it down is an undoable shop edit', moved.log === 'shop' && moved.changed.includes('bakery'), JSON.stringify(moved));
+      await page.waitForTimeout(150);
+      check('the size buttons go when the shop is put down', await K(page, () => document.querySelector('.shopsize').hidden));
+      await page.keyboard.press('Control+z');
+      check('undo puts the shop back', (await K(page, () => Object.keys(window.__komorebi.world.shopStreet.changed()).length)) === 0);
+      await page.keyboard.press('Escape');
+    }
+
     // GPU-resource growth while switching tools
     const before = await K(page, () => ({ g: window.__komorebi.renderer.info.memory.geometries, lamps: window.__komorebi.world.mats.lamps.length }));
     for (let i = 0; i < 30; i++) {
