@@ -3,6 +3,7 @@ import { Rng } from '../core/rng';
 import type { Season } from '../core/clock';
 import { G, TG, TERRACE_FRONT_Z } from '../world/layout';
 import { paintSign, SIGN_TEXEL, type SignSpec } from './glyphs';
+import { EMISSIVE, WINDOW_STEPS, type WindowKind } from '../world/lighting';
 
 export type TexKind =
   'plaster' | 'concrete' | 'siding' | 'roof' | 'wood' | 'asphalt' | 'gravel' | 'grain' | 'paving' | 'stone' | 'grass' | 'stripe' | 'shutter' | 'waterfall';
@@ -12,10 +13,18 @@ type Px = number | [number, number, number];
 /**
  * Every texture in the game is generated here from a few lines of maths.
  * They are tiny (32x32) greyscale-ish detail maps; colour comes from the
- * material tint so one texture serves many buildings. NearestFilter keeps them
- * crisp before the pixel pass quantises everything anyway.
+ * material tint so one texture serves many buildings.
+ *
+ * Detail is built from clusters, not per-texel noise: pixel art reads as shapes
+ * (a slab, a stone, a tuft), and independent random texels turn into grain once
+ * the pixel pass shrinks them. Each texture keeps its structure (courses, rows,
+ * planks, joints) and adds only low-contrast, spatially coherent variation.
+ *
+ * Filtering: nearest when magnified (crisp texels up close), trilinear mipmaps
+ * when minified (a 2.7 m road tile has 8 cm texels, smaller than a render pixel
+ * at 1× zoom: without mipmaps it aliases into shimmering speckle).
  */
-function makeTexture(rng: Rng, f: (x: number, y: number) => Px, size = 32): THREE.CanvasTexture {
+function makeTexture(f: (x: number, y: number) => Px, size = 32): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d');
@@ -33,31 +42,100 @@ function makeTexture(rng: Rng, f: (x: number, y: number) => Px, size = 32): THRE
   ctx.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter;
-  t.minFilter = THREE.NearestFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  // roofs and lanes are seen at a grazing angle: anisotropy keeps tile rows and slab joints
+  // along the slope instead of blurring the whole surface to its average (three clamps to the GPU's max)
+  t.anisotropy = 8;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
-  void rng;
   return t;
 }
 
+/**
+ * Tileable value noise on a `cell`-texel lattice (cell divides 32), smoothly interpolated:
+ * returns 0..1 varying over roughly `cell` texels, so its features are clusters.
+ */
+function cellNoise(r: Rng, cell: number): (x: number, y: number) => number {
+  const n = 32 / cell;
+  const lattice = Array.from({ length: n * n }, () => r.next());
+  const at = (i: number, j: number) => lattice[(((j % n) + n) % n) * n + (((i % n) + n) % n)]!;
+  return (x, y) => {
+    const fx = x / cell,
+      fy = y / cell;
+    const i = Math.floor(fx),
+      j = Math.floor(fy);
+    const u = fx - i,
+      v = fy - j;
+    const su = u * u * (3 - 2 * u),
+      sv = v * v * (3 - 2 * v);
+    const a = at(i, j) + (at(i + 1, j) - at(i, j)) * su;
+    const b = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * su;
+    return a + (b - a) * sv;
+  };
+}
+
+/** A per-region constant in [-1, 1]: one value per slab/stone/plank, so variation comes in whole shapes. */
+function regionTint(r: Rng, count: number): (id: number) => number {
+  const v = Array.from({ length: count }, () => r.next() * 2 - 1);
+  return (id) => v[((id % count) + count) % count]!;
+}
+
+/** Nearest filtering at every distance, for textures whose pattern is the point (stripes). */
+function crisp(t: THREE.CanvasTexture): THREE.CanvasTexture {
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  return t;
+}
+
+/** Round to `levels` steps: smooth noise becomes a few flat clusters, the way a pixel artist shades. */
+const steps = (v: number, levels: number) => Math.round(v * (levels - 1)) / (levels - 1);
+
 function buildTextures(): Record<TexKind, THREE.CanvasTexture> {
   const r = new Rng(9001);
-  const n = (a: number) => (r.next() - 0.5) * a;
+  const blotch8 = cellNoise(r, 8);
+  const blotch4 = cellNoise(r, 4);
+  const blotch16 = cellNoise(r, 16);
+  const tint = regionTint(r, 61);
   return {
-    plaster: makeTexture(r, (_x, y) => 226 + n(24) - (y > 27 ? (y - 27) * 8 : 0) + (r.next() > 0.985 ? -45 : 0)),
-    concrete: makeTexture(r, (x, y) => 206 + n(18) - ((x * 7) % 11 === 0 ? y * 1.3 : 0) - (y % 16 === 0 ? 26 : 0)),
-    siding: makeTexture(r, (x) => (x % 4 < 2 ? 236 : 192) + n(12)),
-    roof: makeTexture(r, (x, y) => (y % 4 === 0 ? 110 : (x + (Math.floor(y / 4) % 2) * 3) % 6 === 0 ? 165 : 212) + n(14)),
-    wood: makeTexture(r, (x, y) => (x % 6 === 0 ? 148 : 212) + n(22) + Math.sin(y * 0.8 + x) * 5),
-    asphalt: makeTexture(r, () => 150 + n(44) + (r.next() > 0.975 ? 55 : 0)),
-    gravel: makeTexture(r, () => 185 + n(90)),
-    grain: makeTexture(r, (x, y) => 205 + Math.sin(y * 1.2 + Math.sin(x * 0.35) * 2.2) * 26 + n(10)),
-    paving: makeTexture(r, (x, y) => (x % 8 === 0 || y % 8 === 0 ? 150 : 205) + n(24)),
-    stone: makeTexture(r, (x, y) => (y % 8 === 0 || (x + (Math.floor(y / 8) % 2) * 8) % 16 === 0 ? 135 : 205) + n(30)),
-    grass: makeTexture(r, () => 205 + n(50) + (r.next() > 0.92 ? 35 : 0)),
-    stripe: makeTexture(r, (x) => (x % 8 < 4 ? [246, 236, 214] : [196, 62, 46])),
-    shutter: makeTexture(r, (_x, y) => (y % 3 === 0 ? 150 : 215) + n(10)),
-    waterfall: makeTexture(r, (x, y) => ((x * 5 + y * 3) % 7 < 2 ? [238, 242, 245] : [134, 174, 212])),
+    // broad, faint blotches; a darker band of splash-back along the bottom rows
+    // (kept faint: larger swings straddle a palette boundary and break walls into camouflage patches)
+    plaster: makeTexture((x, y) => 224 + (steps(blotch8(x, y), 3) - 0.5) * 6 - (y > 27 ? (y - 27) * 5 : 0)),
+    // pour lifts every 16 rows, faint formwork-panel tint, no speckle
+    concrete: makeTexture((x, y) => 206 + tint(Math.floor(x / 16) + Math.floor(y / 16) * 2) * 3 - (y % 16 === 0 ? 16 : 0)),
+    // corrugation: the structure is the stripes, kept gentle
+    siding: makeTexture((x) => (x % 4 < 2 ? 232 : 204)),
+    // tile rows and staggered joints carry the read; one tint per tile course segment
+    roof: makeTexture((x, y) => {
+      const row = Math.floor(y / 4);
+      const tile = Math.floor((x + (row % 2) * 3) / 6);
+      if (y % 4 === 0) return 150;
+      if ((x + (row % 2) * 3) % 6 === 0) return 186;
+      return 210 + tint(tile + row * 7) * 7;
+    }),
+    // planks with a soft grain; each plank its own tone
+    wood: makeTexture((x, y) => (x % 6 === 0 ? 162 : 206 + tint(Math.floor(x / 6) + 11) * 9 + Math.sin(y * 0.8 + x) * 4)),
+    // large, faint patches and a couple of short cracks: asphalt reads as one surface
+    asphalt: makeTexture((x, y) => 150 + (steps(blotch16(x, y), 3) - 0.5) * 14 - ((x === 9 && y > 4 && y < 9) || (y === 22 && x > 18 && x < 23) ? 18 : 0)),
+    // stones as clusters (4-texel cells quantised to three tones), not 90-level speckle
+    gravel: makeTexture((x, y) => 160 + steps(blotch4(x, y), 3) * 50),
+    // walnut: long smooth grain lines
+    grain: makeTexture((x, y) => 205 + Math.sin(y * 1.2 + Math.sin(x * 0.35) * 2.2) * 18),
+    // slabs: soft joints, one tone per slab
+    paving: makeTexture((x, y) => (x % 8 === 0 || y % 8 === 0 ? 172 : 205 + tint(Math.floor(x / 8) + Math.floor(y / 8) * 4 + 23) * 10)),
+    // dressed stone courses, one tone per stone
+    stone: makeTexture((x, y) => {
+      const course = Math.floor(y / 8);
+      const off = (x + (course % 2) * 8) % 16;
+      if (y % 8 === 0 || off === 0) return 158;
+      return 205 + tint(Math.floor((x + (course % 2) * 8) / 16) + course * 3 + 37) * 14;
+    }),
+    // grass in clumps: three tones in 4-texel clusters plus a few lit tufts
+    grass: makeTexture((x, y) => 196 + steps(blotch4(x + 2, y + 1), 3) * 26 + (blotch8(x, y) > 0.78 ? 14 : 0)),
+    // awning stripes are a signature, not noise: keep them crisp at every distance
+    stripe: crisp(makeTexture((x) => (x % 8 < 4 ? [246, 236, 214] : [196, 62, 46]))),
+    shutter: makeTexture((_x, y) => (y % 3 === 0 ? 168 : 214)),
+    waterfall: makeTexture((x, y) => ((x * 5 + y * 3) % 7 < 2 ? [238, 242, 245] : [134, 174, 212])),
   };
 }
 
@@ -165,7 +243,9 @@ const WEATHER_FRAG_BODY = /* glsl */ `
   float along = dot(vWPos.xz, vec2(1., .7));
   float sn = kNoise(vec2(along * 3.2, vWPos.y * .4)) * .65 + kNoise(vec2(along * 6.5, vWPos.y * .8)) * .35;
   float streak = vDrip * smoothstep(.42, .78, sn) * (.45 + .55 * vAge);
-  float grime = clamp((1. - vAo) * 1.1 + ground * (.3 + .4 * vAge) + streak * .7, 0., 1.) * (1. - vUp * .55);
+  // Streaks are kept gentle: without a dither to blend it, a stain that crosses a palette boundary
+  // snaps into a hard patch (camouflage), so the contact shadow and splash-back carry most of the age.
+  float grime = clamp((1. - vAo) * 1.1 + ground * (.3 + .4 * vAge) + streak * .35, 0., 1.) * (1. - vUp * .55);
   vec3 c = diffuseColor.rgb;
   float l = dot(c, vec3(.3, .59, .11));
   c = mix(c, vec3(l) * vec3(.94, .92, 1.), grime * .5);
@@ -264,12 +344,34 @@ export class Materials {
   readonly stone = this.std('#adb2b8');
   readonly vermilion = this.std('#d0402a', 0.6);
   readonly windowDark = this.std('#2a3040', 0.3, { metalness: 0.3 });
-  readonly windowLit = this.std('#ffd37a', 0.6, { emissive: new THREE.Color('#ffa94d'), emissiveIntensity: 1.6 });
-  readonly shopLit = this.std('#ffc072', 0.6, { emissive: new THREE.Color('#ff9a40'), emissiveIntensity: 2 });
-  /** The kissaten is the warmest light on the street at blue hour (sky.ts): a touch brighter and more golden than shops. */
-  readonly cafeLit = this.std('#ffd37a', 0.6, { emissive: new THREE.Color('#ffb04a'), emissiveIntensity: 3.2 });
+  /** Lit glass per window kind, in WINDOW_STEPS brightness steps (index 0 = dark glass); see windowMat. */
+  private readonly windowSteps = new Map<WindowKind, THREE.MeshStandardMaterial[]>();
   readonly frame = this.std('#2e2a42', 0.8);
   readonly lantern = this.lamp('#ff7a55', '#ff3a1e', 2.2);
+  /**
+   * Window glass at brightness `step` (0..WINDOW_STEPS) for a kind. Steps are shared materials,
+   * so every window can fade on its own schedule without a material per window. Colours and
+   * full brightness follow the hierarchy in lighting.ts: the kissaten is the warmest, most golden
+   * light on the street (its blue-hour focal point, sky.ts), shops a touch redder, homes muted.
+   */
+  windowMat(kind: WindowKind, step: number): THREE.MeshStandardMaterial {
+    if (step <= 0) return this.windowDark;
+    let set = this.windowSteps.get(kind);
+    if (!set) {
+      const look = { home: ['#ffd37a', '#ffa94d'], shop: ['#ffc072', '#ff9a40'], cafe: ['#ffd37a', '#ffb04a'] }[kind];
+      const dark = new THREE.Color('#2a3040');
+      set = [this.windowDark];
+      for (let i = 1; i <= WINDOW_STEPS; i++) {
+        const t = i / WINDOW_STEPS;
+        const m = this.std('#ffffff', 0.3 + 0.3 * t, { metalness: 0.3 * (1 - t), emissive: new THREE.Color(look[1]), emissiveIntensity: EMISSIVE[kind] * t });
+        m.color.copy(dark).lerp(new THREE.Color(look[0]), t);
+        set.push(m);
+      }
+      this.windowSteps.set(kind, set);
+    }
+    return set[Math.min(step, WINDOW_STEPS)]!;
+  }
+
   /** Shared shader inputs, updated once a frame by World. */
   readonly time: Uniform<number> = { value: 0 };
   readonly wind: Uniform<number> = { value: 1 };

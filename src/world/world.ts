@@ -8,7 +8,10 @@ import { buildNature, type NatureOut } from './nature';
 import { buildBuildings, type BuildingsOut } from './buildings';
 import { buildProps, type PropsOut } from './props';
 import { Weather } from './weather';
-import { GROUND } from './layout';
+import { GROUND, VENDING } from './layout';
+import { groundHeight } from './terrain';
+import { EMISSIVE, shopDarkness, windowLevel, windowSpill, windowStep } from './lighting';
+import { LightPools } from './lightpools';
 import { fitSunShadow, type ShadowFit } from '../render/shadow';
 
 /**
@@ -38,6 +41,9 @@ export class World {
   private readonly props: PropsOut;
   private season: Season | null = null;
   private lampLevel = 0;
+  private readonly pools: LightPools;
+  /** Pools that follow the street-lamp level (lamps, vending machines). */
+  private readonly lampPoolIds: number[] = [];
   /** Every shadow caster and receiver: the static diorama plus headroom for things players place. */
   readonly shadowBox: THREE.Box3;
   shadowFit: ShadowFit | null = null;
@@ -57,10 +63,45 @@ export class World {
     this.shadowBox.union(new THREE.Box3(new THREE.Vector3(GROUND.x0, this.shadowBox.min.y, GROUND.z0), new THREE.Vector3(GROUND.x1, 0, GROUND.z1)));
     this.shadowBox.max.y += 1; // a placed sakura on the terrace can top the tallest static roof
     this.weather = new Weather(root, this.mats, seed);
+    this.pools = this.buildPools(root);
 
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
     this.scene.add(this.sun, this.sun.target, this.hemi);
+  }
+
+  /**
+   * Ground pools (lighting.ts layer 4): under every streetlamp, in front of the vending machines,
+   * and spilling out of ground-floor shop and kissaten windows. Upper-floor windows get none.
+   */
+  private buildPools(root: THREE.Object3D): LightPools {
+    const pools = new LightPools();
+    // the highest surface under a footprint, so a pool never sinks under a kerb or a lawn
+    const groundAt = (x: number, z: number, r: number) => {
+      let y = -Infinity;
+      for (const [dx, dz] of [
+        [0, 0],
+        [r, 0],
+        [-r, 0],
+        [0, r],
+        [0, -r],
+      ] as const)
+        y = Math.max(y, groundHeight(x + dx * 0.7, z + dz * 0.7));
+      return y + 0.035;
+    };
+    for (const l of this.props.lampPools) this.lampPoolIds.push(pools.addRound(l.x, l.z, groundAt(l.x, l.z, l.r), l.r, '#ffcf8a', 0.42, GROUND));
+    for (const v of VENDING) this.lampPoolIds.push(pools.addRound(v.x, v.z + 0.9, groundAt(v.x, v.z + 0.9, 0.7), 0.75, v.glow, 0.3, GROUND, 0.85));
+    for (const w of this.kit.windows) {
+      if (w.kind === 'home') continue;
+      const g = w.geom;
+      const nx = Math.sin(g.ry),
+        nz = Math.cos(g.ry);
+      const s = windowSpill(g, groundHeight(g.x + nx * 0.6, g.z + nz * 0.6), w.kind === 'cafe', GROUND);
+      if (!s) continue;
+      w.pool = pools.addSpill(s, groundAt(s.x, s.z, Math.min(s.width, s.depth) / 2), w.kind === 'cafe' ? '#ffc070' : '#ffaa58', w.kind === 'cafe' ? 0.62 : 0.4);
+    }
+    root.add(pools.group);
+    return pools;
   }
 
   get lightPool() {
@@ -91,16 +132,18 @@ export class World {
     this.hemi.intensity = sky.hemiI * HEMI_K;
     this.lampLevel = damp(this.lampLevel, sky.lamp, 2, dt);
     this.mats.setLampLevel(this.lampLevel);
-    this.mats.lantern.emissiveIntensity = 0.5 + this.lampLevel * 2.2;
+    this.mats.lantern.emissiveIntensity = 0.4 + this.lampLevel * (EMISSIVE.lantern - 0.4);
+    for (const id of this.lampPoolIds) this.pools.set(id, this.lampLevel);
     for (const l of this.props.lights) l.light.intensity = l.base * (l.crowd ?? 1) * this.lampLevel;
 
-    // windows follow routines: shops while open (and lit after dark), homes in the evening
+    // windows follow routines (shops their hours once it's dark, homes in the evening), fading in
+    // and out, each at its own brightness; ground-floor shops spill light onto the street
+    const darkness = shopDarkness(sky.lamp, this.weather.rain);
     for (const w of this.kit.windows) {
-      const h = (hour + w.offset + 24) % 24;
-      const shop = w.kind !== 'home';
-      const lit = shop ? hourInRange(h, 7, 21.5) && (sky.lamp > 0.15 || this.weather.rain > 0.4) : hourInRange(h, 17.5, 23.6) || hourInRange(h, 5.6, 7);
-      const mat = !lit ? this.mats.windowDark : w.kind === 'cafe' ? this.mats.cafeLit : shop ? this.mats.shopLit : this.mats.windowLit;
+      const level = windowLevel(w.kind, hour, w.offset, w.index, clock.day, darkness, w.hours);
+      const mat = this.mats.windowMat(w.kind, windowStep(level));
       if (w.mesh.material !== mat) w.mesh.material = mat;
+      if (w.pool !== undefined) this.pools.set(w.pool, level);
     }
     // shutters roll up at opening time
     for (const s of this.buildings.shutters) {

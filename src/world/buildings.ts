@@ -163,6 +163,7 @@ export function buildBuildings(k: Kit): BuildingsOut {
         if (o.tank) k.cyl(0.45, 0.45, 0.8, m.solid('#86aed4', 0.5), cx - 1.5, G + h + 0.7, cz);
       }
       k.win(-10.46, G + 1.15, cz, Math.PI / 2, d * 0.72, 1.6, 'shop');
+      k.windows[k.windows.length - 1]!.hours = o.hours;
       k.box(0.3, 0.25, d * 0.78, m.solid('#686d78'), -10.45, G + 2.08, cz);
       if (h > 4.4) [cz - d / 4, cz + d / 4].forEach((z) => k.win(-10.46, G + 3.8, z, Math.PI / 2, 0.9, 1));
     });

@@ -7,14 +7,15 @@ The palette is the art direction (`src/render/palette.ts`). In the pixel-art pre
 | Stage | Where | Space | Range |
 |---|---|---|---|
 | Material/light colours | `new THREE.Color('#hex')`, `color.set('#hex')` | sRGB hex in, **linear** inside three | 0–1 |
-| Albedo textures | `CanvasTexture` with `colorSpace = SRGBColorSpace` | sRGB bytes, decoded to **linear** on sample | 0–1 |
+| Albedo textures | `CanvasTexture` with `colorSpace = SRGBColorSpace`, mipmapped when minified | sRGB bytes, decoded to **linear** on sample | 0–1 |
+| Light pools | additive decals, colour only (alpha untouched) | **linear** light added to the scene | 0–~0.6 |
 | Vertex colours (fireflies) | `BufferAttribute('color')` | **linear** HDR emission, authored as such | 0–~5 |
 | Scene render | `PostPass.sceneRT` (half-float, `NoColorSpace`) | **linear** light, HDR; alpha is a surface tag (1 opaque, 0.5 water, 0.25 sign) | 0–∞ |
 | Glow gather | `PostPass.glowRT` (half-float, half res) | **linear** HDR excess | 0–∞ |
 | Composite: scene | `toSRGB(tonemap(lin × exposure))` | **sRGB**, then hue-shifted shading | 0–1 |
 | Composite: sky, mist, moon | uniforms from `hexToSrgb` | **sRGB** (raw) | 0–1 |
 | Composite: glow | hue-preserving cap, then `toSRGB(…) × 0.55`, added | **sRGB** | 0–0.55 |
-| Dither | `+ (Bayer4 − 0.5) × 0.03`, Bayer pinned to the world (0 on signs) | **sRGB**, may leave [0,1] | about −0.015 to 2.4 |
+| Dither | `+ (Bayer4 − 0.5) × 0.03 × halo`, only inside light halos, Bayer pinned to the world | **sRGB**, may leave [0,1] | about −0.015 to 2.4 |
 | Palette snap | candidate LUT or `?lutOff` loop; the sky skips it (smooth gradient, ±½/255 noise) | **sRGB** palette entry | exactly palette (diorama) |
 | Canvas (0% Film Diffusion) | `ShaderMaterial` with no `colorspace_fragment` | values written as-is: **sRGB** | — |
 | Film Diffusion: pix → resolved | RGBA8 targets; dither blend in sRGB | **sRGB** (blended dither leaves the palette on purpose) | 0–1 |

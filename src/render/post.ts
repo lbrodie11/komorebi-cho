@@ -29,10 +29,11 @@ import { diffusionParams, type DiffusionParams } from './diffusion';
 const HALO_FADE = 0.6;
 
 /**
- * Ordered-dither amplitude. Small on purpose: a Bayer offset of ±0.015 only flips pixels that sit
- * within ~1.5% of the boundary between two palette shades, so surfaces read as clean flat colour
- * with a thin dithered seam where one shade hands over to the next (lamp pools, halos, shadow
- * falloff). It was 0.1, which checkered whole walls and roofs and hid small details at 1× zoom.
+ * Ordered-dither amplitude, applied only inside light halos (see the composite). Small on purpose:
+ * a Bayer offset of ±0.015 only flips pixels within ~1.5% of the boundary between two palette
+ * shades, so a halo falls off through thin dithered seams instead of hard rings. Everywhere else
+ * the palette snap shades in flat clusters. (It was 0.1 everywhere, which checkered walls, roofs
+ * and lawns and hid small details at 1× zoom.)
  */
 export const DITHER_SPREAD = 0.03;
 
@@ -169,7 +170,9 @@ void main(){
   vec3 glowC = toSRGB(G) * .55;
 
   vec3 c;
-  float dither = spread;
+  // Dither only where light falls off through a halo. On ordinary surfaces it checkered whole
+  // lawns and walls whose colour sat near a palette boundary; flat palette clusters read better.
+  float dither = spread * smoothstep(.01, .06, max(glowC.r, max(glowC.g, glowC.b)));
   if (sky){
     // 1. sky
     float y = vUv.y;

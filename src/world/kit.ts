@@ -6,6 +6,7 @@ import type { Vec2 } from '../core/math';
 import type { TreeKind } from './layout';
 import type { SignSpec } from '../render/glyphs';
 import { weatherAttributes, type DripSource } from './weathering';
+import type { WindowGeom, WindowKind } from './lighting';
 
 /** One building's weathering: `age` 0 (fresh) .. 1 (decades of rain); `moss` 0..1 lets stone grow it. */
 export interface WeatherScope {
@@ -17,7 +18,7 @@ export interface WeatherScope {
 const WEATHER_CELL = 1;
 const segs = (len: number) => Math.min(16, Math.max(1, Math.ceil(len / WEATHER_CELL)));
 
-export type WindowKind = 'shop' | 'cafe' | 'home';
+export type { WindowKind } from './lighting';
 
 /** A window the lighting system can switch on/off by schedule. */
 export interface WindowRef {
@@ -26,6 +27,14 @@ export interface WindowRef {
   kind: WindowKind;
   /** Per-window jitter so a street never switches on in unison. */
   offset: number;
+  /** Stable index (occupancy and warmth hash from it). */
+  index: number;
+  /** Where the glass is and which way it faces (for its light spill). */
+  geom: WindowGeom;
+  /** Its ground spill in World's LightPools, if it has one. */
+  pool?: number;
+  /** Opening hours of the shop behind it (its shutter's), if it has one. */
+  hours?: readonly [number, number];
 }
 
 /**
@@ -194,7 +203,7 @@ export class Kit {
     p.position.set(x, y, z);
     p.rotation.y = ry;
     this.root.add(p);
-    this.windows.push({ mesh: p, kind, offset: this.rng.range(-1.2, 1.2) });
+    this.windows.push({ mesh: p, kind, offset: this.rng.range(-1.2, 1.2), index: this.windows.length, geom: { x, y, z, ry, w, h } });
     // the sill sheds water down the wall below it
     if (this.scope) this.drips.push({ x, y: y - h / 2, z, r: w / 2, len: 1.4 + this.scope.age });
     const f = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.22, h + 0.22), this.m.frame);

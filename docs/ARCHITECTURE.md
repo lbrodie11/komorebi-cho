@@ -44,7 +44,7 @@ Every final pixel goes through the same ordered steps. Order matters: dither bef
 - **Scene alpha is a tag**, not transparency. Ordinary opaque surfaces write 1. Water writes `WATER_MASK` (0.5): the composite mirrors what stands above it into those pixels (a short march up the screen, since an orthographic camera moves a reflected point straight down). Painted signs write `SIGN_MASK` (0.25), and the composite skips dithering there so lettering snaps flat.
 - **The floor is #16141f**: the palette has no true black, and night skies stop at that violet.
 - **The sky is never dithered.** Sky pixels (`d >= .99999`) skip the palette snap and keep the smooth gradient, clouds, stars and moon, plus ±½/255 of noise against banding. Only the diorama is pixel art; a two-colour checkerboard behind its silhouettes competed with them.
-- **The dither is light and pinned to the world.** The amplitude (`DITHER_SPREAD`, 0.03) only flips pixels within about 1.5% of the boundary between two shades. Surfaces read as clean flat colour, with a thin dithered seam where shades hand over (lamp pools, halos, shadow falloff). At the old 0.1 whole walls and roofs were checkered, which hid small details at 1× zoom. The Bayer pattern is offset by the camera's whole-pixel offset (mod 4), and the pixel pass's small halo gathers its 2×2 blocks at the same offset (mod 2). Both travel with the scene when the camera pans. Pinned to the screen, 44% of pixels changed on every one-pixel camera step; now 0.2% do, all of them real scene changes at the frame edges.
+- **The dither is light, only in halos, and pinned to the world.** It applies only where a light's halo falls off (`DITHER_SPREAD`, 0.03, scaled by the halo). There it flips pixels within about 1.5% of the boundary between two shades, so a halo fades through thin seams instead of hard rings. Everywhere else the palette shades in flat clusters. At the old 0.1 everywhere, walls, roofs and lawns were checkered, which hid small details at 1× zoom. The Bayer pattern is offset by the camera's whole-pixel offset (mod 4), and the pixel pass's small halo gathers its 2×2 blocks at the same offset (mod 2). Both travel with the scene when the camera pans. Pinned to the screen, 44% of pixels changed on every one-pixel camera step; now 0.2% do, all of them real scene changes at the frame edges.
 
 ## Art direction (prompt 03)
 - **Weathering is causal and baked into geometry.** Builders wrap a structure in `kit.weathering({ age, moss }, …)`. Its meshes get subdivided (about 1 m cells), switch to a weathered material twin, and get per-vertex `ao`, `upFacing`, `dripMask` and `age` after the whole diorama exists (`kit.finishWeathering`, maths in `src/world/weathering.ts`). Windows, AC units and downpipes register drip sources, so streaks hang under the things that cause them. The shader (`render/materials.ts`) adds splash-back at the foot of walls, moss on north faces (where `moss` > 0), and wet darkening in rain. The attributes live in the geometry, so moving a building moves its stains.
@@ -52,6 +52,34 @@ Every final pixel goes through the same ordered steps. Order matters: dither bef
 - **Foliage** sways in the vertex shader. Each blob moves as a unit, with its phase taken from its position; amplitude follows the weather's wind and is zero with reduced motion. Each blob also varies a little in tone. Autumn leaves and spring petals spawn inside the canopies that drop them (`CANOPIES` in `weather.ts`), from their own RNG stream.
 - **Quiet props** (meters, downpipes, pots, crates…) are layout data. They are baked into one mesh per material with `kit.merged`, so the density pass costs few draw calls.
 - **Lighting keys** in `sky.ts` name their mood (golden hour 17:30, blue hour 19:15, rainy evening, snowy morning). At blue hour the kissaten window (`materials.cafeLit`) is the warmest light in the frame. Default-view focal order: kissaten → shrine islet → chimney. How to check it is in `docs/CONTRIBUTING.md`.
+
+## Visual detail
+The target sits between Stardew Valley and Eastward: rich in objects, quiet in surface noise. Silhouettes read at a distance, structure (windows, rows, joints) at medium zoom, and texture up close.
+- **Textures are clusters, not per-texel noise** (`buildTextures`). Each keeps its structure (courses, tile rows, planks, slab joints) and adds only low-contrast, spatially coherent variation: value noise on a 4–16-texel lattice, one tint per slab or stone, quantised to a few steps. Independent random texels (gravel ±90, grass ±50) turned into grain once shrunk.
+- **Textures are mipmapped and anisotropic** when minified: a 2.7 m road tile has 8 cm texels, smaller than a render pixel at 1×. They are nearest when magnified, so close-ups stay crisp. That gives level of detail for free: rows and joints resolve at 2–3× zoom and settle into flat tone at 1×. Patterns that are the point (awning stripes, signs) stay nearest at every distance.
+- **Weathering streaks are gentle.** Without a dither to blend them, a stain that crosses a palette boundary snaps into a hard patch, so the contact shadow and splash-back carry most of the age.
+- Busyness (isolated pixels at game resolution, default view, noon): Classic 3.1% → 1.5%, Smooth 0.20% → 0.12%.
+
+## Night lighting (src/world/lighting.ts, lightpools.ts)
+Every important light is built in five layers, each with its own job:
+1. **Ambient:** the sun/hemisphere rig keeps unlit surfaces readable.
+2. **Emissive core:** the glass or lamp head.
+3. **Local fill:** a few real point lights.
+4. **Ground pool or spill:** where the light lands.
+5. **Optical halo:** the glow, Film Diffusion.
+
+Brightness follows a hierarchy (`EMISSIVE`): kissaten 3.2, streetlamps 2.7, shops 2.0, lanterns 2.0, homes 1.5. The warm/cool separation carries the night; exposure is never raised to compensate.
+- **Windows fade, vary and follow their building.**
+  - Levels come from the clock alone (`windowLevel`), so a paused or jumped clock agrees with a running one. Each window fades over 18 in-world minutes.
+  - About one home window in five stays dark on any night (a different set each day), and each home has its own lamp warmth.
+  - Shop windows follow their own shop's hours (the shutter's), so a closed shop goes dark.
+  - Glass brightness comes in 8 shared material steps per kind, so every window fades on its own schedule without a material per window.
+- **Pools are authored decals, not shadowed lights** (`LightPools`). Streetlamps and vending machines get round pools. Ground-floor shop and kissaten windows get a spill that opens outward from the glass (`windowSpill`), so it can't leak through the building.
+  - Upper-floor windows get none.
+  - Spills stop at the plinth edge; a window facing straight off it gets none.
+  - Pools add light on colour only (destination alpha untouched, so the water and sign tags survive). They are depth-tested and never write depth, so walls and residents in front hide them.
+  - They follow the lamp level or their window's level, cast no shadows, and cost one small draw each. In the palette looks they fall off in banded rings, like hand-drawn pixel-art lamplight.
+- Reference scene for lighting changes: the kissaten at 19:15 in light rain (`?hour=19.25&weather=rain`, zoomed to the café).
 
 ## Film Diffusion (src/render/diffusion.ts, diffusion-pass.ts)
 A restrained lens-diffusion setting, 0–20% (Settings → Film Diffusion; new players start at 5%). Glow gathers around real light sources, and dithered surfaces read as tone. Geometry edges, outlines, window frames, foliage clusters, residents and the DOM HUD stay as crisp as at 0%.

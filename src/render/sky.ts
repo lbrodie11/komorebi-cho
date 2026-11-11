@@ -163,7 +163,7 @@ const KEYS: Key[] = [
     clouds: 0.7,
   },
   // blue hour (19:15): the whole street goes cool blue so warm windows carry the frame.
-  // The kissaten's window (materials.cafeLit) must be the warmest thing in view:
+  // The kissaten's window (materials.windowMat('cafe'), lighting.ts EMISSIVE) must be the warmest thing in view:
   // fill and sky stay strictly blue, so nothing else competes for amber.
   {
     h: 19.25,

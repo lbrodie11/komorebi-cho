@@ -19,6 +19,7 @@ import {
   VENDING,
 } from './layout';
 import { stream } from '../core/rng';
+import { EMISSIVE } from './lighting';
 import { groundHeight } from './terrain';
 
 export interface LightRef {
@@ -35,6 +36,8 @@ export interface PropsOut {
   lightPool: LightRef[];
   swings: THREE.Object3D[];
   flags: THREE.Mesh[];
+  /** Where each streetlamp's light lands (ground pool centre and radius). */
+  lampPools: { x: number; z: number; r: number }[];
 }
 
 function benchMesh(m: Materials): THREE.Group {
@@ -123,6 +126,9 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
 
   // utility poles + transformer + wires + street lamps
   const poleM = m.solid('#8a8f99');
+  // lamp heads sit at the top of the hierarchy after the kissaten (lighting.ts); setLampLevel scales by 0.15 + level
+  const lampHead = () => m.lamp('#fff1c4', '#ffe2b0', EMISSIVE.streetlamp / 1.15);
+  const lampPools: PropsOut['lampPools'] = [];
   POLES.forEach(([x, z], i) => {
     k.cyl(0.15, 0.19, 8.4, poleM, x, G + 4.2, z, 6);
     const along = i < 3;
@@ -130,8 +136,10 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     if (i === 1) k.cyl(0.32, 0.32, 0.8, m.std('#686d78', 0.5, { metalness: 0.4 }), x + 0.4, G + 6.6, z - 0.4, 8);
     if (i !== 3) {
       const d = along ? [-0.6, 0] : [0, 0.6];
-      k.box(0.45, 0.13, 0.26, m.lamp('#fff1c4', '#ffe2b0', 2), x + d[0]!, G + 4.8, z + d[1]!);
-      pl('#ffd9a0', 9, x + d[0]! * 1.5, G + 4.5, z + d[1]! * 1.5, 10);
+      k.box(0.45, 0.13, 0.26, lampHead(), x + d[0]!, G + 4.8, z + d[1]!);
+      // a modest local fill; the visible pool on the ground is a decal (lightpools.ts)
+      pl('#ffd9a0', 7, x + d[0]! * 1.5, G + 4.5, z + d[1]! * 1.5, 10);
+      lampPools.push({ x: x + d[0]! * 1.4, z: z + d[1]! * 1.4, r: 2.5 });
     }
     // little ad sign on the pole (all shitamachi poles have one)
     if (i % 2 === 0) k.box(0.06, 0.8, 0.3, m.solid(i ? '#ffd37a' : '#2f4a72'), x + 0.18, G + 2.4, z);
@@ -186,8 +194,9 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
 
   for (const [x, z] of PARK_LAMPS) {
     k.cyl(0.07, 0.09, 2.6, m.dark, x, G + 1.3, z, 6);
-    k.box(0.3, 0.3, 0.3, m.lamp('#fff1c4', '#ffe2b0', 2), x, G + 2.7, z);
-    pl('#ffe2b0', 7, x, G + 2.4, z, 7);
+    k.box(0.3, 0.3, 0.3, lampHead(), x, G + 2.7, z);
+    pl('#ffe2b0', 6, x, G + 2.4, z, 7);
+    lampPools.push({ x, z, r: 1.8 });
   }
   // shop / building light sources
   pl('#ff6a3d', 10, -9.9, G + 2.4, -2, 6);
@@ -251,7 +260,7 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     lightPool.push(ref);
   }
 
-  return { lights, swings, flags, lightPool };
+  return { lights, swings, flags, lightPool, lampPools };
 }
 
 /**
