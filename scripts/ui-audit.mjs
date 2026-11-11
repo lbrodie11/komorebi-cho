@@ -301,7 +301,7 @@ await (async () => {
             ?.click(),
         label,
       );
-    const items = kinds.filter((k) => k.startsWith('Place '));
+    const items = kinds.filter((k) => k?.startsWith('Place '));
     check('palette offers at least 30 things', items.length >= 30, `${items.length}`);
     for (const k of items) {
       await openTab(k);
