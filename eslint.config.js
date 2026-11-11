@@ -21,6 +21,23 @@ export default defineConfig(
   // Tool scripts: Node globals, plus browser globals inside page.evaluate() callbacks.
   {
     files: ['scripts/**/*.mjs'],
-    languageOptions: { globals: { console: 'readonly', process: 'readonly', window: 'readonly', document: 'readonly' } },
+    languageOptions: {
+      globals: Object.fromEntries(
+        [
+          'console',
+          'process',
+          'window',
+          'document',
+          'innerWidth',
+          'innerHeight',
+          'getComputedStyle',
+          'matchMedia',
+          'localStorage',
+          'sessionStorage',
+          'Event',
+          'PointerEvent',
+        ].map((g) => [g, 'readonly']),
+      ),
+    },
   },
 );

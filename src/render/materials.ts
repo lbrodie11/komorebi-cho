@@ -484,7 +484,37 @@ export class Materials {
   }
 
   std(color: string, roughness = 0.9, extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
-    return new THREE.MeshStandardMaterial({ color: new THREE.Color(color), roughness, ...extra });
+    const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(color), roughness, ...extra });
+    this.capturing?.add(m);
+    return m;
+  }
+
+  /** Materials made inside `own()`; null outside it. */
+  private capturing: Set<THREE.Material> | null = null;
+
+  /**
+   * Run a builder and return the materials it made for itself (not the shared, cached ones), so
+   * an object built at runtime (a placed bench, the build ghost) can be released when it goes.
+   */
+  own<T>(build: () => T): { result: T; owned: Set<THREE.Material> } {
+    const owned = new Set<THREE.Material>();
+    const outer = this.capturing;
+    this.capturing = owned;
+    try {
+      return { result: build(), owned };
+    } finally {
+      this.capturing = outer;
+    }
+  }
+
+  /** Free what `own()` captured: the GPU programs and textures, and any lamp registrations. */
+  release(owned: Iterable<THREE.Material>): void {
+    for (const m of owned) {
+      const i = this.lamps.indexOf(m as LampMaterial);
+      if (i >= 0) this.lamps.splice(i, 1);
+      (m as THREE.MeshStandardMaterial).map?.dispose();
+      m.dispose();
+    }
   }
 
   /** Cached solid colour: identical calls share a material (fewer GPU programs/uniform uploads). */
@@ -493,6 +523,7 @@ export class Materials {
     let m = this.cache.get(key);
     if (!m) {
       m = this.std(color, roughness);
+      this.capturing?.delete(m); // cached means shared from now on: never owned by one object
       this.cache.set(key, m);
     }
     return m;

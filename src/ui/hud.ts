@@ -13,6 +13,8 @@ export interface HudActions {
   setWeather(m: WeatherMode): void;
   setSeason(s: Season): void;
   setTool(m: ToolMode, k?: PlaceableKind): void;
+  /** Turn the item being placed a quarter turn (the R key, as a button for touch). */
+  rotateItem(): void;
   photo(on: boolean): void;
   capture(): Promise<string | null>;
   setPixel(p: PixelPreset): void;
@@ -32,6 +34,11 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''):
   if (html) e.innerHTML = html;
   return e;
 };
+/** Touch-first device: no hover, so build previews on the first tap and commits on the second. */
+export const coarsePointer = (): boolean => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
+const FOCUSABLE = 'button, [href], input, [tabindex]:not([tabindex="-1"])';
+
 const btn = (label: string, onClick: () => void, title = ''): HTMLButtonElement => {
   const b = el('button', 'px', label);
   b.type = 'button';
@@ -41,6 +48,12 @@ const btn = (label: string, onClick: () => void, title = ''): HTMLButtonElement 
   }
   b.addEventListener('click', onClick);
   return b;
+};
+
+/** A toggle button's look and its screen-reader state, always together. */
+const pressed = (b: HTMLButtonElement, on: boolean): void => {
+  b.classList.toggle('on', on);
+  b.setAttribute('aria-pressed', String(on));
 };
 
 /** All DOM UI. Deliberately quiet: the diorama is the interface. */
@@ -53,6 +66,7 @@ export class Hud {
   private readonly settings = el('div', 'settings panel');
   private readonly help = el('div', 'help panel');
   private readonly palette = el('div', 'palette panel');
+  private readonly bar = el('div', 'toolbar panel');
   private readonly photoBar = el('div', 'photo-bar panel');
   private readonly modal = el('div', 'modal');
   private readonly speedBtns: HTMLButtonElement[] = [];
@@ -62,10 +76,23 @@ export class Hud {
   private readonly soundBtn: HTMLButtonElement;
   private readonly buildBtn: HTMLButtonElement;
   private readonly removeBtn: HTMLButtonElement;
+  private readonly settingsBtn: HTMLButtonElement;
+  private readonly helpBtn: HTMLButtonElement;
+  private readonly photoBtn: HTMLButtonElement;
+  private readonly captureBtn: HTMLButtonElement;
+  private readonly moreBtn: HTMLButtonElement;
   private readonly paletteBtns = new Map<PlaceableKind, HTMLButtonElement>();
   private cardFor: (() => ResidentInfo | null) | null = null;
   private season: Season = 'spring';
   private splash: HTMLElement | null = null;
+  private soundPending = false;
+  private musicInput: HTMLInputElement | null = null;
+  private ambienceInput: HTMLInputElement | null = null;
+  private motionInput: HTMLInputElement | null = null;
+  /** Where focus was before a panel or the photo preview took it, to give it back on close. */
+  private returnFocus = new Map<HTMLElement, HTMLElement | null>();
+  /** Photo mode is on (the HUD is hidden behind the photo bar). */
+  photoOn = false;
 
   constructor(
     root: HTMLElement,
@@ -76,25 +103,29 @@ export class Hud {
     brand.append(drawWordmark(), el('div', 'tag', 'A tiny Tokyo backstreet. Build a little. Watch it notice.'));
 
     const top = el('div', 'top-right');
-    this.soundBtn = btn(
-      'Sound off',
-      () =>
-        void this.act.toggleSound().then((on) => {
-          this.soundBtn.textContent = on ? 'Sound on' : 'Sound off';
-          this.soundBtn.classList.toggle('on', on);
-          this.dismissSplash();
-        }),
-      'Toggle music and ambience (M)',
-    );
-    top.append(
-      this.soundBtn,
-      btn('Photo', () => this.togglePhoto(true), 'Photo mode (P)'),
-      btn('Settings', () => this.toggle(this.settings), 'Settings'),
-      btn('?', () => this.toggle(this.help), 'Help (H)'),
-    );
+    this.soundBtn = btn('Sound off', () => void this.toggleSound(), 'Toggle music and ambience (M)');
+    this.soundBtn.setAttribute('aria-pressed', 'false');
+    this.photoBtn = btn('Photo', () => this.togglePhoto(true), 'Photo mode (P)');
+    this.settingsBtn = btn('Settings', () => this.toggle(this.settings), 'Settings');
+    this.helpBtn = btn('?', () => this.toggleHelp(), 'Help (H)');
+    for (const [b, panel, id] of [
+      [this.settingsBtn, this.settings, 'kc-settings'],
+      [this.helpBtn, this.help, 'kc-help'],
+    ] as const) {
+      panel.id = id;
+      panel.tabIndex = -1;
+      b.setAttribute('aria-controls', id);
+      b.setAttribute('aria-expanded', 'false');
+    }
+    this.settings.setAttribute('role', 'dialog');
+    this.settings.setAttribute('aria-label', 'Settings');
+    this.help.setAttribute('role', 'dialog');
+    this.help.setAttribute('aria-label', 'Help');
+    top.append(this.soundBtn, this.photoBtn, this.settingsBtn, this.helpBtn);
 
-    const bar = el('div', 'toolbar panel');
+    const bar = this.bar;
     bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Time, weather and building');
     const pause = btn('II', () => this.act.setSpeed(0), 'Pause time (Space)');
     const play = btn('>', () => this.act.setSpeed(1), 'Normal speed');
     const fast = btn('>>', () => this.act.setSpeed(6), 'Fast forward');
@@ -110,69 +141,209 @@ export class Hud {
       () => {
         const i = (SEASONS.indexOf(this.season) + 1) % SEASONS.length;
         this.act.setSeason(SEASONS[i]!);
+        this.setSeason(SEASONS[i]!); // now, not at the next once-a-second refresh: a quick second click must advance again
       },
       'Change season',
     );
     this.buildBtn = btn('Build', () => this.act.setTool(this.buildBtn.classList.contains('on') ? 'view' : 'build'), 'Build mode (B)');
     this.removeBtn = btn('Remove', () => this.act.setTool(this.removeBtn.classList.contains('on') ? 'view' : 'remove'), 'Remove things you placed (X)');
-    bar.append(this.clock, this.date, pause, play, fast, el('span', 'sep'));
-    for (const [label, h] of jumps) bar.append(btn(label, () => this.act.jumpTo(h), `Skip to ${label.toLowerCase()}`));
-    bar.append(el('span', 'sep'));
+    for (const b of [pause, play, fast, this.buildBtn, this.removeBtn]) b.setAttribute('aria-pressed', 'false');
+    // Time-of-day, weather and season are the "advanced" controls: always shown on wide screens,
+    // folded behind "More" on phones so the toolbar stays one or two rows and the diorama stays visible.
+    const more = el('span', 'more');
+    more.id = 'kc-more';
+    more.append(el('span', 'sep'));
+    for (const [label, h] of jumps) more.append(btn(label, () => this.act.jumpTo(h), `Skip to ${label.toLowerCase()}`));
+    more.append(el('span', 'sep'));
     for (const [m, label] of [
       ['auto', 'Auto'],
       ['clear', 'Clear'],
       ['rain', 'Rain'],
     ] as const) {
       const b = btn(label, () => this.act.setWeather(m), `Weather: ${label}`);
+      b.setAttribute('aria-pressed', 'false');
       this.weatherBtns.set(m, b);
-      bar.append(b);
+      more.append(b);
     }
-    bar.append(el('span', 'sep'), this.seasonBtn, el('span', 'sep'), this.buildBtn, this.removeBtn);
+    more.append(el('span', 'sep'), this.seasonBtn);
+    this.moreBtn = btn('More', () => this.setMore(!bar.classList.contains('expanded')), 'Time of day, weather and season');
+    this.moreBtn.classList.add('more-toggle');
+    this.moreBtn.setAttribute('aria-controls', 'kc-more');
+    this.moreBtn.setAttribute('aria-expanded', 'false');
+    bar.append(this.clock, this.date, pause, play, fast, more, el('span', 'sep'), this.buildBtn, this.removeBtn, this.moreBtn);
 
     for (const def of Object.values(PLACEABLES)) {
       const b = btn('', () => this.act.setTool('build', def.kind), `Place ${def.label}`);
+      b.setAttribute('aria-pressed', 'false');
       const sw = swatch(def.kind);
       sw.className = 'sw';
       b.append(sw, document.createTextNode(def.label));
       this.paletteBtns.set(def.kind, b);
       this.palette.append(b);
     }
-    this.palette.append(el('span', 'hint', 'Click to place · R rotates · Esc to stop. Nearby residents may come and look.'));
+    const rotate = btn('Rotate', () => this.act.rotateItem(), 'Rotate item (R)');
+    rotate.classList.add('rotate');
+    this.palette.append(
+      rotate,
+      el(
+        'span',
+        'hint',
+        coarsePointer()
+          ? 'Tap to preview, tap again to place. Nearby residents may come and look.'
+          : 'Click to place · R rotates · Esc to stop. Nearby residents may come and look.',
+      ),
+    );
+    this.palette.setAttribute('role', 'toolbar');
+    this.palette.setAttribute('aria-label', 'Things to place');
 
+    this.card.setAttribute('role', 'region');
+    this.card.setAttribute('aria-label', 'Resident');
+    this.card.setAttribute('aria-live', 'polite');
     this.card.append(btn('x', () => this.closeCard(), 'Close'));
     this.buildSettings();
     this.help.innerHTML = `<h3>Komorebi-chō</h3>
       <p>A living miniature of a Tokyo backstreet. Place a bench, a lantern, a sakura. Then watch: the neighbours notice, and their days slowly change around what you made.</p>
-      <p><kbd>Drag</kbd> pan · <kbd>Scroll</kbd> zoom · <kbd>Q</kbd>/<kbd>E</kbd> rotate · <kbd>Space</kbd> pause · <kbd>1-4</kbd> time of day<br>
-      <kbd>B</kbd> build · <kbd>X</kbd> remove · <kbd>R</kbd> rotate item · <kbd>P</kbd> photo · <kbd>M</kbd> sound · click a resident to meet them</p>
+      <p><kbd>Drag</kbd>/<kbd>WASD</kbd> pan · <kbd>Scroll</kbd>/<kbd>+</kbd><kbd>-</kbd> zoom · <kbd>Q</kbd>/<kbd>E</kbd> rotate · <kbd>Space</kbd> pause · <kbd>1-4</kbd> time of day<br>
+      <kbd>B</kbd> build · <kbd>X</kbd> remove · <kbd>R</kbd> rotate item · <kbd>P</kbd> photo · <kbd>M</kbd> sound · <kbd>H</kbd> help · <kbd>Esc</kbd> close · click a resident to meet them</p>
+      <p>Touch: drag to pan · pinch to zoom · twist two fingers to turn the street · tap twice to place or remove.</p>
       <p style="color:var(--muted);font-size:12px">Every pixel, building and note of music is generated by code.</p>`;
-    this.help.append(btn('Close', () => this.toggle(this.help)));
+    this.help.append(btn('Close', () => this.toggleHelp()));
 
+    this.captureBtn = btn(
+      'Capture',
+      () =>
+        void this.act.capture().then((url) => {
+          if (url) this.showCapture(url);
+        }),
+    );
     this.photoBar.append(
-      btn(
-        'Capture',
-        () =>
-          void this.act.capture().then((url) => {
-            if (url) this.showCapture(url);
-          }),
-      ),
+      this.captureBtn,
       btn('Exit photo mode', () => this.togglePhoto(false)),
     );
+    this.modal.setAttribute('role', 'dialog');
+    this.modal.setAttribute('aria-modal', 'true');
+    this.modal.setAttribute('aria-label', 'Photo preview');
     this.modal.addEventListener('click', (e) => {
-      if (e.target === this.modal) this.modal.classList.remove('open');
+      if (e.target === this.modal) this.closeModal();
     });
+    // keep Tab inside the preview while it is open
+    this.modal.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const f = [...this.modal.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      if (!f.length) return;
+      const first = f[0]!,
+        last = f[f.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+    this.storyBox.setAttribute('role', 'log');
+    this.storyBox.setAttribute('aria-live', 'polite');
+    this.storyBox.setAttribute('aria-label', 'What the neighbourhood is up to');
+    const dock = el('div', 'dock');
+    dock.append(this.palette, bar);
 
     this.splash = el('div', 'splash');
-    const sp = el('div', 'panel', 'Turn on sound for the full experience · press <b>?</b> for controls');
+    const sp = el('div', 'panel', `Turn on sound for the full experience · ${coarsePointer() ? 'tap' : 'press'} <b>?</b> for controls`);
     this.splash.append(sp);
 
-    root.append(brand, top, this.storyBox, this.card, this.settings, this.help, this.palette, bar, this.photoBar, this.modal, this.splash);
+    root.append(brand, top, this.storyBox, this.card, this.settings, this.help, dock, this.photoBar, this.modal, this.splash);
     window.setTimeout(() => this.dismissSplash(), 9000);
   }
 
   private dismissSplash(): void {
     this.splash?.remove();
     this.splash = null;
+  }
+
+  /** The one way sound is toggled (button and M key), so the button always tells the truth. */
+  async toggleSound(): Promise<void> {
+    if (this.soundPending) return; // a second press while the audio graph is still starting would race it
+    this.soundPending = true;
+    try {
+      this.setSound(await this.act.toggleSound());
+    } catch {
+      this.setSound(false); // no Web Audio, or the browser refused: say so rather than claim it's on
+    } finally {
+      this.soundPending = false;
+      this.dismissSplash();
+    }
+  }
+
+  setSound(on: boolean): void {
+    this.soundBtn.textContent = on ? 'Sound on' : 'Sound off';
+    this.soundBtn.classList.toggle('on', on);
+    this.soundBtn.setAttribute('aria-pressed', String(on));
+  }
+
+  /** Reflect saved volumes in the sliders (they otherwise show the defaults after a reload). */
+  setVolumes(music: number, ambience: number): void {
+    if (this.musicInput) this.musicInput.value = String(music);
+    if (this.ambienceInput) this.ambienceInput.value = String(ambience);
+  }
+
+  setReducedMotion(v: boolean): void {
+    if (this.motionInput) this.motionInput.checked = v;
+    this.root.classList.toggle('reduced-motion', v);
+  }
+
+  setSeason(season: Season): void {
+    this.season = season;
+    const s = season[0]!.toUpperCase() + season.slice(1);
+    this.seasonBtn.textContent = s;
+    // the same weather mode falls as snow in winter; say what the button will actually do
+    const wet = this.weatherBtns.get('rain');
+    if (wet) {
+      const label = season === 'winter' ? 'Snow' : 'Rain';
+      wet.textContent = label;
+      wet.title = `Weather: ${label}`;
+      wet.setAttribute('aria-label', wet.title);
+    }
+  }
+
+  private setMore(open: boolean): void {
+    this.bar.classList.toggle('expanded', open);
+    this.moreBtn.setAttribute('aria-expanded', String(open));
+    this.moreBtn.classList.toggle('on', open);
+  }
+
+  toggleHelp(): void {
+    this.toggle(this.help);
+  }
+
+  /** Is the photo preview up? Game keys wait while it is (only Esc and Tab act). */
+  get modalOpen(): boolean {
+    return this.modal.classList.contains('open');
+  }
+
+  /**
+   * Esc closes the topmost thing: the photo preview, then Help/Settings, then a resident's card.
+   * Returns false when nothing was open, so the caller can leave photo or build mode instead.
+   */
+  closeTopmost(): boolean {
+    if (this.modalOpen) {
+      this.closeModal();
+      return true;
+    }
+    for (const p of [this.help, this.settings]) {
+      if (p.classList.contains('open')) {
+        this.toggle(p);
+        return true;
+      }
+    }
+    if (this.card.classList.contains('open')) {
+      this.closeCard();
+      return true;
+    }
+    if (this.bar.classList.contains('expanded')) {
+      this.setMore(false);
+      return true;
+    }
+    return false;
   }
 
   private diffusionInput: HTMLInputElement | null = null;
@@ -222,6 +393,8 @@ export class Hud {
     };
     const mv = slider('Music', 0.55);
     const av = slider('Ambience', 0.6);
+    this.musicInput = mv;
+    this.ambienceInput = av;
     const upd = () => this.act.setVolumes(Number(mv.value), Number(av.value));
     mv.addEventListener('input', upd);
     av.addEventListener('input', upd);
@@ -248,25 +421,81 @@ export class Hud {
     const rm = el('label', '', 'Reduced motion');
     const cb = el('input');
     cb.type = 'checkbox';
-    cb.addEventListener('change', () => this.act.setReducedMotion(cb.checked));
+    cb.addEventListener('change', () => {
+      this.root.classList.toggle('reduced-motion', cb.checked);
+      this.act.setReducedMotion(cb.checked);
+    });
+    this.motionInput = cb;
     rm.append(cb);
     s.append(rm);
+    // Destructive, and one stray click away from the look buttons: ask twice, in place, no browser dialog.
+    const resetLabel = 'Reset neighbourhood';
+    let armed = 0;
+    const reset = btn(resetLabel, () => {
+      if (armed) {
+        window.clearTimeout(armed);
+        armed = 0;
+        reset.textContent = resetLabel;
+        reset.classList.remove('warn');
+        this.act.reset();
+        return;
+      }
+      reset.textContent = 'Click again to reset';
+      reset.classList.add('warn');
+      armed = window.setTimeout(() => {
+        armed = 0;
+        reset.textContent = resetLabel;
+        reset.classList.remove('warn');
+      }, 4000);
+    });
+    reset.classList.add('reset');
     s.append(
-      btn('Reset neighbourhood', () => this.act.reset()),
+      el('p', 'note', 'Reset removes everything you placed, and residents forget it. Time, weather and these settings stay.'),
+      reset,
       btn('Close', () => this.toggle(this.settings)),
     );
   }
 
   private toggle(p: HTMLElement): void {
     const open = !p.classList.contains('open');
-    for (const q of [this.settings, this.help, this.card]) q.classList.remove('open');
+    for (const q of [this.settings, this.help]) if (q !== p && q.classList.contains('open')) this.setPanel(q, false);
+    this.card.classList.remove('open');
+    this.cardFor = null;
+    this.setPanel(p, open);
+  }
+
+  private setPanel(p: HTMLElement, open: boolean): void {
+    if (p.classList.contains('open') === open) return;
     p.classList.toggle('open', open);
+    const opener = p === this.settings ? this.settingsBtn : p === this.help ? this.helpBtn : null;
+    opener?.setAttribute('aria-expanded', String(open));
+    if (open) {
+      this.returnFocus.set(p, document.activeElement as HTMLElement | null);
+      p.focus({ preventScroll: true });
+    } else {
+      // only take focus back if it was inside the panel (don't yank it from wherever the player went)
+      if (p.contains(document.activeElement)) (this.returnFocus.get(p) ?? opener)?.focus({ preventScroll: true });
+      this.returnFocus.delete(p);
+    }
   }
 
   togglePhoto(on: boolean): void {
+    if (this.photoOn === on) return;
+    this.photoOn = on;
+    if (!on) this.closeModal();
     this.root.classList.toggle('hidden', on);
     this.photoBar.classList.toggle('open', on);
     this.act.photo(on);
+    // the HUD buttons are invisible now; keep keyboard focus on something that can be seen
+    if (on) this.captureBtn.focus({ preventScroll: true });
+    else if (this.photoBar.contains(document.activeElement)) this.photoBtn.focus({ preventScroll: true });
+  }
+
+  private closeModal(): void {
+    if (!this.modalOpen) return;
+    this.modal.classList.remove('open');
+    this.modal.innerHTML = '';
+    if (this.photoOn) this.captureBtn.focus({ preventScroll: true });
   }
 
   private showCapture(url: string): void {
@@ -281,42 +510,41 @@ export class Hud {
     a.style.color = 'var(--cream)';
     inner.append(
       img,
-      el('span', 'hint', 'If the download is blocked, right-click the image to save it.'),
+      el(
+        'span',
+        'hint',
+        coarsePointer() ? 'If the download is blocked, press and hold the image to save it.' : 'If the download is blocked, right-click the image to save it.',
+      ),
       a,
-      btn('Close', () => this.modal.classList.remove('open')),
+      btn('Close', () => this.closeModal()),
     );
     this.modal.append(inner);
     this.modal.classList.add('open');
+    a.focus({ preventScroll: true });
   }
 
   setClock(label: string, day: number, season: Season): void {
     this.clock.textContent = label;
     const s = season[0]!.toUpperCase() + season.slice(1);
     this.date.textContent = `Day ${day + 1} · ${s}`;
-    if (season !== this.season) {
-      this.season = season;
-      this.seasonBtn.textContent = s;
-    }
+    if (season !== this.season) this.setSeason(season);
   }
   setSpeed(speed: number, paused: boolean): void {
     const idx = paused ? 0 : speed > 1 ? 2 : 1;
-    this.speedBtns.forEach((b, i) => b.classList.toggle('on', i === idx));
+    this.speedBtns.forEach((b, i) => pressed(b, i === idx));
   }
   setPixel(p: PixelPreset): void {
-    for (const [k, b] of this.pixelBtns) {
-      b.classList.toggle('on', k === p);
-      b.setAttribute('aria-pressed', String(k === p)); // the chosen look, for screen readers too
-    }
+    for (const [k, b] of this.pixelBtns) pressed(b, k === p); // the chosen look, for screen readers too
   }
 
   setWeather(m: WeatherMode): void {
-    for (const [k, b] of this.weatherBtns) b.classList.toggle('on', k === m);
+    for (const [k, b] of this.weatherBtns) pressed(b, k === m);
   }
   setTool(m: ToolMode, k: PlaceableKind): void {
-    this.buildBtn.classList.toggle('on', m === 'build');
-    this.removeBtn.classList.toggle('on', m === 'remove');
+    pressed(this.buildBtn, m === 'build');
+    pressed(this.removeBtn, m === 'remove');
     this.palette.classList.toggle('open', m === 'build');
-    for (const [kind, b] of this.paletteBtns) b.classList.toggle('on', m === 'build' && kind === k);
+    for (const [kind, b] of this.paletteBtns) pressed(b, m === 'build' && kind === k);
   }
 
   story(text: string): void {
@@ -331,7 +559,7 @@ export class Hud {
 
   openCard(get: () => ResidentInfo | null): void {
     this.cardFor = get;
-    for (const q of [this.settings, this.help]) q.classList.remove('open');
+    for (const q of [this.settings, this.help]) this.setPanel(q, false);
     this.card.classList.add('open');
     this.refreshCard();
   }

@@ -17,8 +17,8 @@ import { BuildTool, type ToolMode } from './ui/build';
 import { Hud } from './ui/hud';
 import { DebugOverlay } from './ui/debug';
 import { Sound } from './audio/sound';
-import { load, save, clearSave, SAVE_VERSION } from './save/storage';
-import type { PlaceableKind } from './world/props';
+import { load, save, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
+import { PLACEABLES, type PlaceableKind } from './world/props';
 import { parseLaunchParams, warmupStart } from './core/params';
 import { warmUp } from './sim/warmup';
 import { DEFAULT_DIFFUSION, diffusionOutputSize } from './render/diffusion';
@@ -64,7 +64,8 @@ const params = parseLaunchParams(location.search);
 const debug = params.debug ? new DebugOverlay(document.getElementById('app') as HTMLElement, renderer) : null;
 
 const bus = new EventBus<GameEvents>();
-const clock = new WorldClock(16.6);
+// 16:36: golden hour now, the evening bell (18:00) about 84 s in, blue hour (19:15) about 2.5 min in
+const clock = new WorldClock(DEFAULT_MINUTES / 60);
 const world = new World(params.seed);
 const post = new PostPass(PALETTE, !params.lutOff);
 const iso = new IsoCamera();
@@ -98,7 +99,9 @@ if (saved) {
   clock.minutes = saved.minutes;
   clock.season = saved.season;
   world.weather.setMode(saved.weather);
-  for (const r of saved.placed) if (build.canPlace(r.kind, r.x, r.z)) build.place(r, false);
+  // Residents are ignored here: one standing on yesterday's bench spot at boot must not delete the bench
+  // (the next autosave would make the loss permanent). Unknown kinds (an older or newer build) are skipped.
+  for (const r of saved.placed) if (r.kind in PLACEABLES && build.canPlace(r.kind, r.x, r.z, { ignoreResidents: true })) build.place(r, false);
   residents.restoreMemory(saved.memory);
   pixelSetting = saved.settings.pixel;
   pixel = params.pixel ?? pixelSetting;
@@ -107,8 +110,11 @@ if (saved) {
   world.reducedMotion = saved.settings.reducedMotion;
   diffusionSetting = saved.settings.diffusion;
   diffusion = params.diffusion ?? diffusionSetting;
+} else if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  world.reducedMotion = true; // a new player who asked their OS for less motion gets it here too
 }
 let reducedMotion = world.reducedMotion;
+build.reducedMotion = reducedMotion;
 function persist(): void {
   if (params.scripted) return;
   save({
@@ -145,9 +151,13 @@ const hud = new Hud(hudRoot, {
     bus.emit('story', { text: seasonLine(s) });
   },
   setTool,
+  rotateItem: () => build.rotate(),
   photo: (on) => {
     photo = on;
-    if (on) setTool('view');
+    if (on) {
+      setTool('view');
+      hud.closeCard();
+    }
   },
   capture: () => {
     if (contextLost) return Promise.resolve(null); // nothing to render into until the context is back
@@ -171,18 +181,26 @@ const hud = new Hud(hudRoot, {
   setReducedMotion: (v) => {
     reducedMotion = v;
     world.reducedMotion = v;
+    build.reducedMotion = v;
   },
   setDiffusion: (s) => {
     diffusionSetting = s;
     setDiffusion(s);
   },
   reset: () => {
+    setTool('view');
     for (const r of build.records()) build.remove(r.id);
-    clearSave();
+    residents.restoreMemory({}); // removal already made everyone forget; this is belt and braces for orphans
+    // Save the reset state now (settings included) rather than deleting the save: deleting it would also
+    // throw away the player's look and volumes until the next autosave.
+    persist();
     bus.emit('story', { text: 'The neighbourhood is as it was.' });
   },
 });
 hud.setSpeed(clock.speed, clock.paused);
+hud.setVolumes(sound.musicVolume, sound.ambienceVolume);
+hud.setReducedMotion(reducedMotion);
+hud.setSeason(clock.season);
 hud.setWeather(world.weather.mode);
 hud.setTool('view', build.kind);
 hud.setPixel(pixel);
@@ -310,18 +328,81 @@ resize();
 const ray = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 let drag: { x: number; y: number; moved: boolean; id: number } | null = null;
-function setNdc(e: PointerEvent): void {
+/** Fingers on the canvas, for pinch (zoom) and twist (rotate). */
+const touches = new Map<number, { x: number; y: number }>();
+/** Distance and angle between two fingers when the last zoom/rotate step fired. */
+let gesture: { d: number; a: number } | null = null;
+/** After a two-finger gesture, lifting the fingers must not count as a tap. */
+let gestured = false;
+function setNdc(e: { clientX: number; clientY: number }): void {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, iso.camera);
 }
+function twoFingers(): { d: number; a: number; mid: { clientX: number; clientY: number } } | null {
+  const [p, q] = [...touches.values()];
+  if (!p || !q) return null;
+  return { d: Math.hypot(q.x - p.x, q.y - p.y), a: Math.atan2(q.y - p.y, q.x - p.x), mid: { clientX: (p.x + q.x) / 2, clientY: (p.y + q.y) / 2 } };
+}
+/** Zoom and rotation are discrete steps, so gestures fire a step each time they pass a threshold. */
+const PINCH_STEP = 1.3;
+const TWIST_STEP = 0.5; // radians, about 30°
+function onGesture(): void {
+  const g = twoFingers();
+  if (!g || !gesture) return;
+  if (g.d > gesture.d * PINCH_STEP || g.d < gesture.d / PINCH_STEP) {
+    setNdc(g.mid);
+    const hit = new THREE.Vector3();
+    const focus = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -1), hit) ? hit : undefined;
+    zoomStep(g.d > gesture.d ? 1 : -1, focus);
+    gesture.d = g.d;
+  }
+  let da = g.a - gesture.a;
+  da = Math.atan2(Math.sin(da), Math.cos(da));
+  if (Math.abs(da) > TWIST_STEP) {
+    // a clockwise twist (screen angle grows, y down) turns the street clockwise, which is rotate(+1)
+    cameraStep(() => iso.rotate(da > 0 ? 1 : -1));
+    gesture.a = g.a;
+  }
+}
+function endPointer(e: PointerEvent): void {
+  touches.delete(e.pointerId);
+  if (touches.size < 2) gesture = null;
+  if (touches.size === 0) gestured = false;
+  if (drag?.id === e.pointerId) {
+    drag = null;
+    canvas.classList.remove('dragging');
+  }
+}
 canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size >= 2) {
+    // second finger: stop panning, start a pinch/twist
+    const g = twoFingers()!;
+    gesture = { d: Math.max(1, g.d), a: g.a };
+    gestured = true;
+    drag = null;
+    canvas.classList.remove('dragging');
+    return;
+  }
   drag = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
-  canvas.setPointerCapture(e.pointerId);
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* the pointer already went away (very short taps on some touch screens) */
+  }
 });
+// A cancelled pointer (system gesture, palm rejection, alert) never sends pointerup: without this the
+// next hover would keep panning as if the button were still held.
+canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('pointermove', (e) => {
+  if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (gesture) {
+    onGesture();
+    return;
+  }
   setNdc(e);
-  if (drag) {
+  if (drag && drag.id === e.pointerId) {
     const dx = e.clientX - drag.x,
       dy = e.clientY - drag.y;
     if (drag.moved || Math.hypot(dx, dy) > 5) {
@@ -337,14 +418,18 @@ canvas.addEventListener('pointermove', (e) => {
   else canvas.classList.toggle('pointing', pickAgent() !== null);
 });
 canvas.addEventListener('pointerup', (e) => {
-  const wasDrag = drag?.moved;
-  drag = null;
-  canvas.classList.remove('dragging');
-  if (wasDrag) return;
+  const wasDrag = drag?.moved || gestured;
+  const mine = drag?.id === e.pointerId; // a press that began on the HUD and was released here is not a click
+  endPointer(e);
+  if (wasDrag || !mine) return;
+  if (photo) return; // photo mode is for looking: no cards, no building
   setNdc(e);
   if (build.mode !== 'view') {
+    // Touch has no hover, so the first tap previews (ghost and ring) and a second tap on the same
+    // spot commits: the same preview → validate → commit as a mouse, and no accidental removals.
+    const before = build.targetKey();
     build.pointer(ray.ray);
-    build.click();
+    if (e.pointerType === 'mouse' || (before !== null && before === build.targetKey())) build.click();
     return;
   }
   const a = pickAgent();
@@ -398,8 +483,30 @@ function pickAgent(): Agent | null {
 }
 
 window.addEventListener('keydown', (e) => {
-  if ((e.target as HTMLElement).tagName === 'INPUT') return;
+  const t = e.target as HTMLElement;
+  // Leave browser and OS shortcuts alone: Ctrl+P prints, Cmd+R reloads, Ctrl+E searches...
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
+  // Esc must work with focus on a Settings slider or checkbox too; every other key belongs to the control
+  const inField = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
+  if (inField && k !== 'escape') return;
+  // Space and Enter on a focused button press that button (keyboard users rely on it); they don't pause
+  if (t.tagName === 'BUTTON' && (k === ' ' || k === 'enter')) return;
+  if (k === 'escape') {
+    // one layer per press: preview, panel, card, then photo mode, then the build tool
+    if (hud.closeTopmost()) return;
+    if (photo) hud.togglePhoto(false);
+    else setTool('view');
+    return;
+  }
+  if (hud.modalOpen) return; // the photo preview is up: only Esc (and Tab, inside it) act
+  // holding a toggle key would flicker it on and off at the key-repeat rate
+  if (e.repeat && ['b', 'x', 'delete', 'p', 'm', 'h', '?', ' '].includes(k)) {
+    if (k === ' ') e.preventDefault();
+    return;
+  }
+  // the HUD is hidden in photo mode: no building, and no help it can't show
+  if (photo && ['b', 'x', 'delete', 'r', 'h', '?'].includes(k)) return;
   const pan = 40;
   if (k === 'q') cameraStep(() => iso.rotate(-1));
   else if (k === 'e') cameraStep(() => iso.rotate(1));
@@ -417,13 +524,9 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'b') setTool(build.mode === 'build' ? 'view' : 'build');
   else if (k === 'x' || k === 'delete') setTool(build.mode === 'remove' ? 'view' : 'remove');
   else if (k === 'r') build.rotate();
-  else if (k === 'm') void sound.toggle();
+  else if (k === 'm') void hud.toggleSound();
   else if (k === 'p') hud.togglePhoto(!photo);
-  else if (k === 'escape') {
-    if (photo) hud.togglePhoto(false);
-    setTool('view');
-    hud.closeCard();
-  }
+  else if (k === 'h' || k === '?') hud.toggleHelp();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) persist();

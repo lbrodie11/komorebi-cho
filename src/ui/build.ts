@@ -14,8 +14,17 @@ export type ToolMode = 'view' | 'build' | 'remove';
 
 interface Placed extends PlacedRecord {
   object: THREE.Object3D;
+  /** Materials made for this object alone (shared ones are left alone on removal). */
+  owned: Set<THREE.Material>;
   radius: number;
   light?: LightRef;
+}
+
+/** A runtime-built object owns its geometry (placeables never share it) and the materials `own()` captured. */
+function dispose(object: THREE.Object3D, owned: Set<THREE.Material>, m: Materials): void {
+  object.removeFromParent();
+  object.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+  m.release(owned);
 }
 
 /**
@@ -29,7 +38,9 @@ export class BuildTool {
   kind: PlaceableKind = 'bench';
   ry = 0;
   readonly placed = new Map<string, Placed>();
-  private ghost: THREE.Object3D | null = null;
+  private ghost: { object: THREE.Object3D; owned: Set<THREE.Material> } | null = null;
+  /** Skip the placement "pop" (Settings → Reduced motion). */
+  reducedMotion = false;
   private readonly ring: THREE.Mesh;
   private readonly okMat = new THREE.MeshBasicMaterial({ color: '#86b45a' });
   private readonly badMat = new THREE.MeshBasicMaterial({ color: '#d0402a' });
@@ -56,24 +67,35 @@ export class BuildTool {
   setMode(mode: ToolMode, kind?: PlaceableKind): void {
     this.mode = mode;
     if (kind) this.kind = kind;
-    this.ghost?.removeFromParent();
+    if (this.ghost) dispose(this.ghost.object, this.ghost.owned, this.m);
     this.ghost = null;
+    this.hover = null;
+    this.hoverRemove = null;
     this.ring.visible = false;
     if (mode === 'build') {
-      this.ghost = PLACEABLES[this.kind].build(this.m).object;
-      this.ghost.visible = false;
-      this.root.add(this.ghost);
+      const { result, owned } = this.m.own(() => PLACEABLES[this.kind].build(this.m).object);
+      result.visible = false;
+      this.root.add(result);
+      this.ghost = { object: result, owned };
     }
   }
 
   rotate(): void {
     this.ry += Math.PI / 2;
-    if (this.ghost) this.ghost.rotation.y = this.ry;
+    if (this.ghost) this.ghost.object.rotation.y = this.ry;
+  }
+
+  /** What a click would act on right now; touch uses it to tell a first tap (preview) from a second (commit). */
+  targetKey(): string | null {
+    if (this.mode === 'build') return this.hover ? `${this.hover.x},${this.hover.z}` : null;
+    if (this.mode === 'remove') return this.hoverRemove?.id ?? null;
+    return null;
   }
 
   /** Validity: soft ground only, not on water/bridges, clear of obstacles, people and other placements. */
-  canPlace(kind: PlaceableKind, x: number, z: number): boolean {
+  canPlace(kind: PlaceableKind, x: number, z: number, opts: { ignoreResidents?: boolean } = {}): boolean {
     const def = PLACEABLES[kind];
+    if (!def) return false;
     const reg = regionAt(x, z);
     if (!reg || !BUILDABLE.includes(reg.kind)) return false;
     if (inPond(x, z) || onBridge(x, z) || onIslet(x, z)) return false;
@@ -89,7 +111,7 @@ export class BuildTool {
       const rr = regionAt(x + dx, z + dz);
       if (!rr || !BUILDABLE.includes(rr.kind) || inPond(x + dx, z + dz)) return false;
     }
-    if (this.residents.anyoneNear(x, z, r + 0.4)) return false;
+    if (!opts.ignoreResidents && this.residents.anyoneNear(x, z, r + 0.4)) return false;
     for (const p of this.placed.values()) if (Math.hypot(p.x - x, p.z - z) < p.radius + r + 0.2) return false;
     return true;
   }
@@ -107,9 +129,10 @@ export class BuildTool {
     if (this.mode === 'build' && this.ghost) {
       const ok = this.canPlace(this.kind, x, z);
       this.hover = { x, z, ok };
-      this.ghost.visible = true;
-      this.ghost.position.set(x, groundHeight(x, z), z);
-      this.ghost.rotation.y = this.ry;
+      const g = this.ghost.object;
+      g.visible = true;
+      g.position.set(x, groundHeight(x, z), z);
+      g.rotation.y = this.ry;
       this.ring.visible = true;
       this.ring.material = ok ? this.okMat : this.badMat;
       this.ring.position.set(x, groundHeight(x, z) + 0.03, z);
@@ -154,7 +177,10 @@ export class BuildTool {
   /** Commit a placement. `announce` = false when restoring a save (nobody is surprised by yesterday's bench). */
   place(rec: PlacedRecord, announce: boolean): void {
     const def = PLACEABLES[rec.kind];
-    const { object } = def.build(this.m);
+    const {
+      result: { object },
+      owned,
+    } = this.m.own(() => def.build(this.m));
     object.position.set(rec.x, groundHeight(rec.x, rec.z), rec.z);
     object.rotation.y = rec.ry;
     object.traverse((o) => {
@@ -184,9 +210,9 @@ export class BuildTool {
         light.light.position.set(rec.x, groundHeight(rec.x, rec.z) + def.glow.y, rec.z);
       }
     }
-    this.placed.set(rec.id, { ...rec, object, radius: def.radius, light });
+    this.placed.set(rec.id, { ...rec, object, owned, radius: def.radius, light });
     if (light) this.reshareLights();
-    if (announce) {
+    if (announce && !this.reducedMotion) {
       // a little "pop": scale in over a few frames
       object.scale.setScalar(0.01);
       const t0 = performance.now();
@@ -195,9 +221,11 @@ export class BuildTool {
         const c1 = 1.70158,
           c3 = c1 + 1; // easeOutBack: a small overshoot reads as "pop"
         object.scale.setScalar(Math.max(0.01, 1 + c3 * (k - 1) ** 3 + c1 * (k - 1) ** 2));
-        if (k < 1) requestAnimationFrame(grow);
+        if (k < 1 && object.parent) requestAnimationFrame(grow);
       };
       grow();
+    }
+    if (announce) {
       this.bus.emit('sfx', { name: 'place', x: rec.x, z: rec.z });
       const ev = { id: rec.id, kind: rec.kind, x: rec.x, z: rec.z, novelty: def.novelty };
       this.bus.emit('objectPlaced', ev);
@@ -211,7 +239,7 @@ export class BuildTool {
     this.residents.onRemoved(id);
     this.smart.remove(id);
     this.grid.stamp({ x: p.x, z: p.z, r: p.radius }, -1);
-    p.object.removeFromParent();
+    dispose(p.object, p.owned, this.m);
     if (p.light) {
       p.light.base = 0;
       p.light.crowd = 1;

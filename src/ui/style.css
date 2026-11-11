@@ -75,6 +75,7 @@ body {
 }
 
 button.px {
+  -webkit-tap-highlight-color: transparent;
   font: inherit;
   font-size: 14px;
   color: var(--cream);
@@ -99,6 +100,17 @@ button.px.on {
 }
 button.px.primary {
   border-color: var(--cream);
+}
+button.px.warn {
+  border-color: var(--vermilion);
+  color: var(--amber);
+}
+@media (pointer: coarse) {
+  /* fingers, not cursors: every control at least 36 px tall */
+  button.px {
+    min-height: 36px;
+    min-width: 36px;
+  }
 }
 
 .brand {
@@ -130,19 +142,36 @@ button.px.primary {
   transition: opacity 0.4s;
 }
 
-.toolbar {
+/* Palette above toolbar in one centred column, so they can never overlap however either wraps.
+   width: max-content matters: an absolutely positioned box at left: 50% otherwise shrinks to
+   the half of the screen right of centre, which wrapped the toolbar onto two rows at 1280 px. */
+.dock {
   position: absolute;
   left: 50%;
   bottom: 18px;
   transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 0.4s;
+}
+.toolbar {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 4px;
   flex-wrap: wrap;
   justify-content: center;
-  max-width: calc(100vw - 24px);
-  transition: opacity 0.4s;
+  max-width: 100%;
+}
+.toolbar .more {
+  display: contents;
+}
+.toolbar .more-toggle {
+  display: none;
 }
 .toolbar .sep {
   width: 2px;
@@ -164,13 +193,12 @@ button.px.primary {
 }
 
 .palette {
-  position: absolute;
-  left: 50%;
-  bottom: 76px;
-  transform: translateX(-50%);
   display: none;
   gap: 4px;
   padding: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
 }
 .palette.open {
   display: flex;
@@ -188,6 +216,9 @@ button.px.primary {
   height: 22px;
   image-rendering: pixelated;
 }
+.palette .rotate {
+  align-self: center;
+}
 .palette .hint {
   font-size: 11px;
   color: var(--muted);
@@ -196,10 +227,11 @@ button.px.primary {
   max-width: 160px;
 }
 
+/* Under the wordmark: the bottom edge belongs to the dock, which grows when building */
 .story {
   position: absolute;
   left: 22px;
-  bottom: 22px;
+  top: 104px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -278,6 +310,22 @@ button.px.primary {
 }
 .settings.open {
   display: block;
+}
+.settings,
+.help {
+  /* short landscape phones: scroll inside the panel instead of running off the screen */
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+.settings:focus,
+.help:focus {
+  outline: none;
+}
+.settings .note {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 .settings label {
   display: flex;
@@ -398,21 +446,112 @@ button.px.primary {
   animation: in 0.6s ease-out;
 }
 
+/* Narrow (phone portrait) or short (phone landscape): fold the advanced controls behind "More"
+   and tighten the dock, so building never covers more than a third of the diorama. */
+@media (max-width: 720px), (max-height: 500px) {
+  .dock {
+    bottom: 8px;
+    max-width: calc(100vw - 16px);
+    gap: 4px;
+  }
+  .toolbar .date {
+    display: none;
+  }
+  .toolbar .clock {
+    font-size: 16px;
+    min-width: 0;
+    padding: 0 6px;
+  }
+  .toolbar button.px,
+  .palette button.px {
+    padding: 6px 7px;
+  }
+  .toolbar .sep {
+    margin: 0 3px;
+  }
+  .toolbar:not(.expanded) .more {
+    display: none;
+  }
+  .toolbar .more-toggle {
+    display: inline-block;
+  }
+  .splash {
+    padding-bottom: 130px;
+  }
+}
+/* Phone portrait: buttons on the top row, wordmark under them, the latest two story lines under that */
 @media (max-width: 720px) {
+  .top-right {
+    top: 8px;
+    right: 8px;
+    gap: 2px;
+  }
+  .brand {
+    top: 54px;
+    left: 12px;
+    gap: 2px;
+  }
+  .brand canvas {
+    width: 170px;
+  }
+  .brand .tag {
+    font-size: 11px;
+  }
+  .story {
+    top: 104px;
+    left: 12px;
+    max-width: calc(100vw - 24px);
+  }
+  .story .line {
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  .story .line:nth-last-child(n + 3) {
+    display: none;
+  }
+  .palette button {
+    min-width: 0;
+    flex: 1 0 28%;
+  }
+  .palette .hint {
+    flex: 1 1 55%;
+    max-width: none;
+  }
+  .card,
+  .settings {
+    top: 54px;
+    right: 8px;
+  }
+}
+/* Phone landscape: one row of things to place, no hint (the help says it), a smaller wordmark */
+@media (max-height: 500px) {
+  .palette {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: calc(100vw - 16px);
+  }
+  .palette button {
+    min-width: 0;
+    padding: 4px 6px;
+  }
+  .palette .hint {
+    display: none;
+  }
   .brand canvas {
     width: 200px;
   }
-  .story {
+  .brand .tag {
     display: none;
   }
-  .toolbar {
-    bottom: 8px;
+  .story {
+    top: 64px;
   }
-  .palette {
-    bottom: 110px;
-    flex-wrap: wrap;
-    justify-content: center;
-    width: 94vw;
+  .story .line:nth-last-child(n + 3) {
+    display: none;
+  }
+  .settings,
+  .card {
+    top: 60px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -420,6 +559,12 @@ button.px.primary {
     animation: none !important;
     transition: none !important;
   }
+}
+/* the in-game setting does the same for players whose OS doesn't say */
+#hud.reduced-motion *,
+#hud.reduced-motion {
+  animation: none !important;
+  transition: none !important;
 }
 
 .debug-overlay {

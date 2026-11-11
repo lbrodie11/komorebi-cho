@@ -90,3 +90,59 @@ describe('Film Diffusion setting', () => {
     expect(load()?.settings.diffusion).toBe(0.075);
   });
 });
+
+describe('corrupt saves', () => {
+  const good = { ...v1('classic'), version: 2, placed: [{ id: 'a', kind: 'bench', x: 1, z: 2, ry: 0 }], memory: { haru: ['a'] } };
+  const loadRaw = (d: unknown) => {
+    mem.set('komorebi-cho/save', JSON.stringify(d));
+    return load();
+  };
+
+  it('a well-formed save passes through unchanged', () => {
+    const d = loadRaw(good)!;
+    expect(d.placed).toEqual(good.placed);
+    expect(d.memory).toEqual(good.memory);
+    expect(d.settings.music).toBe(0.5);
+  });
+
+  it('non-object JSON is treated as no save', () => {
+    for (const raw of ['null', '42', '"save"', '[]']) {
+      mem.set('komorebi-cho/save', raw);
+      expect(load()).toBeNull();
+    }
+  });
+
+  it('bad fields fall back one by one instead of crashing boot', () => {
+    const d = loadRaw({
+      ...good,
+      minutes: 'x',
+      season: 'monsoon',
+      weather: 'snow',
+      memory: null,
+      settings: { music: 'loud', ambience: 7, reducedMotion: 'yes' },
+    })!;
+    expect(Number.isFinite(d.minutes)).toBe(true);
+    expect(d.season).toBe('spring');
+    expect(d.weather).toBe('auto');
+    expect(d.memory).toEqual({});
+    expect(d.settings.music).toBe(0.55);
+    expect(d.settings.ambience).toBe(1);
+    expect(d.settings.reducedMotion).toBe(false);
+    expect(d.placed).toHaveLength(1); // the good placement survives its neighbours' corruption
+  });
+
+  it('drops malformed placements and memories but keeps the rest', () => {
+    const d = loadRaw({
+      ...good,
+      placed: [good.placed[0], 'oops', { id: 'b', kind: 'bench', x: 'NaN', z: 0, ry: 0 }, { id: 'c', kind: 'sakura', x: 0, z: 0, ry: 13 }],
+      memory: { haru: ['a', 3, null], rin: 'nope' },
+    })!;
+    expect(d.placed.map((p) => p.id)).toEqual(['a', 'c']);
+    expect(d.placed[1]!.ry).toBeLessThan(Math.PI * 2);
+    expect(d.memory).toEqual({ haru: ['a'] });
+  });
+
+  it('a non-array placed list becomes empty', () => {
+    expect(loadRaw({ ...good, placed: 'oops' })!.placed).toEqual([]);
+  });
+});
