@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DROPS, GROUND, POLES, SHOPS } from '../src/world/layout';
+import { APATO, CAFE, DROPS, GROUND, MICRO_HOME, POLES, SHOPS } from '../src/world/layout';
+import { planApato, planCafe, planMicroHome } from '../src/world/grammar/archetypes/landmarks';
 import { dropPoles, poleSpans } from '../src/world/grammar/wires';
 import { BAY_M, planShopHouse, shopFootprint } from '../src/world/grammar/archetypes/shophouse';
 import { classifyGap, planSeam } from '../src/world/grammar/seams';
@@ -142,5 +143,18 @@ describe('utility wires', () => {
     const moved = POLES.map((p, i) => (i === 3 ? ([-2, -3.65] as const) : p));
     expect(poleSpans(moved)).toEqual(poleSpans(moved));
     expect(poleSpans(moved)).toHaveLength(POLES.length - 1);
+  });
+});
+
+describe('landmark archetypes', () => {
+  const wins = (parts: readonly Part[]) => flat(parts).filter((p) => p.op === 'win');
+  it('give the micro-home a window pair on every floor (no floor lost to floating-point rounding)', () => {
+    expect(wins(planMicroHome(MICRO_HOME))).toHaveLength(6); // 3 floors × 2
+  });
+  it('derive repeated features from size: apāto units and café mullions', () => {
+    expect(wins(planApato(APATO))).toHaveLength(6); // 3 units × 2 floors
+    expect(wins(planApato({ ...APATO, w: 9.2 }))).toHaveLength(8); // a wider block gains a unit
+    const mullions = (ps: Part[]) => flat(ps).filter((p) => p.op === 'box' && p.w === 0.14 && p.h === 1.9);
+    expect(mullions(planCafe(CAFE))).toHaveLength(3);
   });
 });

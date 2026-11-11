@@ -77,7 +77,8 @@ export function planMicroHome(s: MicroHomeSpec): Part[] {
     x1 = Math.max(...xs),
     z0 = Math.min(...zs),
     fz = Math.max(...zs); // front face (+z)
-  const floors = Math.floor((s.h - 0.8) / FLOOR_M);
+  // + epsilon: (9.2 − 0.8) / 2.8 is 2.9999999999999996 in floating point, and a floor must not vanish to rounding
+  const floors = Math.floor((s.h - 0.8) / FLOOR_M + 1e-9);
   const body: Part[] = [
     { op: 'prism', pts: s.pts, y: s.y, h: s.h, mat: s.wall },
     { op: 'shed', x0, x1, z0, z1: fz, y: s.y + s.h, rise: 1.4, hi: 'x0', wall: s.wall, roof: s.roof },
@@ -219,7 +220,7 @@ export interface ArchSpec {
   sign: SignSpec;
 }
 export function planArch(s: ArchSpec): Part[] {
-  const lantern: MatRef = { lamp: '#ff7a55', glow: '#ff3a1e', intensity: 1.1 };
+  const lantern: MatRef = { lamp: '#ff7a55', glow: '#ff3a1e', intensity: 1.1, accent: true };
   const parts: Part[] = [-s.span / 2, s.span / 2].map((dx) => ({
     op: 'cyl' as const,
     rt: 0.14,
@@ -232,7 +233,7 @@ export function planArch(s: ArchSpec): Part[] {
     seg: 8,
   }));
   // kept dimmer than the café: after dark the eye should land on Sunday Café first
-  parts.push({ op: 'box', w: 4.4, h: 1.15, d: 0.26, mat: { lamp: '#d0402a', glow: '#ff6b3d', intensity: 0.45 }, x: s.x, y: s.y + s.h, z: s.z });
+  parts.push({ op: 'box', w: 4.4, h: 1.15, d: 0.26, mat: { lamp: '#d0402a', glow: '#ff6b3d', intensity: 0.45, accent: true }, x: s.x, y: s.y + s.h, z: s.z });
   parts.push({ op: 'sign', sign: s.sign, x: s.x, y: s.y + s.h, z: s.z + 0.14, ry: 0, glow: 0.25 });
   parts.push({ op: 'sign', sign: s.sign, x: s.x, y: s.y + s.h, z: s.z - 0.14, ry: PI, glow: 0.25 });
   for (const dx of [-0.95, 0, 0.95]) parts.push({ op: 'lantern', x: s.x + dx, y: s.y + s.h - 0.8, z: s.z, r: 0.18, mat: lantern });
