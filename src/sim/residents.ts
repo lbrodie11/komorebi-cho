@@ -80,10 +80,39 @@ const QUEUE_PATIENCE = 12;
 /** Path searches per tick, at most (20 Hz sim: 120 a second, far more than residents ever need). */
 export const PATHS_PER_TICK = 6;
 
+/** How fast anyone turns (rad/s): no snapping round to a new heading. */
+const TURN_RATE = 9;
+/** A gesture: a glance (the head turns toward something), a nod, a wave. */
+export type Gesture = 'glance' | 'nod' | 'wave';
+const GESTURE_SECONDS: Record<Gesture, number> = { glance: 1.4, nod: 0.5, wave: 1.3 };
+
+const wrapAngle = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+
+/**
+ * A gait: how fast the legs cycle (per m/s of walking pace scaled to the stride), how far they swing,
+ * how much the body bobs, and how far the arms counter-swing. Kids bounce, the jogger runs with bent
+ * arms, someone with a cane takes shorter, slower steps.
+ */
+export function gaitFor(p: Pick<Persona, 'kid' | 'accessory'>, run: boolean): { rate: number; swing: number; bob: number; arm: number } {
+  if (run) return { rate: 14, swing: 0.9, bob: 0.07, arm: 1.1 };
+  if (p.kid) return { rate: 11, swing: 0.6, bob: 0.09, arm: 0.6 };
+  if (p.accessory === 'cane') return { rate: 7, swing: 0.32, bob: 0.025, arm: 0.2 };
+  return { rate: 9, swing: 0.55, bob: 0.05, arm: 0.45 };
+}
+
 export class Agent {
   readonly root = new THREE.Group();
   readonly body: THREE.Mesh;
+  /** Everything above the hips (body, arms, head): it bows, prays and leans as one. */
+  private readonly torso = new THREE.Group();
+  /** The head (with its hair and hat), pivoting at the neck: nods and glances. */
+  private readonly head = new THREE.Group();
+  private readonly arms: THREE.Object3D[] = [];
   private readonly legs: THREE.Mesh[] = [];
+  /** Where they mean to face (rad): the body turns toward it at TURN_RATE. */
+  heading = 0;
+  /** A gesture playing: which, how far in (s), and for a glance the world yaw to look toward. */
+  gesture: { kind: Gesture; t: number; yaw: number } | null = null;
   private readonly umbrella: THREE.Mesh;
   private readonly bubble: THREE.Sprite;
   private readonly tool?: THREE.Object3D;
@@ -163,32 +192,53 @@ export class Agent {
       this.legs.push(leg);
       this.root.add(leg);
     }
+    // the upper body pivots at the hips (0.42 m): a bow tips body, arms and head together
+    const HIP = 0.42;
+    this.torso.position.y = HIP;
+    this.root.add(this.torso);
     this.body = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.62, 0.34), mat(p.colors.top));
-    this.body.position.y = 0.73;
+    this.body.position.y = 0.73 - HIP;
     this.body.userData.agent = this;
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), mat(p.colors.skin));
-    head.position.y = 1.22;
+    // arms hang from the shoulders, sleeves in the top's colour, a hand at the end
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Group();
+      const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.4, 0.13), mat(p.colors.top));
+      sleeve.position.y = -0.2;
+      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.11), mat(p.colors.skin));
+      hand.position.y = -0.45;
+      arm.add(sleeve, hand);
+      arm.position.set(side * 0.29, 1.0 - HIP, 0);
+      this.arms.push(arm);
+      this.torso.add(arm);
+    }
+    // the head pivots at the neck (1.06 m): nods and glances turn hair and hat with it
+    const NECK = 1.06;
+    this.head.position.y = NECK - HIP;
+    const face = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), mat(p.colors.skin));
+    face.position.y = 1.22 - NECK;
     const hair = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.13, 0.35), mat(p.colors.hair));
-    hair.position.set(0, 1.42, -0.01);
+    hair.position.set(0, 1.42 - NECK, -0.01);
     const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.22, 0.08), mat(p.colors.hair));
-    hairBack.position.set(0, 1.3, -0.15);
-    this.root.add(this.body, head, hair, hairBack);
+    hairBack.position.set(0, 1.3 - NECK, -0.15);
+    this.head.add(face, hair, hairBack);
+    this.torso.add(this.body, this.head);
     if (p.accessory === 'apron') {
       const a = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.04), mat(p.colors.accent ?? '#f6efe0'));
-      a.position.set(0, 0.66, 0.18);
-      this.root.add(a);
+      a.position.set(0, 0.66 - HIP, 0.18);
+      this.torso.add(a);
     } else if (p.accessory === 'bag') {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3, 0.3), mat(p.colors.accent ?? '#45291b'));
-      b.position.set(0.28, 0.62, 0);
-      this.root.add(b);
+      // over the shoulder, worn outside the arm
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.3), mat(p.colors.accent ?? '#45291b'));
+      b.position.set(0.39, 0.62 - HIP, 0);
+      this.torso.add(b);
     } else if (p.accessory === 'hat') {
       const h = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.42), mat(p.colors.accent ?? '#f6efe0'));
-      h.position.y = 1.5;
-      this.root.add(h);
+      h.position.y = 1.5 - NECK;
+      this.head.add(h);
     } else if (p.accessory === 'box') {
       const b = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.3, 0.3), mat(p.colors.accent ?? '#d4a774'));
-      b.position.set(0, 0.85, 0.3);
-      this.root.add(b);
+      b.position.set(0, 0.85 - HIP, 0.3);
+      this.torso.add(b);
     } else if (p.accessory === 'cane') {
       const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.75, 0.05), mat('#45291b'));
       c.position.set(0.3, 0.38, 0.12);
@@ -246,31 +296,62 @@ export class Agent {
     this.root.position.set(x, groundHeight(x, z), z);
   }
 
-  /** Visual pose + walk cycle + umbrella; called every frame. */
+  /** Turn to face `yaw` at once (placing someone, a memory's pose): no turning animation. */
+  faceNow(yaw: number): void {
+    this.heading = yaw;
+    this.root.rotation.y = yaw;
+  }
+
+  /** Play a gesture (a glance toward world yaw `yaw`, a nod, a wave). A new one replaces the last. */
+  gestureTo(kind: Gesture, yaw = this.root.rotation.y): void {
+    this.gesture = { kind, t: 0, yaw };
+  }
+
+  /** Visual pose + walk cycle + arms, head and gestures + umbrella; called every frame. */
   animate(dt: number, moving: boolean, rain: number, time: number): void {
     const run = this.task?.kind === 'jog';
-    if (moving) this.walkPhase += dt * (run ? 14 : 9) * (this.p.kid ? 1.2 : 1);
-    const swing = moving ? Math.sin(this.walkPhase) * (run ? 0.9 : 0.55) : 0;
+    const g = gaitFor(this.p, run);
+    if (moving) this.walkPhase += dt * g.rate;
+    const swing = moving ? Math.sin(this.walkPhase) * g.swing : 0;
+    // turning: toward the heading at a capped rate, leaning a little into the turn while walking
+    const turn = wrapAngle(this.heading - this.root.rotation.y);
+    const step = Math.max(-TURN_RATE * dt, Math.min(TURN_RATE * dt, turn));
+    this.root.rotation.y = wrapAngle(this.root.rotation.y + step);
+    const lean = moving && !this.still ? Math.max(-0.12, Math.min(0.12, turn * 0.25)) : 0;
     const ground = groundHeight(this.x, this.z);
-    let y = ground + (moving ? Math.abs(Math.sin(this.walkPhase)) * 0.05 : 0);
+    let y = ground + (moving && !this.still ? Math.abs(Math.sin(this.walkPhase)) * g.bob : 0);
     let legX = 0;
-    this.body.rotation.x = 0;
+    let tilt = run ? 0.16 : 0; // runners lean forward
+    // arms: counter-swing to the legs when walking; each pose has its own
+    let armL = -swing * (g.arm / Math.max(0.01, g.swing)) * 0.8,
+      armR = -armL,
+      armZ = 0;
+    if (run) {
+      armL -= 0.5;
+      armR -= 0.5; // bent at the elbow, near enough
+    }
     this.root.scale.y = this.scale;
     switch (this.pose) {
       case 'sit':
         legX = -1.45;
         y = ground + 0.12 * this.scale;
+        armL = armR = -0.55; // hands in the lap
         break;
       case 'pray':
-        this.body.rotation.x = 0.28;
+        tilt = 0.28;
+        armL = armR = -1.25;
+        armZ = 0.38; // palms together in front
         break;
       case 'crouch':
         this.root.scale.y = this.scale * 0.72;
-        this.body.rotation.x = 0.35;
+        tilt = 0.35;
+        armL = armR = -0.9;
         break;
       case 'sweep':
-        this.body.rotation.x = 0.15;
+        tilt = 0.15;
         if (this.tool) this.tool.rotation.z = Math.sin(time * 4) * 0.5;
+        armL = -0.7 + Math.sin(time * 4) * 0.15;
+        armR = -0.6 - Math.sin(time * 4) * 0.15;
         break;
       default:
         break;
@@ -278,8 +359,9 @@ export class Agent {
     // a small bow to a neighbour passing by
     if (this.bowT > 0) {
       this.bowT = Math.max(0, this.bowT - dt);
-      this.body.rotation.x = Math.max(this.body.rotation.x, 0.45 * Math.sin((Math.PI * this.bowT) / BOW_SECONDS));
+      tilt = Math.max(tilt, 0.45 * Math.sin((Math.PI * this.bowT) / BOW_SECONDS));
     }
+    this.torso.rotation.set(tilt, 0, -lean);
     if (this.pose === 'sit') {
       this.legs[0]!.rotation.x = legX;
       this.legs[1]!.rotation.x = legX;
@@ -287,6 +369,25 @@ export class Agent {
       this.legs[0]!.rotation.x = swing;
       this.legs[1]!.rotation.x = -swing;
     }
+    // gestures (they carry meaning, so reduced motion keeps them)
+    let headX = 0,
+      headY = 0,
+      waveZ = 0;
+    const ge = this.gesture;
+    if (ge) {
+      ge.t += dt;
+      const len = GESTURE_SECONDS[ge.kind];
+      const k = Math.sin((Math.PI * Math.min(ge.t, len)) / len);
+      if (ge.kind === 'nod') headX = 0.38 * k;
+      else if (ge.kind === 'glance') headY = Math.max(-1, Math.min(1, wrapAngle(ge.yaw - this.root.rotation.y))) * Math.min(1, k * 1.6);
+      else waveZ = k;
+      if (ge.t >= len) this.gesture = null;
+    }
+    this.head.rotation.set(headX, headY, 0);
+    const [l, r] = this.arms as [THREE.Object3D, THREE.Object3D];
+    l.rotation.set(armL, 0, -armZ);
+    if (waveZ > 0) r.rotation.set(0, 0, waveZ * (2.75 + 0.35 * Math.sin(time * 13)));
+    else r.rotation.set(armR, 0, armZ);
     // reactions: a hop (0.5 s), a puzzled lean (1.2 s)
     this.root.rotation.z = 0;
     if (this.react && !this.still) {
@@ -920,6 +1021,9 @@ export class Residents {
           this.greeted.set(key, this.minutes);
           a.say('wave', 1.4);
           b.say('wave', 1.4);
+          // and with the hand, after a glance across
+          a.gestureTo('wave');
+          b.gestureTo('wave');
         }
       }
   }
@@ -1140,7 +1244,7 @@ export class Residents {
     }
     // acting
     a.dwellLeft -= gm;
-    if (t.face !== undefined) a.root.rotation.y = t.face;
+    if (t.face !== undefined) a.heading = t.face;
     if (t.kind === 'queue') {
       this.queueStep(a, t);
       if (a.task !== t || !a.arrived) return;
@@ -1215,7 +1319,7 @@ export class Residents {
           if (p.contains(a.x, a.z) || !p.contains(a.x + ux * ahead, a.z + uz * ahead)) continue;
           if (p.request(a.p.id, p.heading(ux, uz), this.clockS)) continue;
           a.waitingFor = p.spec.id;
-          a.root.rotation.y = Math.atan2(ux, uz);
+          a.heading = Math.atan2(ux, uz);
           return;
         }
         a.waitingFor = null;
@@ -1242,7 +1346,7 @@ export class Residents {
       const s = Math.min(d, move);
       a.root.position.x += (dx / d) * s;
       a.root.position.z += (dz / d) * s;
-      a.root.rotation.y = Math.atan2(dx, dz);
+      a.heading = Math.atan2(dx, dz);
       move -= s;
       if (s >= d) a.pathIdx++;
     }
@@ -1364,7 +1468,8 @@ export class Residents {
           break;
         }
         if (Math.hypot(a.x - o.x, a.z - o.z) < 3.2 && !a.known.has(o.id)) {
-          // seen in passing: they know it's there now, it's new to them, and it goes in the diary
+          // seen in passing: a glance as they go by; they know it's there now, it's new to them, and it goes in the diary
+          a.gestureTo('glance', Math.atan2(o.x - a.x, o.z - a.z));
           a.known.add(o.id);
           a.places.noticed(o.id, o.x, o.z, this.minutes);
           a.diary.note(Math.floor(this.minutes / 1440), 'noticed', thing(o.label));
@@ -1421,7 +1526,7 @@ export class Residents {
     const e = k * k * (3 - 2 * k);
     a.root.position.x = s.fx + (s.tx - s.fx) * e;
     a.root.position.z = s.fz + (s.tz - s.fz) * e;
-    if (Math.hypot(s.tx - s.fx, s.tz - s.fz) > 1e-3) a.root.rotation.y = Math.atan2(s.tx - s.fx, s.tz - s.fz);
+    if (Math.hypot(s.tx - s.fx, s.tz - s.fz) > 1e-3) a.heading = Math.atan2(s.tx - s.fx, s.tz - s.fz);
     if (k < 1) return;
     a.shuffle = null;
     // still on the way somewhere: find the way again from here

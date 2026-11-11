@@ -66,3 +66,13 @@ Make the tiny people and objects *feel* good at 10 pixels tall. Juice without no
 - The juice audit: list every motion in the game, then cut anything that draws the eye without meaning.
 - A viewer can tell a glance, a nod and a wave apart at the default zoom.
 - The same lantern placed on stone and on grass sounds different; in a blind test, three materials on one surface can be told apart.
+
+**Progress (2026-11-11):**
+- **Task 1, the rig:**
+  - The upper body pivots at the hips, so a bow takes the head and arms with it.
+  - Arms with hands counter-swing to the legs, with poses for sitting, praying, crouching and sweeping.
+  - The head pivots at the neck.
+  - Turns are smoothed at 9 rad/s, with a slight lean into them.
+  - Gaits are their own (`gaitFor`): kids bounce, the jogger runs with bent arms, and someone with a cane takes shorter, slower steps.
+- **Task 7, the gestures:** a glance (when someone notices a placed thing in passing), a nod, and a wave (friends across the lane). Tested in `tests/rig.test.ts`. The nod waits for prompt 09b's ladder to decide who nods to whom.
+- **Next:** task 2 (interruption contracts), task 3 (doors), task 8 (placement sounds by material and surface).
