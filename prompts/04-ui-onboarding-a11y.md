@@ -62,7 +62,7 @@ Don't redo these; build on them and keep `scripts/ui-audit.mjs` green.
    - Caption toggle for sounds ("[temple bell]", "[rain begins]", "[cicadas]").
    - Text scale setting.
    - Validity ring colours that are colour-blind safe: add a shape cue, a solid ring for valid and a dashed ring for invalid.
-6. **Copy in one place.** Move all player-facing strings into `src/i18n/en.ts` with ICU-style placeholders, persona text included; the simulation emits message keys, not prose. **American English only, and no Japanese script in the UI** (the owner's decision, 2026-11-10). Shops have fictional, romanized Tokyo-style names (Kissa Kotori, Ramen Tsukimi, Komugi Bakery, Hana to Ame, Shiori Books, Komorebi-yu). No language switcher.
+6. **Copy in one place.** Move all player-facing strings into `src/i18n/en.ts` with ICU-style placeholders, persona text included; the simulation emits message keys, not prose. **American English only, and no Japanese script in the UI** (the owner's decision, 2026-11-10). Shops have invented English names (Sunday Café, Midnight Noodle Club, Butter & Blossom, Porchlight Florist, Paper Moon Books, Sunbeam Bathhouse), and the painted signs are short English words. No language switcher.
 7. **Settings persistence** for every setting, plus a "Reset tutorial" option.
 8. **Audio comfort and lifecycle** (pulled forward from prompt 11, phase 1, because captions and the volume settings depend on it):
    - Turning sound off fades, stops scheduling, then really suspends the `AudioContext`. Ambience timers stop too.

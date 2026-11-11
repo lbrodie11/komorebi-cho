@@ -14,7 +14,7 @@ describe('copy', () => {
     expect(t('card.knows', { n: 0 })).toMatch(/Hasn’t noticed/);
     expect(t('card.knows', { n: 1 })).toBe('Has noticed 1 thing you made.');
     expect(t('card.knows', { n: 3 })).toBe('Has noticed 3 things you made.');
-    expect(fmt(msg('task.browsing', { thing: msg('noun.books') }))).toBe('Browsing at Shiori Books');
+    expect(fmt(msg('task.browsing', { thing: msg('noun.books') }))).toBe('Browsing at Paper Moon Books');
   });
 
   it('has every key the game builds at run time', () => {

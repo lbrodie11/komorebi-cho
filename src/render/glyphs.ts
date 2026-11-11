@@ -1,44 +1,43 @@
 /**
- * Signage glyph atlas: hand-drawn 5×5 kana and 7×7 pictograms. No font files.
- * Signs are painted into canvas textures at native size: one texel is
- * `SIGN_TEXEL` metres, about one render pixel at the default zoom, so letters
- * land on the pixel grid instead of being resampled into mush.
- *
- * Dakuten / handakuten glyphs are 6 wide: the marks sit in the extra column,
- * drawn as a diagonal pair so they read as ゛ rather than as part of the stroke.
- * Text is painted in palette colours only (see tests/glyphs.test.ts).
+ * Signage glyph atlas: a hand-drawn 3×5 Latin pixel font (M, N and W wider, I one column)
+ * and 7×7 pictograms. No font files. Signs are painted into canvas textures at native size:
+ * one texel is `SIGN_TEXEL` metres, about one render pixel at the default zoom, so letters
+ * land on the pixel grid instead of being resampled into mush. 3×5 is the smallest Latin
+ * that stays legible, and it keeps short shop words inside a 3 m shopfront.
+ * Text is painted in palette colours only (see tests/art.test.ts).
  */
 
 /** World size of one sign texel (≈ one render pixel at 1× zoom). */
 export const SIGN_TEXEL = 0.125;
 
-export const KANA: Readonly<Record<string, readonly string[]>> = {
-  コ: ['#####', '....#', '....#', '....#', '#####'],
-  モ: ['#####', '..#..', '#####', '..#..', '..###'],
-  レ: ['#....', '#....', '#...#', '#..#.', '###..'],
-  ヒ: ['#....', '#..#.', '###..', '#....', '.####'],
-  ビ: ['#...#.', '#..#.#', '###...', '#.....', '.####.'],
-  ト: ['.#...', '.#...', '.###.', '.#...', '.#...'],
-  リ: ['#..#.', '#..#.', '#..#.', '...#.', '..#..'],
-  ラ: ['.###.', '.....', '#####', '....#', '..##.'],
-  ー: ['.....', '.....', '#####', '.....', '.....'],
-  // the long-vowel mark turns upright in vertical writing
-  '｜': ['..#..', '..#..', '..#..', '..#..', '..#..'],
-  メ: ['....#', '.#.#.', '..#..', '.#.#.', '#....'],
-  ン: ['#....', '.#..#', '....#', '...#.', '###..'],
-  ハ: ['.#.#.', '.#..#', '#...#', '#...#', '.....'],
-  パ: ['.#.#.#', '.#..#.', '#...#.', '#...#.', '......'],
-  ナ: ['..#..', '#####', '..#..', '..#..', '.#...'],
-  ホ: ['..#..', '#####', '..#..', '#.#.#', '..#..'],
-  チ: ['.###.', '..#..', '#####', '..#..', '.#...'],
-  ョ: ['.....', '.###.', '..##.', '.###.', '.....'],
-  ウ: ['..#..', '#####', '#...#', '...#.', '..#..'],
-  カ: ['.#...', '#####', '.#..#', '.#..#', '#..#.'],
-  ガ: ['.#..#.', '####.#', '.#.#..', '.#.#..', '#..#..'],
-  ス: ['#####', '...#.', '..#..', '.#.#.', '#...#'],
-  ズ: ['####.#', '...##.', '..#...', '.#.#..', '#...#.'],
-  ミ: ['###..', '...##', '###..', '...##', '####.'],
-  ゆ: ['#.#..', '#.###', '###.#', '#.##.', '.#...'],
+export const LETTERS: Readonly<Record<string, readonly string[]>> = {
+  A: ['###', '#.#', '###', '#.#', '#.#'],
+  B: ['##.', '#.#', '##.', '#.#', '##.'],
+  C: ['###', '#..', '#..', '#..', '###'],
+  D: ['##.', '#.#', '#.#', '#.#', '##.'],
+  E: ['###', '#..', '##.', '#..', '###'],
+  F: ['###', '#..', '##.', '#..', '#..'],
+  G: ['###', '#..', '#.#', '#.#', '###'],
+  H: ['#.#', '#.#', '###', '#.#', '#.#'],
+  I: ['#', '#', '#', '#', '#'],
+  J: ['..#', '..#', '..#', '#.#', '###'],
+  K: ['#..#', '#.#.', '##..', '#.#.', '#..#'],
+  L: ['#..', '#..', '#..', '#..', '###'],
+  M: ['#...#', '##.##', '#.#.#', '#...#', '#...#'],
+  N: ['#..#', '##.#', '#.##', '#..#', '#..#'],
+  O: ['###', '#.#', '#.#', '#.#', '###'],
+  P: ['###', '#.#', '###', '#..', '#..'],
+  Q: ['###', '#.#', '#.#', '##.', '.##'],
+  R: ['##.', '#.#', '##.', '#.#', '#.#'],
+  S: ['###', '#..', '###', '..#', '###'],
+  T: ['###', '.#.', '.#.', '.#.', '.#.'],
+  U: ['#.#', '#.#', '#.#', '#.#', '###'],
+  V: ['#.#', '#.#', '#.#', '#.#', '.#.'],
+  W: ['#...#', '#...#', '#.#.#', '##.##', '#...#'],
+  X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
+  Y: ['#.#', '#.#', '###', '.#.', '.#.'],
+  Z: ['###', '..#', '.#.', '#..', '###'],
+  '-': ['...', '...', '###', '...', '...'],
 };
 
 export type PictoKind = 'ramen' | 'coffee' | 'flower' | 'book' | 'bath' | 'bread';
@@ -59,7 +58,7 @@ export const PICTOS: Readonly<Record<PictoKind, readonly string[]>> = {
 };
 
 export interface SignSpec {
-  /** Kana from `KANA`; anything else is a layout error (thrown, so a typo can't ship a blank sign). */
+  /** Capitals from `LETTERS`; anything else is a layout error (thrown, so a typo can't ship a blank sign). */
   text?: string;
   picto?: PictoKind;
   vertical?: boolean;
@@ -78,8 +77,8 @@ export interface SignBitmap {
   cells: Uint8Array;
 }
 
-function glyphRows(ch: string, vertical: boolean): readonly string[] {
-  const g = KANA[vertical && ch === 'ー' ? '｜' : ch];
+function glyphRows(ch: string): readonly string[] {
+  const g = LETTERS[ch];
   if (!g) throw new Error(`no glyph for "${ch}"`);
   return g;
 }
@@ -89,7 +88,7 @@ export function layoutSign(spec: SignSpec): SignBitmap {
   const vertical = spec.vertical ?? false;
   const items: (readonly string[])[] = [];
   if (spec.picto) items.push(PICTOS[spec.picto]);
-  for (const ch of spec.text ?? '') items.push(glyphRows(ch, vertical));
+  for (const ch of spec.text ?? '') items.push(glyphRows(ch));
   if (!items.length) throw new Error('empty sign');
 
   const gap = 1;
@@ -114,7 +113,7 @@ export function layoutSign(spec: SignSpec): SignBitmap {
   let cx = m,
     cy = m;
   for (const g of items) {
-    // centre each item across the line (short kana beside a tall pictogram)
+    // centre each item across the line (short letters beside a tall pictogram)
     const ox = vertical ? cx + Math.floor((cw - iw(g)) / 2) : cx;
     const oy = vertical ? cy : cy + Math.floor((ch - ih(g)) / 2);
     g.forEach((row, y) => [...row].forEach((v, x) => v === '#' && (cells[(oy + y) * w + ox + x] = 1)));

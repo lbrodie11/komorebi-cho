@@ -21,7 +21,7 @@ A free, web-first, cozy **living miniature** of a fictional Tokyo shitamachi bac
 6. **Determinism.** Procedural decisions use named `Rng` streams (`src/core/rng.ts`). An edit in one place must not reshuffle another.
 7. **Respectful specificity.** Fictional place, fictional shop names, no real brands, no JR liveries, no real shrines/temples copied. Shrines are never "demolished for fun".
 8. **Performance budget:** 60 fps on an M1/M2 MacBook Air and a mid integrated GPU at default pixel scale; idle tab costs ~0.
-9. **Copy is American English**, all of it in `src/i18n/en.ts`; no Japanese script in the UI. Shops have fictional, romanized Tokyo-style names.
+9. **Copy is American English**, all of it in `src/i18n/en.ts`; no Japanese script anywhere the player looks, signs included. Shops have invented English names; painted signs are short English words (3×5 pixel font).
 
 ## Stack
 TypeScript (strict) · Vite · three.js `WebGLRenderer` (r187+) · Web Audio API · Vitest · (Playwright for visual tests). No React in the render path. Pure-TS simulation (no DOM in `src/sim`, `src/world/layout.ts`, `src/world/terrain.ts`, `src/audio/theory.ts`, `src/core/*`) so it can move to a Worker later.

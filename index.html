@@ -8,7 +8,9 @@
     <title>Komorebi-chō</title>
     <!-- No icon file until generated icons land (prompt 14); an empty data URI stops the /favicon.ico 404. -->
     <link rel="icon" href="data:," />
-    <!-- Fonts are self-hosted subsets (src/ui/fonts, SIL OFL 1.1, licence in fonts/LICENSE-OFL.txt): no third-party requests. -->
+    <!-- The UI font is a self-hosted subset (SIL OFL 1.1, license in fonts/LICENSE-OFL.txt): no third-party requests.
+         Preloaded so it is ready before the first frame, with no swap. -->
+    <link rel="preload" href="./src/ui/fonts/pixelify-sans.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="./src/ui/style.css" />
   </head>
   <body>

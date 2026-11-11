@@ -252,26 +252,28 @@ export const OBSTACLES: Obstacle[] = [
 export const BUILDABLE: RegionKind[] = ['grass', 'paving', 'front'];
 
 /**
- * Signage, painted from the glyph atlas (render/glyphs.ts). Shop names are
- * invented or plain trade words (ラーメン ramen, パン bread, ハナ flowers, ホン books,
- * ゆ hot water); nothing names a real business. Listed for review in prompt 16.
+ * Signage, painted from the glyph atlas (render/glyphs.ts): short English words, so they fit a
+ * shopfront and read at a glance. The shops' full names (Sunday Café, Midnight Noodle Club,
+ * Butter & Blossom, Porchlight Florist, Paper Moon Books, Sunbeam Bathhouse) are in src/i18n/en.ts.
+ * All invented; nothing names a real business. Listed for review in prompt 16.
  */
 export const SIGNS = {
-  // shotengai arch: "Komorebi"
-  arch: { text: 'コモレビ', ink: '#9a2b22', bg: '#fff1c4', border: '#d0402a', pad: 1 },
-  ramen: { text: 'ラーメン', vertical: true, ink: '#fff1c4', bg: '#9a2b22', pad: 1 },
+  // shotengai arch: the street's name
+  // light letters on a dark ground: at 3×5, dark-on-light reads as its bright gaps instead of its strokes
+  arch: { text: 'KOMOREBI', ink: '#fff1c4', bg: '#9a2b22', border: '#d0402a', pad: 0 },
+  ramen: { text: 'RAMEN', vertical: true, ink: '#fff1c4', bg: '#9a2b22', pad: 1 },
   ramenCrest: { picto: 'ramen', ink: '#f6efe0', bg: '#9a2b22', pad: 0 },
-  bakery: { picto: 'bread', text: 'パン', ink: '#653d27', bg: '#f6efe0', border: '#b07a4c', pad: 1 },
-  florist: { picto: 'flower', text: 'ハナ', ink: '#f6efe0', bg: '#3c6838', pad: 0 },
-  books: { text: 'ホン', vertical: true, ink: '#e8dcc2', bg: '#45291b', pad: 0 },
+  bakery: { text: 'BAKERY', ink: '#f6efe0', bg: '#653d27', pad: 0 },
+  florist: { text: 'FLORIST', ink: '#f6efe0', bg: '#3c6838', pad: 0 },
+  books: { text: 'BOOKS', ink: '#e8dcc2', bg: '#45291b', pad: 1 },
   booksCrest: { picto: 'book', ink: '#e8dcc2', bg: '#2f4a72', pad: 0 },
-  sento: { text: 'ゆ', ink: '#f6efe0', bg: '#2f4a72', pad: 0 },
+  sento: { text: 'BATH', ink: '#f6efe0', bg: '#2f4a72', pad: 0 },
   sentoBoard: { picto: 'bath', ink: '#2f4a72', bg: '#f6efe0', pad: 0 },
-  // the kissaten's invented name: "Kotori" (little bird)
-  kissaten: { text: 'コトリ', vertical: true, ink: '#fff1c4', bg: '#2a1912', pad: 1 },
+  // Sunday Café's blade sign, hanging off the front
+  kissaten: { text: 'CAFE', vertical: true, ink: '#fff1c4', bg: '#2a1912', pad: 1 },
   kissatenCup: { picto: 'coffee', ink: '#ffd37a', bg: '#2a1912', border: '#8a5634', pad: 0 },
-  plaque: { text: 'コモレビチョウ', ink: '#45291b', bg: '#c9a36b', border: '#7d6b5a', pad: 1 },
-  gas: { text: 'ガス', ink: '#16141f', bg: '#ffd37a', pad: 0 },
-  water: { text: 'ミズ', ink: '#f6efe0', bg: '#2f4a72', pad: 0 },
-  fibre: { text: 'ヒカリ', ink: '#16141f', bg: '#ff6b3d', pad: 0 },
+  plaque: { text: 'KOMOREBI-CHO', ink: '#45291b', bg: '#c9a36b', border: '#7d6b5a', pad: 1 },
+  gas: { text: 'GAS', ink: '#16141f', bg: '#ffd37a', pad: 0 },
+  water: { text: 'WATER', ink: '#f6efe0', bg: '#2f4a72', pad: 0 },
+  fibre: { text: 'FIBER', ink: '#16141f', bg: '#ff6b3d', pad: 0 },
 } as const satisfies Record<string, SignSpec>;

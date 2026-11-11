@@ -58,8 +58,8 @@ export function buildBuildings(k: Kit): BuildingsOut {
     // shoe lockers / wooden sandals rack
     k.box(0.9, 0.9, 0.35, m.solid('#653d27'), sx + 1.9, TG + 0.45, -8.75);
   });
-  // noren with ゆ (hot water) over the door, the hot-spring mark above it
-  k.plane(1.8, 0.7, m.solid('#2f4a72'), sx, TG + 1.4, -8.43, 0);
+  // noren reading BATH over the door, the hot-spring mark above it
+  k.plane(2.1, 0.7, m.solid('#2f4a72'), sx, TG + 1.4, -8.43, 0);
   k.sign(SIGNS.sento, sx, TG + 1.4, -8.42, 0);
   k.sign(SIGNS.sentoBoard, sx, TG + 2.3, -8.42, 0);
 
@@ -214,7 +214,7 @@ export function buildBuildings(k: Kit): BuildingsOut {
   // shotengai arch
   [-10.55, -7.95].forEach((x) => k.cyl(0.14, 0.14, 4.4, m.std('#adb2b8', 0.4, { metalness: 0.5 }), x, G + 2.2, 9.6, 8));
   // kept dimmer than the kissaten: after dark the eye should land on the café first (docs/ARCHITECTURE.md, art direction)
-  k.box(3.6, 1.15, 0.26, m.lamp('#d0402a', '#ff6b3d', 0.45), -9.25, G + 4.4, 9.6);
+  k.box(4.4, 1.15, 0.26, m.lamp('#d0402a', '#ff6b3d', 0.45), -9.25, G + 4.4, 9.6);
   for (const [z, ry] of [
     [9.74, 0],
     [9.46, Math.PI],
@@ -254,9 +254,9 @@ export function buildBuildings(k: Kit): BuildingsOut {
   {
     const a = k.box(4.6, 0.14, 1.1, m.tex2('stripe', '#ffffff', 4, 1, 0.8), 14, G + 2.8, 2.15);
     a.rotation.x = 0.38;
-    // the cup over the corner door, and "Kotori" hanging off the front like a blade sign
+    // the cup over the corner door, and CAFE hanging off the front like a blade sign
     k.sign(SIGNS.kissatenCup, 11.12, G + 3.55, 1.08, -Math.PI / 4, 0.6);
-    k.box(1, 2.5, 0.1, m.lamp('#2a1912', '#45291b', 0.3), 11.95, G + 4.25, 2.26).rotation.y = Math.PI / 2;
+    k.box(1, 3.3, 0.1, m.lamp('#2a1912', '#45291b', 0.3), 11.95, G + 4.25, 2.26).rotation.y = Math.PI / 2;
     k.sign(SIGNS.kissaten, 12.01, G + 4.25, 2.26, Math.PI / 2, 0.6);
   }
   for (const [x, z] of [

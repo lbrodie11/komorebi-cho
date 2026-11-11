@@ -55,12 +55,9 @@ Specific without being appropriative or infringing. The place should feel like T
 
 ---
 
-> **Handed over from prompt 03 (signage).** Every in-game sign is data in `SIGNS` (`src/world/layout.ts`), drawn from the hand-made 5×5 kana in `src/render/glyphs.ts`. Texts to review:
-> - コモレビ (shotengai arch, invented)
-> - コトリ (kissaten name, invented, "little bird")
-> - コモレビチョウ (plinth plaque)
-> - ラーメン, パン, ハナ, ホン (trade words: ramen, bread, flowers, books)
-> - ゆ (sento noren)
-> - ガス, ミズ, ヒカリ (cutaway labels: gas, water, fibre)
+> **Handed over from prompts 03 and 04 (signage).** Every in-game sign is data in `SIGNS` (`src/world/layout.ts`), drawn from a hand-made 3×5 Latin pixel font in `src/render/glyphs.ts`. Since 2026-11-10 all signs and copy are English (the owner's decision). Texts to review:
+> - KOMOREBI (shotengai arch), KOMOREBI-CHO (plinth plaque)
+> - CAFE (Sunday Café's blade sign), RAMEN (Midnight Noodle Club), BAKERY (Butter & Blossom), FLORIST (Porchlight Florist), BOOKS (Paper Moon Books), BATH (Sunbeam Bathhouse noren)
+> - GAS, WATER, FIBER (cutaway labels)
 >
-> Pictograms: ramen bowl, coffee cup, flower, open book, the hot-spring mark ♨ (a generic map symbol), bread. The post box is plain red with no postal mark. Please have the kana legibility checked as well: the dakuten glyphs (ビ ガ ズ) are the tightest.
+> Check the full shop names in `src/i18n/en.ts` against existing businesses and trademarks before any commercial use. Pictograms: ramen bowl, coffee cup, flower, open book, the hot-spring mark ♨ (a generic map symbol), bread. The post box is plain red with no postal mark. Check letter legibility at 1× zoom in every look: M, N and W are the tightest.

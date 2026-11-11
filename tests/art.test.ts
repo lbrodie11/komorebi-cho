@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as THREE from 'three';
-import { KANA, PICTOS, layoutSign } from '../src/render/glyphs';
+import { LETTERS, PICTOS, layoutSign } from '../src/render/glyphs';
 import { DOORS, DOORSTEP_POTS, GROUND, OBSTACLES, SIGNS } from '../src/world/layout';
 import { PALETTE } from '../src/render/palette';
 import { weatherAttributes, type DripSource } from '../src/world/weathering';
@@ -17,13 +17,19 @@ const luma = (hex: string) => {
 };
 
 describe('glyph atlas', () => {
-  it('draws every kana on a 5-row grid (6 wide only with dakuten marks)', () => {
-    for (const [ch, rows] of Object.entries(KANA)) {
+  it('draws every letter on a 5-row grid, 3 wide (M, N, W wider, I one column), A to Z', () => {
+    expect(Object.keys(LETTERS).filter((c) => /[A-Z]/.test(c)).length).toBe(26);
+    for (const [ch, rows] of Object.entries(LETTERS)) {
       expect(rows.length, ch).toBe(5);
       const w = rows[0]!.length;
-      expect([5, 6], ch).toContain(w);
+      expect([1, 3, 4, 5], ch).toContain(w);
       for (const r of rows) expect(r.length, ch).toBe(w);
     }
+  });
+
+  it('keeps every sign in English capitals, and the shopfront signs inside a 3.2 m frontage', () => {
+    for (const [k, spec] of Object.entries(SIGNS)) if ('text' in spec) expect(spec.text, k).toMatch(/^[A-Z-]+$/);
+    for (const k of ['bakery', 'florist', 'books'] as const) expect(layoutSign(SIGNS[k]).w * 0.125, k).toBeLessThanOrEqual(3.2);
   });
 
   it('draws every pictogram on 7×7', () => {
@@ -46,20 +52,20 @@ describe('glyph atlas', () => {
   });
 
   it('sizes horizontal and vertical text from glyph widths, gaps, pad and frame', () => {
-    const h = layoutSign({ text: 'コモ', ink: '#16141f', bg: '#f6efe0' });
-    expect([h.w, h.h]).toEqual([5 + 1 + 5 + 2, 5 + 2]);
-    const v = layoutSign({ text: 'コモ', vertical: true, ink: '#16141f', bg: '#f6efe0', border: '#45291b', pad: 0 });
+    const h = layoutSign({ text: 'MO', ink: '#16141f', bg: '#f6efe0' });
+    expect([h.w, h.h]).toEqual([5 + 1 + 3 + 2, 5 + 2]);
+    const v = layoutSign({ text: 'MO', vertical: true, ink: '#16141f', bg: '#f6efe0', border: '#45291b', pad: 0 });
     expect([v.w, v.h]).toEqual([5 + 2, 5 + 1 + 5 + 2]);
   });
 
-  it('turns the long-vowel mark upright in vertical writing', () => {
-    const v = layoutSign({ text: 'ー', vertical: true, ink: '#16141f', bg: '#f6efe0', pad: 0 });
-    // a single centred column of ink
-    for (let y = 0; y < 5; y++) expect(Array.from(v.cells.slice(y * 5, y * 5 + 5))).toEqual([0, 0, 1, 0, 0]);
+  it('centres a narrow letter in a vertical stack', () => {
+    const v = layoutSign({ text: 'MI', vertical: true, ink: '#16141f', bg: '#f6efe0', pad: 0 });
+    // the I is one column, centred under the 5-wide M
+    for (let y = 6; y < 11; y++) expect(Array.from(v.cells.slice(y * 5, y * 5 + 5))).toEqual([0, 0, 1, 0, 0]);
   });
 
-  it('centres short kana beside a tall pictogram', () => {
-    const b = layoutSign({ picto: 'bread', text: 'ン', ink: '#16141f', bg: '#f6efe0', pad: 0 });
+  it('centres short letters beside a tall pictogram', () => {
+    const b = layoutSign({ picto: 'bread', text: 'O', ink: '#16141f', bg: '#f6efe0', pad: 0 });
     expect(b.h).toBe(7);
     const glyphRows = [...Array(7).keys()].filter((y) => Array.from(b.cells.slice(y * b.w + 8, y * b.w + b.w)).some((c) => c === 1));
     expect(Math.min(...glyphRows)).toBe(1);
@@ -67,7 +73,7 @@ describe('glyph atlas', () => {
   });
 
   it('refuses text it has no glyph for, instead of shipping a blank sign', () => {
-    expect(() => layoutSign({ text: 'A', ink: '#16141f', bg: '#f6efe0' })).toThrow(/no glyph/);
+    expect(() => layoutSign({ text: 'a', ink: '#16141f', bg: '#f6efe0' })).toThrow(/no glyph/);
   });
 });
 

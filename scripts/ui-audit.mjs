@@ -39,7 +39,7 @@ async function boot(browser, opts = {}) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto(base + (opts.query || ''));
+  await page.goto(base + (opts.query || ''), DOM_READY);
   try {
     await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: opts.timeout || 90000 });
   } catch {
@@ -53,6 +53,11 @@ const byLabel = (page, label) => page.locator(`#hud button[aria-label="${label}"
 const byText = (page, scope, text) => page.locator(`${scope} button`, { hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) });
 
 // two-tab helpers
+/**
+ * Navigate to DOM ready, then wait for frames (ready()). Not the 'load' event: under software WebGL
+ * (SwiftShader) heavy frames can starve it for many seconds, and it isn't what any check is about.
+ */
+const DOM_READY = { waitUntil: 'domcontentloaded' };
 const ready = (p) => p.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: 90000 });
 const disk = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('komorebi-cho/save') || 'null'));
 const persist = (p) => p.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -514,7 +519,7 @@ await (async () => {
     await ranges.nth(1).fill('0.3');
     await cb.check();
     await K(page, () => window.dispatchEvent(new Event('pagehide')));
-    await page.reload();
+    await page.reload(DOM_READY);
     await page.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: 90000 });
     const restored = await K(page, () => {
       const r = [...document.querySelectorAll('.settings input[type=range]')].map((i) => i.value);
@@ -666,13 +671,13 @@ await (async () => {
   {
     const ctx = await browser.newContext();
     const A = await ctx.newPage();
-    await A.goto(base);
+    await A.goto(base, DOM_READY);
     await ready(A);
     await A.evaluate(() => localStorage.clear());
-    await A.reload();
+    await A.reload(DOM_READY);
     await ready(A);
     const B = await ctx.newPage();
-    await B.goto(base);
+    await B.goto(base, DOM_READY);
     await ready(B);
     await B.waitForTimeout(300);
     {
@@ -690,7 +695,7 @@ await (async () => {
 
     // B takes over
     await placeBench(A); // A has 2 now, not yet saved: the hand-over must save it first
-    const nav = B.waitForEvent('load');
+    const nav = B.waitForEvent('domcontentloaded');
     await B.locator('.save-note button').click();
     await nav;
     await ready(B);
@@ -707,7 +712,7 @@ await (async () => {
 
     // owner closes; A takes over with nobody to answer
     await B.close({ runBeforeUnload: true });
-    const navA = A.waitForEvent('load');
+    const navA = A.waitForEvent('domcontentloaded');
     await A.locator('.save-note button').click();
     await navA;
     await ready(A);
@@ -729,13 +734,13 @@ await (async () => {
       }
     });
     const A = await ctx.newPage();
-    await A.goto(base);
+    await A.goto(base, DOM_READY);
     await ready(A);
     await A.evaluate(() => localStorage.clear());
-    await A.reload();
+    await A.reload(DOM_READY);
     await ready(A);
     const B = await ctx.newPage();
-    await B.goto(base);
+    await B.goto(base, DOM_READY);
     await ready(B);
     check(
       'no Web Locks: both tabs start without a note',
@@ -753,10 +758,10 @@ await (async () => {
     // scripted runs never touch the save or take the lock
     const ctx = await browser.newContext();
     const A = await ctx.newPage();
-    await A.goto(base);
+    await A.goto(base, DOM_READY);
     await ready(A);
     const S = await ctx.newPage();
-    await S.goto(base + '?seed=1&hour=12');
+    await S.goto(base + '?seed=1&hour=12', DOM_READY);
     await ready(S);
     check('a scripted (?seed) tab shows no note and A keeps saving', (await note(S)) === null && (await note(A)) === null);
     await ctx.close();
