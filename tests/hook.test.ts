@@ -16,7 +16,7 @@ async function run(withEdit: boolean, days: number) {
   const { residents, clock, world } = await buildSim(41);
   const smart = (residents as unknown as { smart: SmartRegistry }).smart;
   const bonds: { a: string; b: string; to: string; credited: string[]; helped: string[] }[] = [];
-  (residents as unknown as Bus).bus.on('bond', ((e: (typeof bonds)[number]) => bonds.push(e)) as never);
+  (residents as unknown as Bus).bus.on('bond', (e: (typeof bonds)[number]) => bonds.push(e));
   let chime: ReturnType<SmartRegistry['add']> | undefined;
   if (withEdit) {
     smart.add({ id: 'p-bench', kind: 'bench', label: 'bench', x: 0.6, z: 6.6, placed: true, slots: benchSlots(0.6, 6.6, Math.PI) });
