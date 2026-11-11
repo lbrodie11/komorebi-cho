@@ -112,6 +112,8 @@ export class Animals {
   private readonly butterflies: { mesh: THREE.Mesh; c: THREE.Vector3; ph: number }[] = [];
   private readonly rng: Rng;
   private flapCooldown = 0;
+  /** Reduced motion: no idle tail swishes or tail beats (the animals still go about their day). */
+  reducedMotion = false;
   /** A cat has arrived where it was going and is settling down, at (x, z). */
   onCatSettles: ((x: number, z: number) => void) | null = null;
 
@@ -205,7 +207,7 @@ export class Animals {
         // a cat doesn't march: it stops on the way to look about
         if (c.pause > 0) {
           c.pause -= dt;
-          c.rig.update(dt, time, false);
+          c.rig.update(dt, time, false, this.reducedMotion);
           continue;
         }
         const [tx, tz] = c.path[c.idx]!;
@@ -227,7 +229,7 @@ export class Animals {
           }
         }
         c.root.position.y = groundHeight(c.root.position.x, c.root.position.z) + Math.abs(Math.sin(time * 10)) * 0.02;
-        c.rig.update(dt, time, true);
+        c.rig.update(dt, time, true, this.reducedMotion);
         continue;
       }
       c.rest -= dt;
@@ -238,7 +240,7 @@ export class Animals {
       c.rig.pose = c.sleeping ? 'sleep' : c.rig.pose === 'walk' ? (c.rng.chance(0.5) ? 'sit' : 'loaf') : c.rig.pose === 'sleep' ? 'sit' : c.rig.pose;
       c.root.position.y = groundHeight(c.root.position.x, c.root.position.z);
       c.root.scale.y = c.sleeping ? 1 + Math.sin(time * 1.5) * 0.04 : 1; // breathing
-      c.rig.update(dt, time, false);
+      c.rig.update(dt, time, false, this.reducedMotion);
       if (c.rest <= 0) {
         // a cat person sitting out (Mitsuko): the cats come and settle near her, within 2 m
         const friend = agents.find((a) => a.p.catFriend && !a.hidden && a.arrived && a.pose === 'sit');
@@ -296,7 +298,7 @@ export class Animals {
       const speed = swim(k.s, dt, WATER, k.rng, pace);
       k.rig.root.position.set(k.s.x, G + (k.s.rise > 0 ? 0.065 : 0.05), k.s.z);
       k.rig.root.rotation.y = k.s.heading;
-      k.rig.beat(time, speed, k.ph);
+      k.rig.beat(time, speed, k.ph, this.reducedMotion);
     }
     // crows circle the sento chimney by day and gather at dusk
     for (const c of this.crows) {

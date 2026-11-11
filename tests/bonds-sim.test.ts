@@ -161,3 +161,44 @@ describe('shared attention (prompt 09b: triangulators)', () => {
     expect(residents.bonds.get('nana', 'yuki')!.moments).toBe(yukiBefore);
   });
 });
+
+describe('but-for attribution at the decision point (prompt 09b)', () => {
+  type Free = {
+    freeTime(a: unknown, hour: number, rain: number): void;
+    smart: SmartRegistry;
+    sharedMoment(a: unknown, b: unknown, what: string, madeBy?: unknown): void;
+  };
+
+  it('remembers the lantern as why someone chose a bench at dusk, only if they would have sat elsewhere without it', async () => {
+    const pickBench = async (lantern: boolean) => {
+      const { residents } = await buildSim(8);
+      const r = residents as unknown as Free;
+      for (const x of residents.agents) x.hidden = true;
+      const a = residents.agents.find((x) => x.p.id === 'nana')!;
+      const A = r.smart.objects.get('bench-pond-a')!,
+        B = r.smart.objects.get('bench-pond-b')!;
+      // a little nearer B than A: left to herself, B
+      a.hidden = false;
+      a.placeAt(A.x + (B.x - A.x) * 0.58, A.z + (B.z - A.z) * 0.58);
+      a.needs.fatigue = 1;
+      if (lantern) r.smart.add({ id: 'p-lantern', kind: 'admire', label: 'lantern', x: A.x + 1, z: A.z + 1, placed: true, glow: true, slots: [] });
+      residents.minutes = 19 * 60;
+      r.freeTime(a, 19, 0);
+      return { a, A, B, residents, r };
+    };
+    const dark = await pickBench(false);
+    const lit = await pickBench(true);
+    // (tired out, at this seed, she does choose a bench both times: the test must not pass by skipping)
+    expect([dark.a.task?.obj?.kind, lit.a.task?.obj?.kind]).toEqual(['bench', 'bench']);
+    expect(dark.a.task?.obj?.id).toBe('bench-pond-b');
+    expect(dark.a.cause).toBeNull();
+    expect(lit.a.task?.obj?.id).toBe('bench-pond-a');
+    expect(lit.a.cause).toEqual({ obj: 'bench-pond-a', ids: ['p-lantern'] });
+    // a moment shared on that bench is the lantern's doing, though the bench was always there
+    const b = lit.residents.agents.find((x) => x.p.id === 'genzo')!;
+    b.hidden = false;
+    b.task = { kind: 'use', label: { key: 'task.sitting' }, goal: [lit.A.x, lit.A.z], dwell: 60, pose: 'sit', obj: lit.A, interruptible: true };
+    lit.r.sharedMoment(lit.a, b, 'seat', lit.A);
+    expect(lit.residents.bonds.get('nana', 'genzo')!.credit['p-lantern']).toBeGreaterThan(0);
+  });
+});

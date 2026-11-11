@@ -153,6 +153,7 @@ if (saved) {
   residents.reducedMotion = true;
 }
 let reducedMotion = world.reducedMotion;
+animals.reducedMotion = reducedMotion;
 build.reducedMotion = reducedMotion;
 iso.instant = reducedMotion;
 residents.guaranteeNext = tutorial.wantsReaction;
@@ -306,6 +307,7 @@ const hud = new Hud(hudRoot, {
     reducedMotion = v;
     world.reducedMotion = v;
     residents.reducedMotion = v;
+    animals.reducedMotion = v;
     build.reducedMotion = v;
     iso.instant = v;
   },

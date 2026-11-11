@@ -115,3 +115,30 @@ export function placeScore(spot: Spot, env: FieldEnv, catPerson = false): FieldS
 
   return { score: shade * shelter * light * near * refuge * cats, parts: { shade, shelter, light, near, refuge, cats }, because: [...because] };
 }
+
+/** The same surroundings without one placed thing (what the spot would be like had the player not put it there). */
+export function without(env: FieldEnv, id: string): FieldEnv {
+  const drop = (list: readonly Feature[]) => list.filter((f) => f.id !== id);
+  return {
+    ...env,
+    trees: drop(env.trees),
+    shelters: drop(env.shelters),
+    lights: drop(env.lights),
+    water: drop(env.water),
+    food: drop(env.food),
+    bowls: drop(env.bowls),
+  };
+}
+
+/**
+ * The but-for test at the decision point (prompt 09b): of the placed things that raised a chosen
+ * spot's score, which ones decided the choice? One is a cause if, with it taken away and nothing
+ * else changed (the same moods, the same rivals), the spot's score would fall below the best rival's:
+ * they would have gone somewhere else. `effective` is the chosen option's score as it competed,
+ * `rival` the best other option's. Pure, and cheap: one re-score per candidate.
+ */
+export function butFor(spot: Spot, env: FieldEnv, catPerson: boolean, effective: number, rival: number): string[] {
+  const full = placeScore(spot, env, catPerson);
+  if (full.score <= 0) return [];
+  return full.because.filter((id) => (effective * placeScore(spot, without(env, id), catPerson).score) / full.score < rival);
+}

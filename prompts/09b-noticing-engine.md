@@ -165,9 +165,15 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
     - a cat settling down near people (credited to a placed cat bowl nearby);
     - the temple bell.
   - **Sound independence:** chimes now ring whether or not sound is on. The simulation must not depend on audio.
+- **Task 5, but-for at the decision point (2026-11-11, fifth step):**
+  - **Shared scores:** `rank()` in `utility.ts` shows each option's effective score, so a "what if" reuses the same moods (common random numbers).
+  - **The check:** `butFor()` in `field.ts` re-scores the chosen seat with each placed thing masked (`without`). A thing is a cause only if the seat would then have lost to the best rival.
+  - **Kept with the choice:** the causes are stored on the resident (`Agent.cause`).
+  - **Credit:** a shared moment on that seat is split between the thing it happened at and those causes. A lantern can earn a friendship made on a bench that was always there.
+  - **Tests:** `tests/field.test.ts` and `tests/bonds-sim.test.ts`.
 - **Still to do:**
   - Task 1, the scoring split and the "Why?" view.
   - Task 3, the rest: attention profiles as catalogue data, so every admire-only item has one, and festivals (prompt 10).
-  - Task 5, the real but-for check. Credit is currently given to the bench or object the moment happened at, which is right for those cases but is not yet the masked re-evaluation.
+  - Task 5, the rest: the but-for check covers seats only. Extend it to other choices (a route past a vending machine, a view), and add the "helped" label for overdetermined cases.
   - The three-panel bond sheet and the "while you were away" line.
   - The acceptance run: the hook test, the metamorphic tests and the soak.

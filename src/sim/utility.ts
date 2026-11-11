@@ -51,6 +51,20 @@ export interface Scored {
  * a stroll, going home, would carry a permanent edge over kinds not yet tried).
  */
 export function pick<T extends Scored>(options: readonly T[], noise: (kind: string) => number, last: ReadonlyMap<string, string>): T | null {
+  return rank(options, noise, last).best;
+}
+
+/**
+ * The same choice, with the working shown: each option's effective score (its score × the mood for
+ * its kind × any hysteresis), in the order given. A "what if" can be asked of these numbers without
+ * drawing the moods again: the dice stay as they fell.
+ */
+export function rank<T extends Scored>(
+  options: readonly T[],
+  noise: (kind: string) => number,
+  last: ReadonlyMap<string, string>,
+): { best: T | null; scores: number[] } {
+  const scores: number[] = [];
   const mood = new Map<string, number>();
   const count = new Map<string, number>();
   for (const o of options) count.set(o.kind, (count.get(o.kind) ?? 0) + 1);
@@ -61,7 +75,8 @@ export function pick<T extends Scored>(options: readonly T[], noise: (kind: stri
     if (m === undefined) mood.set(o.kind, (m = noise(o.kind)));
     let s = o.score * m;
     if (count.get(o.kind)! > 1 && last.get(o.kind) === o.key) s *= HYSTERESIS;
+    scores.push(s);
     if (s > bestScore) [best, bestScore] = [o, s];
   }
-  return best;
+  return { best, scores };
 }

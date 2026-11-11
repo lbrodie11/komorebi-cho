@@ -4,10 +4,10 @@ import { hourInRange, type Season } from '../core/clock';
 import { clamp } from '../core/math';
 import { Passage } from './passage';
 import { PlaceMemory, type PlaceMemoryData } from './places';
-import { curve, pick, score } from './utility';
+import { curve, rank, score } from './utility';
 import { Diary, type DiaryEntry } from './diary';
 import { Bonds, type Promotion, type Rung } from './bonds';
-import { placeScore, type FieldEnv } from './field';
+import { butFor, placeScore, type FieldEnv } from './field';
 import type { EventBus, GameEvents, WorldEditEvent } from '../core/events';
 import type { Materials } from '../render/materials';
 import { DOORS, EXITS, G, PASSAGES, ROOF_TERRACE, SHELTERS, TREES } from '../world/layout';
@@ -148,6 +148,8 @@ export class Agent {
   perch: number | null = null;
   /** On the bicycle: how many more stretches before taking it back to the rack. */
   riding: number | null = null;
+  /** Why they chose the seat they're at or heading for: the placed things without which they'd have gone elsewhere. */
+  cause: { obj: string; ids: string[] } | null = null;
   /** Seconds left of a bow (to a neighbour passing by). */
   bowT = 0;
   /** A reaction playing (a hop, a puzzled lean) and how far into it (s). */
@@ -717,7 +719,7 @@ export class Residents {
     const p = a.p;
     const like = (k: SmartKind | 'wander' | 'jog' | 'deliver') => p.likes[k] ?? 0;
     const night = hour > 20.5 || hour < 5.5;
-    type Option = { score: number; key: string; kind: string; make: () => Task | null };
+    type Option = { score: number; key: string; kind: string; make: () => Task | null; seat?: SmartObject };
     const opts: Option[] = [];
     const dist = (o: { x: number; z: number }) => Math.hypot(o.x - a.x, o.z - a.z);
     const dPen = (o: { x: number; z: number }) => 1 / (1 + dist(o) / 22);
@@ -735,7 +737,13 @@ export class Residents {
             ? placeScore({ x: o.x, z: o.z, face: o.slots[0]?.face }, (env ??= this.fieldEnv(hour, rain)), !!p.catFriend).score
             : this.lightFactor(o, hour);
         const s = score(base, [dPen(o), this.crowdFactor(a, o), this.satiation(a, kind)]) * this.placeFactor(a, o) * this.socialFactor(a, o) * where;
-        opts.push({ score: s, key: o.id, kind, make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble) });
+        opts.push({
+          score: s,
+          key: o.id,
+          kind,
+          make: () => this.useTask(a, o, label(o), a.rng.range(dwell[0], dwell[1]), bubble),
+          ...(kind === 'bench' ? { seat: o } : {}),
+        });
       }
       // every counter busy: queueing is an option, a less attractive one
       for (const o of this.smart.queueable(kind, hour)) {
@@ -842,9 +850,18 @@ export class Residents {
       }),
     });
 
-    const best = pick(opts, () => a.rng.range(0.75, 1.25), a.lastPick);
+    const { best, scores } = rank(opts, () => a.rng.range(0.75, 1.25), a.lastPick);
     const t = best?.make();
     if (!best || !t) return;
+    // why here? Of the placed things that made this seat inviting, the ones without which they'd have
+    // gone elsewhere (the same moods, the same rivals): kept with the choice, for crediting what follows
+    a.cause = null;
+    if (best.seat && env) {
+      const i = opts.indexOf(best);
+      const rival = Math.max(...scores.filter((_, k) => k !== i));
+      const ids = butFor({ x: best.seat.x, z: best.seat.z, face: best.seat.slots[0]?.face }, env, !!p.catFriend, scores[i]!, rival);
+      if (ids.length) a.cause = { obj: best.seat.id, ids };
+    }
     a.lastPick.set(best.kind, best.key);
     this.assign(a, t);
   }
@@ -1231,7 +1248,14 @@ export class Residents {
     const key = `${a.p.id < b.p.id ? `${a.p.id}|${b.p.id}` : `${b.p.id}|${a.p.id}`}|${what}|${Math.floor(dayF)}`;
     if (this.momentsToday.has(key)) return;
     this.momentsToday.add(key);
-    this.promoted(this.bonds.moment(a.p.id, b.p.id, dayF, madeBy?.placed ? { [madeBy.id]: 1 } : {}));
+    // who made it possible: the placed thing it happened at, and whatever placed things brought
+    // either of them to this very seat (the but-for causes of their choice), in equal shares
+    const ids = new Set<string>();
+    if (madeBy?.placed) ids.add(madeBy.id);
+    for (const x of [a, b]) if (x.cause && x.task?.obj?.id === x.cause.obj) for (const id of x.cause.ids) if (this.smart.objects.has(id)) ids.add(id);
+    const credit: Record<string, number> = {};
+    for (const id of ids) credit[id] = 1 / ids.size;
+    this.promoted(this.bonds.moment(a.p.id, b.p.id, dayF, credit));
   }
 
   /**

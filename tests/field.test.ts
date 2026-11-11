@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { placeScore, sunPressure, type FieldEnv } from '../src/sim/field';
+import { butFor, placeScore, sunPressure, without, type FieldEnv } from '../src/sim/field';
 
 /** Prompt 09b: the place field. The four combinations the prompt asks to emerge, and the reasons behind them. */
 const env = (over: Partial<FieldEnv> = {}): FieldEnv => ({
@@ -81,5 +81,21 @@ describe('the place field', () => {
         expect(s).toBeLessThan(2.6);
         expect(placeScore(other, { ...env(), hour: h, season }).score).toBeGreaterThanOrEqual(0.8);
       }
+  });
+
+  it('names a placed thing as the cause only when the choice would have gone the other way without it', () => {
+    const lights = [{ x: 1.5, z: 1, id: 'lantern-1' }];
+    const dusk = env({ lights, hour: 19 });
+    // the lantern lifts this bench from 1.0 to 1.5: it beat a rival at 1.2 only because of it
+    expect(butFor(open, dusk, false, 1.5, 1.2)).toEqual(['lantern-1']);
+    // against a rival at 0.9 it would have won anyway: the lantern helped, but didn't decide it
+    expect(butFor(open, dusk, false, 1.5, 0.9)).toEqual([]);
+    // two things that each made the difference are both causes; one that didn't matter isn't
+    const both = env({ lights, hour: 19, bowls: [{ x: 1, z: 0, id: 'bowl-1' }], food: [{ x: 2, z: 0, id: 'vending-9' }] });
+    const s = placeScore(open, both, true).score;
+    expect(butFor(open, both, true, s, s / 1.25).sort()).toEqual(['bowl-1', 'lantern-1']); // the vending machine's 6% wasn't it
+    // masking leaves everything else as it was
+    expect(without(both, 'bowl-1').lights).toEqual(lights);
+    expect(without(both, 'bowl-1').bowls).toEqual([]);
   });
 });
