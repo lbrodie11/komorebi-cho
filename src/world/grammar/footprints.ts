@@ -1,5 +1,6 @@
 import { APATO, CAFE, MICRO_HOME, SENTO, SHOPS, TEMPLE, TOOL_SHED } from '../layout';
 import { streetContext } from './street';
+import type { ShopHouseSpec } from './types';
 
 /** A building's plan box and the height of its highest roof point: what wires must clear. */
 export interface RoofBox {
@@ -13,10 +14,10 @@ export interface RoofBox {
 
 const ROOF_RISE = { gable: 1.4, shed: 1, flat: 0.3 } as const;
 
-/** Every building in the town as a roof box (from the same specs the grammar builds). */
-export function townRoofs(): RoofBox[] {
-  const street = streetContext(SHOPS);
-  const shops = SHOPS.map((s) => {
+/** Every building in the town as a roof box (from the same specs the grammar builds; `shops` as they stand now). */
+export function townRoofs(shopSpecs: readonly ShopHouseSpec[] = SHOPS): RoofBox[] {
+  const street = streetContext(shopSpecs);
+  const shops = shopSpecs.map((s) => {
     const fx = street.get(s.id)!.frontX;
     return { id: s.id, x0: fx - s.depth, x1: fx, z0: s.z0, z1: s.z1, top: s.height + ROOF_RISE[s.roof] + 0.32 };
   });

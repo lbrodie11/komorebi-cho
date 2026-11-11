@@ -2,10 +2,8 @@ import * as THREE from 'three';
 import type { Kit } from './kit';
 import { APATO, ARCH, CAFE, MICRO_HOME, SENTO, SHOPS, TEMPLE, TOOL_SHED } from './layout';
 import { evaluate } from './grammar/evaluate';
-import { planAttachments, planShopHouse, shopFootprint } from './grammar/archetypes/shophouse';
+import { ShopStreet } from './shopstreet';
 import { planApato, planArch, planCafe, planMicroHome, planSento, planTemple, planToolShed } from './grammar/archetypes/landmarks';
-import { classifyGap, planSeam } from './grammar/seams';
-import { streetContext } from './grammar/street';
 
 /** A roller shutter that rolls up at opening time. */
 export interface Shutter {
@@ -14,12 +12,16 @@ export interface Shutter {
   hours: [number, number];
   baseY: number;
   height: number;
+  /** Rebuilt (a shop moved): takes its opening-hours state at once rather than rolling up in front of the player. */
+  fresh?: boolean;
 }
 
 export interface BuildingsOut {
   lanterns: THREE.Mesh[];
   shutters: Shutter[];
   parasols: THREE.Object3D[];
+  /** The shopping street's shop-houses, rebuildable one at a time (moving and resizing). */
+  street: ShopStreet;
   chimneyTop: THREE.Vector3;
 }
 
@@ -55,23 +57,16 @@ export function buildBuildings(k: Kit): BuildingsOut {
   // the shopping street: shop-house bodies, then their street-side attachments, then the arch
   // the street context settles the priority layers first: eaves trimmed short of neighbours,
   // setbacks, and where each shop board fits (or drops to an A-frame)
-  const street = streetContext(SHOPS);
-  for (const spec of SHOPS) evaluate(k, planShopHouse(spec, street.get(spec.id)), hooks);
-  for (const spec of SHOPS) evaluate(k, planAttachments(spec, street.get(spec.id)!.frontX), hooks);
+  // Each shop is its own rebuildable group (shopstreet.ts): built here through the shared Kit, in order.
+  const street = new ShopStreet(SHOPS, m, { shutters, lanterns }, hooks);
+  street.buildInitial(k);
   evaluate(k, planArch(ARCH), hooks);
   evaluate(k, planCafe(CAFE), hooks);
   evaluate(k, planToolShed(TOOL_SHED), hooks);
 
   // Seams between neighbouring shop-houses (downpipes in tight gaps, an alley in wider ones).
   // Built last: seams are new geometry, and nothing before them should change.
-  const row = [...SHOPS].sort((a, b) => a.z0 - b.z0);
-  for (let i = 0; i + 1 < row.length; i++) {
-    const fa = street.get(row[i]!.id)!.frontX,
-      fb = street.get(row[i + 1]!.id)!.frontX;
-    const a = shopFootprint(row[i]!, fa),
-      b = shopFootprint(row[i + 1]!, fb);
-    evaluate(k, planSeam(classifyGap(a, b), a, b, Math.max(fa, fb)), hooks);
-  }
+  street.buildSeams(k);
 
-  return { lanterns, shutters, parasols, chimneyTop: new THREE.Vector3(SENTO.chimney.x, SENTO.y + SENTO.chimney.h + 0.2, SENTO.chimney.z) };
+  return { lanterns, shutters, parasols, street, chimneyTop: new THREE.Vector3(SENTO.chimney.x, SENTO.y + SENTO.chimney.h + 0.2, SENTO.chimney.z) };
 }

@@ -16,13 +16,16 @@ export interface Placement {
 export type Command =
   | { op: 'place'; rec: Placement }
   | { op: 'remove'; rec: Placement }
-  | { op: 'move'; id: string; from: { x: number; z: number; ry: number }; to: { x: number; z: number; ry: number } };
+  | { op: 'move'; id: string; from: { x: number; z: number; ry: number }; to: { x: number; z: number; ry: number } }
+  /** A shop-house moved or resized along the street (its frontage, z0..z1). */
+  | { op: 'shop'; id: string; from: { z0: number; z1: number }; to: { z0: number; z1: number } };
 
 /** What commands act on (the build tool in the game, a map in tests). */
 export interface EditTarget {
   place(rec: Placement): void;
   remove(id: string): void;
   move(id: string, x: number, z: number, ry: number): void;
+  shop(id: string, z0: number, z1: number): void;
 }
 
 export function inverse(c: Command): Command {
@@ -33,6 +36,8 @@ export function inverse(c: Command): Command {
       return { op: 'place', rec: c.rec };
     case 'move':
       return { op: 'move', id: c.id, from: c.to, to: c.from };
+    case 'shop':
+      return { op: 'shop', id: c.id, from: c.to, to: c.from };
   }
 }
 
@@ -44,6 +49,8 @@ export function apply(t: EditTarget, c: Command): void {
       return t.remove(c.rec.id);
     case 'move':
       return t.move(c.id, c.to.x, c.to.z, c.to.ry);
+    case 'shop':
+      return t.shop(c.id, c.to.z0, c.to.z1);
   }
 }
 

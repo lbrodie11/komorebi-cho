@@ -71,6 +71,7 @@ interface Pool {
   mat: THREE.MeshBasicMaterial;
   color: THREE.Color;
   peak: number;
+  retired?: boolean;
 }
 
 export class LightPools {
@@ -132,9 +133,21 @@ export class LightPools {
     return this.make(g, 'spill', color, peak);
   }
 
+  /** Take pool `i` away for good (its window was rebuilt elsewhere): hidden, its geometry freed. */
+  retire(i: number): void {
+    const p = this.pools[i];
+    if (!p || p.retired) return;
+    p.retired = true;
+    p.mesh.visible = false;
+    p.mesh.removeFromParent();
+    p.mesh.geometry.dispose();
+    p.mat.dispose();
+  }
+
   /** Brightness of pool `i`, 0..1 of its peak. */
   set(i: number, level: number): void {
     const p = this.pools[i]!;
+    if (p.retired) return;
     const k = p.peak * Math.max(0, level);
     p.mat.color.setRGB(p.color.r * k, p.color.g * k, p.color.b * k);
     p.mesh.visible = k > 0.002;

@@ -50,11 +50,26 @@ export class Kit {
   private scope: WeatherScope | null = null;
   private readonly weatheredMeshes: { mesh: THREE.Mesh; age: number }[] = [];
   constructor(
-    readonly root: THREE.Object3D,
+    public root: THREE.Object3D,
     readonly m: Materials,
     seed = 7,
   ) {
     this.rng = new Rng(seed);
+  }
+
+  /**
+   * Build into `group` instead of the root for the duration of `fn` (same rng stream, same order),
+   * so one building's meshes can later be taken out and rebuilt on their own.
+   */
+  into(group: THREE.Object3D, fn: () => void): void {
+    const root = this.root;
+    root.add(group);
+    this.root = group;
+    try {
+      fn();
+    } finally {
+      this.root = root;
+    }
   }
 
   add<T extends THREE.Object3D>(o: T, shadows = true): T {
@@ -276,24 +291,29 @@ export class Kit {
     const windows = new Set<THREE.Object3D>(this.windows.map((w) => w.mesh));
     const buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
     const keep: THREE.Object3D[] = [];
-    for (const top of added)
-      top.traverse((o) => {
-        const me = o as THREE.Mesh;
-        if (!me.isMesh) {
-          // lines, points, lights: kept as they are; groups and bare nodes are only containers
-          if (!(o instanceof THREE.Group) && o.type !== 'Object3D') keep.push(o);
-          return;
-        }
+    const walk = (o: THREE.Object3D): void => {
+      // a group marked `apart` (a fixture that moves with its shop) is kept whole
+      if (o.userData.apart) return void keep.push(o);
+      const me = o as THREE.Mesh;
+      if (!me.isMesh) {
+        // lines, points, lights: kept as they are; groups and bare nodes are only containers
+        if (!(o instanceof THREE.Group) && o.type !== 'Object3D') keep.push(o);
+      } else {
         const mat = me.material;
-        if (Array.isArray(mat) || mat.userData.ownLook || windows.has(me)) return void keep.push(me);
-        const g = (me.geometry.index ? me.geometry.toNonIndexed() : me.geometry.clone()).applyMatrix4(
-          new THREE.Matrix4().multiplyMatrices(toRoot, me.matrixWorld),
-        );
-        for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
-        let list = buckets.get(mat);
-        if (!list) buckets.set(mat, (list = []));
-        list.push(g);
-      });
+        if (Array.isArray(mat) || mat.userData.ownLook || windows.has(me)) keep.push(me);
+        else {
+          const g = (me.geometry.index ? me.geometry.toNonIndexed() : me.geometry.clone()).applyMatrix4(
+            new THREE.Matrix4().multiplyMatrices(toRoot, me.matrixWorld),
+          );
+          for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+          let list = buckets.get(mat);
+          if (!list) buckets.set(mat, (list = []));
+          list.push(g);
+        }
+      }
+      for (const c of o.children) walk(c);
+    };
+    for (const top of added) walk(top);
     // survivors keep their world placement, then the originals go
     for (const o of keep) this.root.attach(o);
     for (const top of added) if (!keep.includes(top)) this.root.remove(top);

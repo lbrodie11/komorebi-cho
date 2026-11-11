@@ -23,6 +23,7 @@ const views = {
   temple: { zoom: 2, target: [8, 3, -9] },
   cafe: { zoom: 2, target: [13, 3, 1] },
   apato: { zoom: 2, target: [-3, 3, -9] },
+  street: { zoom: 2, target: [-12, 3, 3] },
 };
 
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });

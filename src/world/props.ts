@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { ANCHOR_CLEAR, dropPoles, poleSpans, routeDrop } from './grammar/wires';
-import { townRoofs } from './grammar/footprints';
+import { townRoofs, type RoofBox } from './grammar/footprints';
 import type { Kit } from './kit';
 import type { Materials } from '../render/materials';
 import {
   BENCHES,
+  DOORSTEP_POT_OWNERS,
   DOORSTEP_POTS,
   DOWNPIPES,
   G,
@@ -17,7 +18,9 @@ import {
   POLES,
   DROPS,
   ROAD_MIRRORS,
+  SHOPS,
   TG,
+  type ShopAnchor,
   UMBRELLA_STANDS,
   VENDING,
 } from './layout';
@@ -42,6 +45,35 @@ export interface PropsOut {
   flags: THREE.Mesh[];
   /** Where each streetlamp's light lands (ground pool centre and radius). */
   lampPools: { x: number; z: number; r: number }[];
+  /** Shop-front fixtures, each in its own group, that move with their shop (prompt 06 phase C). */
+  shopFollowers: ShopFollower[];
+  /** The service drops to the shop-houses: re-routed when a shop moves (`routeDrops`). */
+  shopDrops: THREE.Group;
+}
+
+/** A fixture on a shop-house front, and the nav obstacles it carries with it. */
+export interface ShopFollower {
+  anchor: ShopAnchor;
+  group: THREE.Object3D;
+  obstacles: { x: number; z: number; r: number }[];
+}
+
+const SHOP_IDS = new Set(SHOPS.map((s) => s.id));
+
+/** Service drops: each hangs from its nearest pole, held up by an anchor bracket where it would pass through a roof. */
+export function routeDrops(k: Kit, drops: readonly { x: number; y: number; z: number }[], roofs: RoofBox[], wireMat: THREE.LineBasicMaterial): void {
+  const poleM = k.m.solid('#8a8f99');
+  const owners = dropPoles(
+    drops.map((d) => [d.x, d.z] as const),
+    POLES,
+  );
+  drops.forEach((d, i) => {
+    const p = owners[i]!;
+    if (p < 0) return;
+    const route = routeDrop([POLES[p]![0], G + 7.2, POLES[p]![1]], [d.x, d.y, d.z], roofs);
+    for (let j = 0; j + 1 < route.length; j++) k.wire(new THREE.Vector3(...route[j]!), new THREE.Vector3(...route[j + 1]!), 0.05, wireMat);
+    for (const [x, y, z] of route.slice(1, -1)) k.cyl(0.03, 0.03, ANCHOR_CLEAR + 0.2, poleM, x, y - (ANCHOR_CLEAR + 0.2) / 2, z, 4);
+  });
 }
 
 function benchMesh(m: Materials): THREE.Group {
@@ -80,6 +112,15 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     l.position.set(x, y, z);
     k.root.add(l);
     lights.push({ light: l, base });
+  };
+  const shopFollowers: ShopFollower[] = [];
+  /** Build a shop-front fixture into a group of its own (merged on its own), so it can move with the shop. */
+  const follow: Follow = (anchor, fn, obstacles = []) => {
+    if (!anchor) return fn();
+    const g = new THREE.Group();
+    g.userData.apart = true;
+    k.into(g, () => k.merged(fn));
+    shopFollowers.push({ anchor, group: g, obstacles });
   };
 
   for (const b of BENCHES) {
@@ -167,19 +208,23 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
   };
   // the wire network is solved, not hand-placed: a spanning tree over the poles, each drop to its nearest pole
   for (const [a, b] of poleSpans(P)) span(a, b);
-  const owners = dropPoles(
-    DROPS.map((d) => [d.x, d.z] as const),
-    P,
-  );
   const roofs = townRoofs();
-  DROPS.forEach((d, i) => {
-    const p = owners[i]!;
-    if (p < 0) return;
-    // a drop that would pass through a roof is held up by an anchor bracket on that roof's edge
-    const route = routeDrop([P[p]![0], G + 7.2, P[p]![1]], [d.x, d.y, d.z], roofs);
-    for (let j = 0; j + 1 < route.length; j++) k.wire(new THREE.Vector3(...route[j]!), new THREE.Vector3(...route[j + 1]!), 0.05, wireMat);
-    for (const [x, y, z] of route.slice(1, -1)) k.cyl(0.03, 0.03, ANCHOR_CLEAR + 0.2, poleM, x, y - (ANCHOR_CLEAR + 0.2) / 2, z, 4);
-  });
+  // the shop-houses' drops first, in a group of their own (re-routed when a shop moves)
+  const shopDrops = new THREE.Group();
+  k.into(shopDrops, () =>
+    routeDrops(
+      k,
+      DROPS.filter((d) => d.follows),
+      roofs,
+      wireMat,
+    ),
+  );
+  routeDrops(
+    k,
+    DROPS.filter((d) => !d.follows),
+    roofs,
+    wireMat,
+  );
   // convex road mirrors at the blind corners: orange-rimmed, angled down the lane
   k.merged(() => {
     for (const r of ROAD_MIRRORS) {
@@ -203,15 +248,15 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     lampPools.push({ x, z, r: 1.8 });
   }
   // shop / building light sources
-  pl('#ff6a3d', 10, -9.9, G + 2.4, -2, 6);
-  pl('#ffb35a', 8, -9.6, G + 1.4, 1.5, 5);
+  follow({ shop: 'ramen', edge: 'mid' }, () => pl('#ff6a3d', 10, -9.9, G + 2.4, -2, 6));
+  follow({ shop: 'bakery', edge: 'mid' }, () => pl('#ffb35a', 8, -9.6, G + 1.4, 1.5, 5));
   pl('#ffb35a', 12, 14, G + 1.6, 2.7, 7);
   pl('#ffb35a', 9, -12.8, TG + 1.2, -8, 6);
   pl('#ffb35a', 7, 9.5, TG + 1.4, -8.6, 6);
   pl('#ff7040', 7, -9.25, G + 3.8, 10.2, 5);
   pl('#ff6a3d', 9, 3.5, G + 3.2 + 1.4, -6.5, 6);
 
-  k.merged(() => buildQuietProps(k));
+  k.merged(() => buildQuietProps(k, follow));
 
   // swings (animated by the world)
   const swings = [-6.75, -5.85].map((x) => {
@@ -264,7 +309,7 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
     lightPool.push(ref);
   }
 
-  return { lights, swings, flags, lightPool, lampPools };
+  return { lights, swings, flags, lightPool, lampPools, shopFollowers, shopDrops };
 }
 
 /**
@@ -272,30 +317,35 @@ export function buildProps(k: Kit, wireMat: THREE.LineBasicMaterial): PropsOut {
  * the garbage point, a post box and doorstep pots. None of them shout; together
  * they make the street look lived in. Positions are data (layout.ts).
  */
-function buildQuietProps(k: Kit): void {
+type Follow = (anchor: ShopAnchor | undefined, fn: () => void, obstacles?: ShopFollower['obstacles']) => void;
+
+function buildQuietProps(k: Kit, follow: Follow): void {
   const m = k.m;
   // a stream of its own, so adding a pot never reshuffles anything else
   const rng = stream('quiet-props');
   const grey = m.solid('#686d78', 0.6);
 
-  for (const me of METERS) {
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.12), m.solid('#cfd2d4', 0.6));
-    const dial = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), m.solid('#2a3040', 0.3));
-    dial.position.set(0, 0.06, 0.061);
-    // conduit down to the ground
-    const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, me.y - groundHeight(me.x, me.z), 4), grey);
-    conduit.position.set(0.08, -(me.y - groundHeight(me.x, me.z)) / 2, 0.02);
-    g.add(body, dial, conduit);
-    g.position.set(me.x, me.y, me.z);
-    g.rotation.y = me.ry;
-    k.add(g);
-  }
+  for (const me of METERS)
+    follow(me.follows, () => {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.12), m.solid('#cfd2d4', 0.6));
+      const dial = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.12), m.solid('#2a3040', 0.3));
+      dial.position.set(0, 0.06, 0.061);
+      // conduit down to the ground
+      const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, me.y - groundHeight(me.x, me.z), 4), grey);
+      conduit.position.set(0.08, -(me.y - groundHeight(me.x, me.z)) / 2, 0.02);
+      g.add(body, dial, conduit);
+      g.position.set(me.x, me.y, me.z);
+      g.rotation.y = me.ry;
+      k.add(g);
+    });
 
   const pipe = m.solid('#8a8f99', 0.6);
   for (const d of DOWNPIPES) {
-    k.cyl(0.06, 0.06, d.y1 - d.y0, pipe, d.x, (d.y0 + d.y1) / 2, d.z, 6);
-    k.box(0.2, 0.08, 0.2, pipe, d.x, d.y1, d.z);
+    follow(d.follows, () => {
+      k.cyl(0.06, 0.06, d.y1 - d.y0, pipe, d.x, (d.y0 + d.y1) / 2, d.z, 6);
+      k.box(0.2, 0.08, 0.2, pipe, d.x, d.y1, d.z);
+    });
     // it empties at the foot of the wall: a splash stain on the masonry beside it
     k.drips.push({ x: d.x, y: d.y0 + 0.7, z: d.z, r: 0.35, len: 0.7 });
   }
@@ -354,13 +404,21 @@ function buildQuietProps(k: Kit): void {
   }
 
   const potColours = ['#8a5634', '#b07a4c', '#4b4f5a', '#9a2b22'];
-  for (const [x, z] of DOORSTEP_POTS) {
-    const y = groundHeight(x, z);
-    const r = rng.range(0.22, 0.34);
-    k.box(0.32, 0.28, 0.32, m.solid(rng.pick(potColours)), x, y + 0.14, z);
-    k.blob(x, y + 0.3 + r * 0.7, z, r);
-    if (rng.chance(0.4)) k.blob(x + 0.08, y + 0.32 + r * 1.3, z - 0.05, r * 0.6);
-  }
+  DOORSTEP_POTS.forEach(([x, z], i) => {
+    const owner = DOORSTEP_POT_OWNERS[i]!;
+    // a pot on a shop's doorstep moves with the shop, and so does the spot it takes on the nav grid
+    follow(
+      SHOP_IDS.has(owner) ? { shop: owner, edge: 'mid' } : undefined,
+      () => {
+        const y = groundHeight(x, z);
+        const r = rng.range(0.22, 0.34);
+        k.box(0.32, 0.28, 0.32, m.solid(rng.pick(potColours)), x, y + 0.14, z);
+        k.blob(x, y + 0.3 + r * 0.7, z, r);
+        if (rng.chance(0.4)) k.blob(x + 0.08, y + 0.32 + r * 1.3, z - 0.05, r * 0.6);
+      },
+      [{ x, z, r: 0.22 }],
+    );
+  });
 }
 
 // ── Player-placeable objects ────────────────────────────────────────────────

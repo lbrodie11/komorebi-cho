@@ -10,11 +10,20 @@ import { benchSlots, frontSlot, type SmartObject, type SmartRegistry, type Slot 
 import type { Residents } from '../sim/residents';
 import type { PlacedRecord } from '../save/storage';
 import type { Command } from '../edit/history';
+import { SHOP_ROW, shopAt, shopCheck, type ShopExtent, type ShopReason } from '../edit/shops';
 
 export type ToolMode = 'view' | 'build' | 'remove' | 'move';
 
 /** Why a spot can't take a placeable (shown at the cursor; the words are `reason.<key>` in en.ts). */
 export type PlaceReason = 'offPlinth' | 'lane' | 'garden' | 'steps' | 'water' | 'bridge' | 'blocked' | 'person' | 'tooClose';
+
+/** The shopping street, as the build tool sees it (main.ts wires it to the world). */
+export interface ShopHost {
+  /** Every shop's extent as it stands. */
+  row(): ShopExtent[];
+  /** How tall a shop is (for its ghost). */
+  height(id: string): number;
+}
 
 /** Rotation step for R / Shift+R. */
 export const ROTATE_STEP = Math.PI / 4;
@@ -84,7 +93,25 @@ export class BuildTool {
   /** Move mode: the placed thing being carried (hidden in place until it's put down). */
   private held: Placed | null = null;
   /** Why the spot under the cursor is invalid, if it is. */
-  reason: PlaceReason | null = null;
+  reason: PlaceReason | ShopReason | null = null;
+  /** The shopping street (move mode can pick up a shop-house, slide it and resize it). */
+  shops: ShopHost | null = null;
+  /** Move mode: the shop under the pointer (nothing placed nearer). */
+  private shopHover: ShopExtent | null = null;
+  /** Move mode: the shop being carried: where it was, its frontage now, where the pointer took hold, where it would go. */
+  private heldShop: { id: string; from: { z0: number; z1: number }; front: number; grab: number; z0: number; z1: number; ok: boolean } | null = null;
+  /** The pointer's last ground point and snap mode, so a resize can re-place the carried shop. */
+  private lastHit: { z: number; free: boolean } | null = null;
+  /**
+   * A shop's ghost: a translucent block where it would stand, outlined on top of everything (trees
+   * and eaves hide the street). It fits: a tinted block and a solid green outline. It doesn't: no
+   * tint and a dashed red outline, so the shape says it, not only the colour.
+   */
+  private readonly shopGhost = new THREE.Group();
+  private readonly shopFill: THREE.Mesh;
+  private readonly shopEdges: THREE.LineSegments;
+  private readonly shopOkLine = new THREE.LineBasicMaterial({ color: '#86b45a', depthTest: false, transparent: true });
+  private readonly shopBadLine = new THREE.LineDashedMaterial({ color: '#d0402a', depthTest: false, transparent: true, dashSize: 0.12, gapSize: 0.1 });
   /** Every edit goes through here (the history, in main.ts); without it, clicks apply directly. */
   onCommit: ((c: Command) => void) | null = null;
   private counter = 0;
@@ -103,6 +130,56 @@ export class BuildTool {
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.visible = false;
     root.add(this.ring);
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    this.shopFill = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: '#86b45a', transparent: true, opacity: 0.4, depthWrite: false }));
+    this.shopEdges = new THREE.LineSegments(new THREE.EdgesGeometry(box), this.shopOkLine);
+    this.shopEdges.computeLineDistances();
+    this.shopEdges.renderOrder = 3;
+    this.shopGhost.add(this.shopFill, this.shopEdges);
+    this.shopGhost.visible = false;
+    root.add(this.shopGhost);
+  }
+
+  /** Show the shop ghost over z0..z1 (a hover highlight, or where a carried shop would go). */
+  private showShop(id: string, z0: number, z1: number, ok: boolean): void {
+    const h = (this.shops?.height(id) ?? 4) + 0.6;
+    const g = this.shopGhost;
+    this.shopFill.visible = ok;
+    this.shopEdges.material = ok ? this.shopOkLine : this.shopBadLine;
+    g.scale.set(SHOP_ROW.x1 - SHOP_ROW.x0 + 0.2, h, z1 - z0 + 0.1);
+    g.position.set((SHOP_ROW.x0 + SHOP_ROW.x1) / 2, G + h / 2, (z0 + z1) / 2);
+    g.visible = true;
+  }
+
+  /** Re-place the carried shop for the pointer at `z` (its frontage keeps its offset from where it was grabbed). */
+  private placeHeldShop(z: number, free: boolean): void {
+    const h = this.heldShop;
+    if (!h || !this.shops) return;
+    const q = free ? 100 : 1 / SNAP;
+    // whole steps from where it started, so a shop off the grid (the street as first laid out) slides in tidy steps
+    // to the centimetre: float noise must not reach the history, the save or the world hash
+    const cm = (v: number) => Math.round(v * 100) / 100;
+    const z0 = cm(h.from.z0 + Math.round((z - h.grab) * q) / q);
+    const z1 = cm(z0 + h.front);
+    this.reason = shopCheck(this.shops.row(), h.id, z0, z1);
+    h.z0 = z0;
+    h.z1 = z1;
+    h.ok = this.reason === null;
+    this.showShop(h.id, z0, z1, h.ok);
+  }
+
+  /** `[` / `]`: make the carried shop's frontage narrower or wider by one step (it grows northward). */
+  resizeShop(dir: 1 | -1): boolean {
+    const h = this.heldShop;
+    if (!h) return false;
+    h.front = Math.round((h.front + dir * SHOP_ROW.resizeStep) * 100) / 100;
+    this.placeHeldShop(this.lastHit?.z ?? h.grab, this.lastHit?.free ?? false);
+    return true;
+  }
+
+  /** Is a shop being carried (move mode)? */
+  get carryingShop(): boolean {
+    return this.heldShop !== null;
   }
 
   setMode(mode: ToolMode, kind?: PlaceableKind): void {
@@ -114,6 +191,8 @@ export class BuildTool {
     this.ghost = null;
     this.hover = null;
     this.hoverRemove = null;
+    this.shopHover = null;
+    this.shopGhost.visible = false;
     this.ring.visible = false;
     if (mode === 'build') {
       const { result, owned } = this.m.own(() => PLACEABLES[this.kind].build(this.m).object);
@@ -132,6 +211,11 @@ export class BuildTool {
 
   /** Put a carried item back where it came from (Esc, or a tool change). */
   dropHeld(): void {
+    if (this.heldShop) {
+      this.heldShop = null;
+      this.shopGhost.visible = false;
+      this.reason = null;
+    }
     if (!this.held) return;
     this.held.object.visible = true;
     this.held = null;
@@ -141,14 +225,18 @@ export class BuildTool {
 
   /** Is something being carried (move mode)? Esc puts it back first. */
   get carrying(): boolean {
-    return this.held !== null;
+    return this.held !== null || this.heldShop !== null;
   }
 
   /** What a click would act on right now; touch uses it to tell a first tap (preview) from a second (commit). */
   targetKey(): string | null {
     if (this.mode === 'build') return this.hover ? `${this.hover.x},${this.hover.z}` : null;
     if (this.mode === 'remove') return this.hoverRemove?.id ?? null;
-    if (this.mode === 'move') return this.held ? (this.hover ? `${this.hover.x},${this.hover.z}` : null) : (this.hoverRemove?.id ?? null);
+    if (this.mode === 'move') {
+      if (this.heldShop) return `${this.heldShop.z0},${this.heldShop.z1}`;
+      if (this.held) return this.hover ? `${this.hover.x},${this.hover.z}` : null;
+      return this.hoverRemove?.id ?? (this.shopHover ? `shop-${this.shopHover.id}` : null);
+    }
     return null;
   }
 
@@ -215,6 +303,8 @@ export class BuildTool {
     const q = free ? 100 : 1 / SNAP;
     const x = Math.round(hit.x * q) / q;
     const z = Math.round(hit.z * q) / q;
+    this.lastHit = { z: hit.z, free };
+    if (this.mode === 'move' && this.heldShop) return this.placeHeldShop(hit.z, free);
     const carrying = this.mode === 'move' && this.held;
     if ((this.mode === 'build' || carrying) && this.ghost) {
       const kind = carrying ? this.held!.kind : this.kind;
@@ -243,6 +333,10 @@ export class BuildTool {
       }
       this.hoverRemove = best;
       this.ring.visible = !!best;
+      // nothing placed under the pointer: a shop-house on the street can be picked up instead
+      this.shopHover = this.mode === 'move' && !best && this.shops ? shopAt(this.shops.row(), hit.x, hit.z) : null;
+      if (this.shopHover) this.showShop(this.shopHover.id, this.shopHover.z0, this.shopHover.z1, true);
+      else this.shopGhost.visible = false;
       if (best) {
         this.setRing(this.mode === 'move'); // remove: the dashed red of "this goes"; move: a solid "pick this up"
         this.ring.position.set(best.x, groundHeight(best.x, best.z) + 0.03, best.z);
@@ -260,7 +354,7 @@ export class BuildTool {
   get canCommit(): boolean {
     if (this.mode === 'build') return !!this.hover?.ok;
     if (this.mode === 'remove') return !!this.hoverRemove;
-    if (this.mode === 'move') return this.held ? !!this.hover?.ok : !!this.hoverRemove;
+    if (this.mode === 'move') return this.heldShop ? this.heldShop.ok : this.held ? !!this.hover?.ok : !!this.hoverRemove || !!this.shopHover;
     return false;
   }
 
@@ -268,7 +362,9 @@ export class BuildTool {
   clearPreview(): void {
     this.hover = null;
     this.hoverRemove = null;
+    this.shopHover = null;
     this.ring.visible = false;
+    if (!this.heldShop) this.shopGhost.visible = false;
     if (this.ghost) this.ghost.object.visible = false;
   }
 
@@ -277,7 +373,8 @@ export class BuildTool {
     if (this.onCommit) this.onCommit(c);
     else if (c.op === 'place') this.place(c.rec as PlacedRecord, true);
     else if (c.op === 'remove') this.remove(c.rec.id);
-    else this.move(c.id, c.to.x, c.to.z, c.to.ry);
+    else if (c.op === 'move') this.move(c.id, c.to.x, c.to.z, c.to.ry);
+    // a shop edit needs the world; without a history attached there is nothing to apply it to
   }
 
   click(): boolean {
@@ -295,6 +392,30 @@ export class BuildTool {
       return true;
     }
     if (this.mode === 'move') {
+      if (this.heldShop) {
+        const h = this.heldShop;
+        if (!h.ok) return false;
+        this.heldShop = null;
+        this.shopGhost.visible = false;
+        // put down where it was: nothing changed, nothing for undo to remember
+        if (h.z0 !== h.from.z0 || h.z1 !== h.from.z1) this.commit({ op: 'shop', id: h.id, from: h.from, to: { z0: h.z0, z1: h.z1 } });
+        return true;
+      }
+      if (!this.held && !this.hoverRemove && this.shopHover) {
+        const s = this.shopHover;
+        this.heldShop = {
+          id: s.id,
+          from: { z0: s.z0, z1: s.z1 },
+          front: s.z1 - s.z0,
+          grab: this.lastHit?.z ?? (s.z0 + s.z1) / 2,
+          z0: s.z0,
+          z1: s.z1,
+          ok: true,
+        };
+        this.shopHover = null;
+        this.showShop(s.id, s.z0, s.z1, true);
+        return true;
+      }
       if (!this.held && this.hoverRemove) {
         // pick it up: the original hides, a ghost of it follows the pointer
         this.held = this.hoverRemove;
@@ -340,6 +461,8 @@ export class BuildTool {
     });
     this.root.add(object);
     this.grid.stamp({ x: rec.x, z: rec.z, r: def.radius }, 1);
+    // an undo or a load can put something back where someone now stands: they step aside
+    this.residents.shuffleAside(rec.x, rec.z, def.radius);
     const o = this.smart.add({
       id: rec.id,
       kind: this.smartKind(rec.kind),
@@ -404,6 +527,7 @@ export class BuildTool {
     p.object.rotation.y = ry;
     p.object.visible = true;
     this.grid.stamp({ x, z, r: p.radius }, 1);
+    this.residents.shuffleAside(x, z, p.radius);
     const o = this.smart.add({ id, kind: this.smartKind(p.kind), label: p.kind, x, z, slots: this.slots(p), placed: true, createdAt: performance.now() });
     if (def.glow) this.relight();
     this.bus.emit('sfx', { name: 'place', x, z });

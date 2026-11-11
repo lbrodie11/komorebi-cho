@@ -56,6 +56,8 @@ export class Agent {
   readonly needs = { fatigue: 0.2, thirst: 0.2 };
   readonly known = new Set<string>();
   lastInspect = -999;
+  /** Stepping aside from something that just landed where they stood (from, to, elapsed, duration). */
+  shuffle: { fx: number; fz: number; tx: number; tz: number; t: number; dur: number } | null = null;
   /** Where they went out of sight (home door, shop door, the station exit). They reappear there. */
   hiddenAt: [number, number] | null = null;
   /** Places that turned out unreachable (boxed in by the player); skipped until the game-minute stamp. */
@@ -270,6 +272,11 @@ export class Residents {
     this.minutes += gm;
     for (const a of this.agents) {
       a.needs.thirst = clamp(a.needs.thirst + gm * 0.004, 0, 1);
+      if (a.shuffle) {
+        this.shuffleStep(a, dt);
+        a.animate(dt, true, rain, time);
+        continue;
+      }
       if (!a.task) this.plan(a, hour, rain);
       if (a.task) this.step(a, dt, gm, hour, rain);
       a.animate(dt, !a.hidden && !a.arrived && a.standUp <= 0 && a.path.length > 0, rain, time);
@@ -703,6 +710,66 @@ export class Residents {
         }
         if (Math.hypot(a.x - o.x, a.z - o.z) < 3.2) a.known.add(o.id);
       }
+    }
+  }
+
+  /**
+   * Something just landed on (x, z) with radius r (a placement, a move, an undo putting something
+   * back): anyone standing there shuffles aside over 0.3–0.6 s, to the nearest open spot beyond its
+   * edge, then carries on (or, if they had arrived somewhere, stands a moment and re-plans). Call it
+   * after the object is stamped on the nav grid. Nobody teleports and nobody ends up inside it.
+   */
+  shuffleAside(x: number, z: number, r: number): void {
+    for (const a of this.agents) {
+      if (a.hidden || a.shuffle) continue;
+      const d = Math.hypot(a.x - x, a.z - z);
+      if (d > r + 0.3) continue;
+      const ang = d > 1e-3 ? Math.atan2(a.x - x, a.z - z) : a.rng.range(0, Math.PI * 2);
+      const want = r + 0.4;
+      const spot = this.grid.nearestOpen(x + Math.sin(ang) * want, z + Math.cos(ang) * want, 3) ?? this.grid.nearestOpen(a.x, a.z, 4);
+      if (!spot) continue;
+      const len = Math.hypot(spot[0] - a.x, spot[1] - a.z);
+      if (a.arrived || a.pose !== 'stand') this.endTask(a, 'question');
+      a.standUp = 0;
+      a.pose = 'stand';
+      a.shuffle = { fx: a.x, fz: a.z, tx: spot[0], tz: spot[1], t: 0, dur: clamp(len / 2.2, 0.3, 0.6) };
+    }
+  }
+
+  private shuffleStep(a: Agent, dt: number): void {
+    const s = a.shuffle!;
+    s.t = Math.min(s.dur, s.t + dt);
+    const k = s.t / s.dur;
+    const e = k * k * (3 - 2 * k);
+    a.root.position.x = s.fx + (s.tx - s.fx) * e;
+    a.root.position.z = s.fz + (s.tz - s.fz) * e;
+    if (Math.hypot(s.tx - s.fx, s.tz - s.fz) > 1e-3) a.root.rotation.y = Math.atan2(s.tx - s.fx, s.tz - s.fz);
+    if (k < 1) return;
+    a.shuffle = null;
+    // still on the way somewhere: find the way again from here
+    if (a.task && !a.arrived) {
+      a.path = [];
+      a.pathIdx = 0;
+      this.repath(a);
+    }
+  }
+
+  /**
+   * A door moved with its building (a shop slid along the street): whoever is walking to it heads
+   * for the new one, and whoever is inside will come out of the new one. Nobody visible is moved.
+   */
+  onDoorMoved(from: readonly [number, number], to: readonly [number, number]): void {
+    const at = (p: readonly [number, number] | null | undefined) => !!p && Math.hypot(p[0] - from[0], p[1] - from[1]) < 0.05;
+    for (const a of this.agents) {
+      if (at(a.hiddenAt)) a.hiddenAt = [to[0], to[1]];
+      const t = a.task;
+      if (!t || !at(t.goal)) continue;
+      t.goal = [to[0], to[1]];
+      if (a.hidden) continue;
+      a.arrived = false;
+      a.path = [];
+      a.pathIdx = 0;
+      this.repath(a);
     }
   }
 

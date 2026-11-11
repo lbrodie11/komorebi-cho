@@ -35,12 +35,13 @@ src/render    post (pixel pass), lut (palette lookup table), camera (iso + texel
               diffusion (Film Diffusion curve, output budget) + diffusion-pass (its GPU passes)
 src/world     layout (THE DATA), grammar/ (building specs → parts → geometry; seams between neighbours), terrain (heights/regions), kit (geometry helpers, weathering scope, static merge),
               weathering (pure per-vertex maths), lighting (window schedules, spill, brightness hierarchy),
-              lightpools (ground pool decals), buildings, nature, props (+ placeables), crowd (light sharing),
+              lightpools (ground pool decals), buildings, shopstreet (the shop row, rebuildable shop by shop), nature, props (+ placeables), crowd (light sharing),
               weather, world (assembly + time-driven updates)
 src/sim       grid (nav + A*), smart (affordances/reservations), personas (the neighbours), residents (schedule → needs → utility → action), memories (true-to-sim journal events + scene snapshots),
               animals, bubbles, warmup (fixed-step warm-up for seeded runs)
 src/audio     engine (graph), theory (pure), music (generative piano), ambience (soundscape), sound (facade + sfx)
 src/ui        hud (DOM), build (placement tool), debug (?debug overlay), wordmark (bitmap font), style.css
+src/edit      history (commands, undo/redo, replay log), shops (the shop row's rules)
 src/save      storage (versioned localStorage + migrations + validation), tabs (one saving tab at a time)
 tests/        vitest: core, sim, audio, render maths (lut, shadow, pixel scale), art (glyphs, weathering, leaves, sky keys)
 prompts/      the roadmap: numbered work orders, done in order

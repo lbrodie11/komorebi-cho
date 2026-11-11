@@ -5,6 +5,8 @@ import { DEFAULT_PIXEL, PIXEL_PRESETS, type PixelPreset } from '../render/pixels
 import { LEGACY_DIFFUSION_DEFAULT, sanitizeDiffusion } from '../render/diffusion';
 import { isKey, type Msg, type Params } from '../i18n';
 import type { Memory } from '../sim/memories';
+import { sanitizeShops } from '../edit/shops';
+import { SHOPS } from '../world/layout';
 import type { SaveStamp } from './tabs';
 
 export const SAVE_VERSION = 3;
@@ -26,6 +28,8 @@ export interface SaveData extends SaveStamp {
   season: Season;
   weather: WeatherMode;
   placed: PlacedRecord[];
+  /** Shop-houses the player moved or resized: their frontage (z0..z1) by id. Optional on disk. */
+  shops?: Record<string, { z0: number; z1: number }>;
   memory: Record<string, string[]>;
   /** First-minutes hints already done ('place', 'react', 'meet'). */
   tutorial: string[];
@@ -52,6 +56,8 @@ export interface SaveData extends SaveStamp {
 }
 
 const TEXT_SCALES = [1, 1.25, 1.5];
+/** The shopping street as first laid out: saved shop extents are checked against it. */
+const SHOP_ROW_BASE = SHOPS.map(({ id, z0, z1 }) => ({ id, z0, z1 }));
 const MEMORY_KINDS = ['noticed', 'favorite', 'together'];
 const strs = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
@@ -164,6 +170,7 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     season: (SEASONS as readonly unknown[]).includes(d.season) ? (d.season as Season) : 'spring',
     weather: (WEATHER_MODES as readonly unknown[]).includes(d.weather) ? (d.weather as WeatherMode) : 'auto',
     placed: placed.map(({ id, kind, x, z, ry }) => ({ id, kind, x, z, ry: ry % (Math.PI * 2) })),
+    shops: sanitizeShops(d.shops, SHOP_ROW_BASE),
     memory,
     // a save from before the hints existed belongs to a returning player: they never need them
     tutorial: Array.isArray(d.tutorial) ? d.tutorial.filter((x): x is string => typeof x === 'string') : ['meet', 'place', 'react'],

@@ -73,6 +73,16 @@ export interface DoorSpec {
   facing: number;
 }
 
+/**
+ * A fixture that belongs to a shop-house front (a meter, a downpipe, doorstep pots, the service
+ * drop): when the shop moves or is resized (prompt 06 phase C) it keeps its place relative to
+ * the shop's south end (`z0`), north end (`z1`) or middle.
+ */
+export interface ShopAnchor {
+  shop: string;
+  edge: 'z0' | 'z1' | 'mid';
+}
+
 /** Where people disappear into buildings. */
 export const DOORS: Record<string, DoorSpec> = {
   aptA: { id: 'aptA', x: -4.3, z: -9.25, facing: Math.PI },
@@ -152,11 +162,11 @@ export const POLES: Vec2[] = [
  * Where service wires enter buildings (x, socket height, z). The wire solver hangs each from its
  * nearest pole (src/world/grammar/wires.ts); nothing here says which pole.
  */
-export const DROPS: readonly { x: number; y: number; z: number }[] = [
-  { x: -10.5, y: G + 4.6, z: -2 },
-  { x: -10.5, y: G + 3.8, z: 1.5 },
-  { x: -10.5, y: G + 3.4, z: 4.7 },
-  { x: -10.5, y: G + 4.4, z: 7.6 },
+export const DROPS: readonly { x: number; y: number; z: number; follows?: ShopAnchor }[] = [
+  { x: -10.5, y: G + 4.6, z: -2, follows: { shop: 'ramen', edge: 'mid' } },
+  { x: -10.5, y: G + 3.8, z: 1.5, follows: { shop: 'bakery', edge: 'mid' } },
+  { x: -10.5, y: G + 3.4, z: 4.7, follows: { shop: 'florist', edge: 'mid' } },
+  { x: -10.5, y: G + 4.4, z: 7.6, follows: { shop: 'books', edge: 'mid' } },
   { x: 0, y: TG + 5, z: -9.6 },
   { x: -7.6, y: TG + 7, z: -9.2 },
   { x: 10.7, y: G + 5, z: -1 },
@@ -192,6 +202,8 @@ const DOORSTEPS: Record<string, { sides: readonly number[]; inset: number }> = {
   bakery: { sides: [-1], inset: 0.2 },
   kissaten: { sides: [1], inset: 0.62 },
 };
+/** Whose doorstep each of DOORSTEP_POTS is on (a door id), in the same order. */
+export const DOORSTEP_POT_OWNERS: readonly string[] = Object.entries(DOORSTEPS).flatMap(([id, { sides }]) => sides.map(() => id));
 export const DOORSTEP_POTS: readonly Vec2[] = Object.entries(DOORSTEPS).flatMap(([id, { sides, inset }]) => {
   const d = DOORS[id]!;
   // a resident inside the door faces (sin f, cos f): "in" points at the wall, the side runs along it
@@ -201,21 +213,21 @@ export const DOORSTEP_POTS: readonly Vec2[] = Object.entries(DOORSTEPS).flatMap(
 });
 
 /** Electricity meters on house walls: position on the wall and the way the wall faces. */
-export const METERS: readonly { x: number; y: number; z: number; ry: number }[] = [
+export const METERS: readonly { x: number; y: number; z: number; ry: number; follows?: ShopAnchor }[] = [
   { x: -5.1, y: TG + 1.5, z: -9.56, ry: 0 },
   { x: -15.88, y: TG + 0.8, z: -8.97, ry: 0 },
-  { x: -10.47, y: G + 1.4, z: -3.4, ry: Math.PI / 2 },
+  { x: -10.47, y: G + 1.4, z: -3.4, ry: Math.PI / 2, follows: { shop: 'ramen', edge: 'z0' } },
   { x: 16.23, y: G + 1.3, z: 0.9, ry: Math.PI / 2 },
   { x: -6.47, y: TG + 1.4, z: -9.67, ry: Math.PI / 4 },
 ];
 
 /** Rain-water downpipes: wall corner, top and bottom. They empty at the foot of the wall (a drip stain). */
-export const DOWNPIPES: readonly { x: number; z: number; y0: number; y1: number }[] = [
+export const DOWNPIPES: readonly { x: number; z: number; y0: number; y1: number; follows?: ShopAnchor }[] = [
   { x: 1.32, z: -9.66, y0: TG, y1: TG + 5.35 },
   { x: -5.32, z: -9.66, y0: TG, y1: TG + 5.35 },
   { x: -9.56, z: -9.06, y0: TG, y1: TG + 3.95 },
-  { x: -10.55, z: -0.3, y0: G, y1: G + 4.4 },
-  { x: -10.55, z: 6.1, y0: G, y1: G + 3.6 },
+  { x: -10.55, z: -0.3, y0: G, y1: G + 4.4, follows: { shop: 'ramen', edge: 'z1' } },
+  { x: -10.55, z: 6.1, y0: G, y1: G + 3.6, follows: { shop: 'florist', edge: 'z1' } },
   { x: 16.28, z: 1.68, y0: G, y1: G + 5.6 },
 ];
 

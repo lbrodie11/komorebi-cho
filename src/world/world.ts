@@ -3,12 +3,14 @@ import { Materials } from '../render/materials';
 import type { SkyState } from '../render/sky';
 import { hourInRange, type Season, type WorldClock } from '../core/clock';
 import { clamp, damp } from '../core/math';
-import { Kit } from './kit';
+import { Kit, type WindowRef } from './kit';
 import { buildNature, type NatureOut } from './nature';
 import { buildBuildings, type BuildingsOut } from './buildings';
-import { buildProps, type PropsOut } from './props';
+import { buildProps, routeDrops, type PropsOut } from './props';
+import type { NavMove, ShopStreet } from './shopstreet';
+import { townRoofs } from './grammar/footprints';
 import { Weather } from './weather';
-import { G, GROUND, PLINTH, VENDING } from './layout';
+import { DROPS, G, GROUND, PLINTH, VENDING } from './layout';
 import { groundHeight } from './terrain';
 import { ACCENT_BUDGET, EMISSIVE, shopDarkness, windowLevel, windowSpill, windowStep } from './lighting';
 import { LightPools } from './lightpools';
@@ -108,6 +110,7 @@ export class World {
     this.nature = buildNature(this.kit);
     this.buildings = buildBuildings(this.kit);
     this.props = buildProps(this.kit, this.wireMat);
+    for (const f of this.props.shopFollowers) this.buildings.street.follow(f);
     this.kit.finishWeathering();
     // measured before weather joins the root: rain streaks span 20 m of empty air and cast nothing
     this.shadowBox = new THREE.Box3().setFromObject(root);
@@ -128,34 +131,85 @@ export class World {
    */
   private buildPools(root: THREE.Object3D): LightPools {
     const pools = new LightPools();
-    // the highest surface under a footprint, so a pool never sinks under a kerb or a lawn
-    const groundAt = (x: number, z: number, r: number) => {
-      let y = -Infinity;
-      for (const [dx, dz] of [
-        [0, 0],
-        [r, 0],
-        [-r, 0],
-        [0, r],
-        [0, -r],
-      ] as const)
-        y = Math.max(y, groundHeight(x + dx * 0.7, z + dz * 0.7));
-      return y + 0.035;
-    };
+    const groundAt = World.groundAt;
     for (const l of this.props.lampPools) this.lampPoolIds.push(pools.addRound(l.x, l.z, groundAt(l.x, l.z, l.r), l.r, '#ffcf8a', 0.42, GROUND));
     // one movable pool per pooled light, for the lanterns and vending machines players place
     for (let i = 0; i < this.props.lightPool.length; i++) this.placedPoolIds.push(pools.addMovable('#ffb35a', 0.34));
     for (const v of VENDING) this.lampPoolIds.push(pools.addRound(v.x, v.z + 0.9, groundAt(v.x, v.z + 0.9, 0.7), 0.75, v.glow, 0.3, GROUND, 0.85));
-    for (const w of this.kit.windows) {
-      if (w.kind === 'home') continue;
-      const g = w.geom;
-      const nx = Math.sin(g.ry),
-        nz = Math.cos(g.ry);
-      const s = windowSpill(g, groundHeight(g.x + nx * 0.6, g.z + nz * 0.6), w.kind === 'cafe', GROUND);
-      if (!s) continue;
-      w.pool = pools.addSpill(s, groundAt(s.x, s.z, Math.min(s.width, s.depth) / 2), w.kind === 'cafe' ? '#ffc070' : '#ffaa58', w.kind === 'cafe' ? 0.62 : 0.4);
-    }
+    for (const w of this.kit.windows) this.addWindowPool(pools, w);
     root.add(pools.group);
     return pools;
+  }
+
+  /** The highest surface under a footprint, so a pool never sinks under a kerb or a lawn. */
+  private static groundAt(this: void, x: number, z: number, r: number): number {
+    let y = -Infinity;
+    for (const [dx, dz] of [
+      [0, 0],
+      [r, 0],
+      [-r, 0],
+      [0, r],
+      [0, -r],
+    ] as const)
+      y = Math.max(y, groundHeight(x + dx * 0.7, z + dz * 0.7));
+    return y + 0.035;
+  }
+
+  /** A ground-floor shop or café window spills light onto the ground in front of it. */
+  private addWindowPool(pools: LightPools, w: WindowRef): void {
+    if (w.kind === 'home') return;
+    const g = w.geom;
+    const nx = Math.sin(g.ry),
+      nz = Math.cos(g.ry);
+    const s = windowSpill(g, groundHeight(g.x + nx * 0.6, g.z + nz * 0.6), w.kind === 'cafe', GROUND);
+    if (!s) return;
+    w.pool = pools.addSpill(
+      s,
+      World.groundAt(s.x, s.z, Math.min(s.width, s.depth) / 2),
+      w.kind === 'cafe' ? '#ffc070' : '#ffaa58',
+      w.kind === 'cafe' ? 0.62 : 0.4,
+    );
+  }
+
+  /** Next index for a rebuilt window (the occupancy and warmth hashes key on it; never reused). */
+  private nextWindowIndex = 100000;
+
+  /**
+   * Move or resize a shop-house along the street (z0..z1): it and anything whose eaves or board
+   * changed are re-planned through the grammar, and the seams re-planned. Windows and their light
+   * pools follow, its fixtures come along and the service drops are re-routed. Returns the nav
+   * obstacles that moved; the caller moves the shop's door and smart object.
+   */
+  setShopExtent(id: string, z0: number, z1: number): NavMove[] {
+    const root = this.scene.children[0]!;
+    const street = this.buildings.street;
+    const before = new Set(this.buildings.shutters);
+    const { removed, added, nav } = street.setExtent({ root, kit: this.kit }, id, z0, z1);
+    for (const s of this.buildings.shutters) if (!before.has(s)) s.fresh = true;
+    for (const w of removed) if (w.pool !== undefined) this.pools.retire(w.pool);
+    for (const w of added) {
+      w.index = this.nextWindowIndex++;
+      this.kit.windows.push(w);
+      this.addWindowPool(this.pools, w);
+    }
+    // the drops hang from the same poles; a roof that moved may now need (or free) an anchor bracket
+    const drops = this.props.shopDrops;
+    for (const o of [...drops.children]) {
+      o.removeFromParent();
+      (o as THREE.Mesh).geometry?.dispose();
+    }
+    routeDrops(
+      new Kit(drops, this.mats),
+      DROPS.filter((d) => d.follows).map((d) => ({ x: d.x, y: d.y, z: d.z + street.offset(d.follows!) })),
+      townRoofs(street.specs),
+      this.wireMat,
+    );
+    return nav;
+  }
+
+  /** The shopping street (its shops' extents as they stand). */
+  get shopStreet(): ShopStreet {
+    return this.buildings.street;
   }
 
   /**
@@ -225,7 +279,8 @@ export class World {
     // shutters roll up at opening time
     for (const s of this.buildings.shutters) {
       const goal = hourInRange(hour, s.hours[0], s.hours[1]) ? 1 : 0;
-      s.open = clamp(s.open + Math.sign(goal - s.open) * dt * 0.6, 0, 1);
+      s.open = s.fresh ? goal : clamp(s.open + Math.sign(goal - s.open) * dt * 0.6, 0, 1);
+      s.fresh = false;
       s.mesh.scale.y = Math.max(0.02, 1 - s.open);
       s.mesh.position.y = s.baseY + (s.height * s.open) / 2;
     }

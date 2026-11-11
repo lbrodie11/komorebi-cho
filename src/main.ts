@@ -17,6 +17,7 @@ import { BuildTool, type ToolMode } from './ui/build';
 import { Hud, TEXT_SCALES, type TextScale } from './ui/hud';
 import { Tutorial } from './ui/tutorial';
 import { History } from './edit/history';
+import { applyShopEdit, type ShopEditContext } from './edit/shopedit';
 import { stream } from './core/rng';
 import { MemoryRecorder, type Memory, type WorldView } from './sim/memories';
 import { DebugOverlay } from './ui/debug';
@@ -90,6 +91,14 @@ registerStaticObjects(smart);
 const residents = new Residents(world.scene, grid, smart, bus, world.mats, params.seed);
 const animals = new Animals(world.scene, world.mats, grid, smart, bus, world.chimneyTop, params.seed);
 const build = new BuildTool(world.scene, world.mats, grid, smart, residents, bus, () => clock.hour, world.lightPool);
+build.shops = {
+  row: () => world.shopStreet.specs.map(({ id, z0, z1 }) => ({ id, z0, z1 })),
+  height: (id) => world.shopStreet.get(id)?.height ?? 4,
+};
+
+/** Shop edits (src/edit/shopedit.ts) reach the world, the nav grid, the shop counters and the neighbours. */
+const shopEdits: ShopEditContext = { world, grid, smart, residents, bus, hour: () => clock.hour };
+const applyShop = (id: string, z0: number, z1: number, announce: boolean) => applyShopEdit(shopEdits, id, z0, z1, announce);
 
 /** The player's look, as saved; new players start on Smooth. */
 let pixelSetting: PixelPreset = DEFAULT_PIXEL;
@@ -111,6 +120,8 @@ if (saved) {
   world.weather.setMode(saved.weather);
   // Residents are ignored here: one standing on yesterday's bench spot at boot must not delete the bench
   // (the next autosave would make the loss permanent). Unknown kinds (an older or newer build) are skipped.
+  // the street as the player left it, before anything placed is checked against it
+  for (const [id, e] of Object.entries(saved.shops ?? {})) applyShop(id, e.z0, e.z1, false);
   for (const r of saved.placed) if (r.kind in PLACEABLES && build.canPlace(r.kind, r.x, r.z, { ignoreResidents: true })) build.place(r, false);
   residents.restoreMemory(saved.memory);
   pixelSetting = saved.settings.pixel;
@@ -168,6 +179,7 @@ function persist(): void {
     season: clock.season,
     weather: world.weather.mode,
     placed: build.records(),
+    shops: world.shopStreet.changed(),
     memory: residents.memory(),
     tutorial: tutorial.flags,
     memories: [...memories.memories],
@@ -194,6 +206,7 @@ const history = new History({
   place: (r) => build.place(r as PlacedRecord, freshEdit),
   remove: (id) => build.remove(id),
   move: (id, x, z, ry) => build.move(id, x, z, ry),
+  shop: (id, z0, z1) => applyShop(id, z0, z1, freshEdit),
 });
 build.onCommit = (c) => {
   freshEdit = true;
@@ -950,6 +963,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'b') setTool(build.mode === 'build' ? 'view' : 'build');
   else if (k === 'x' || k === 'delete') setTool(build.mode === 'remove' ? 'view' : 'remove');
   else if (k === 'r') build.rotate(e.shiftKey ? -1 : 1);
+  else if ((k === '[' || k === ']') && build.carryingShop) build.resizeShop(k === ']' ? 1 : -1);
   else if (k === 'v') setTool(build.mode === 'move' ? 'view' : 'move');
   else if (k === 'm') void hud.toggleSound();
   else if (k === 'p') hud.togglePhoto(!photo);
@@ -1337,7 +1351,12 @@ Object.assign(window, {
     build,
     history,
     /** The town's placed things, sorted: undo/redo of any edits must return it byte for byte. */
-    worldHash: () => JSON.stringify({ placed: build.records().sort((a, b) => (a.id < b.id ? -1 : 1)), nav: grid.occupancyHash }),
+    worldHash: () =>
+      JSON.stringify({
+        placed: build.records().sort((a, b) => (a.id < b.id ? -1 : 1)),
+        shops: world.shopStreet.specs.map(({ id, z0, z1 }) => [id, z0, z1]),
+        nav: grid.occupancyHash,
+      }),
     sound,
     tutorial,
     memories,

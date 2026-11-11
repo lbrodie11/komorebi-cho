@@ -166,6 +166,13 @@ describe('saves: hints, Notes and the newer settings', () => {
     expect(kept[0]!.day).toBe(30);
   });
 
+  it('keeps moved shops that still fit the row, and drops the rest', () => {
+    expect(loadRaw(base).shops).toEqual({});
+    const shops = { bakery: { z0: -0.2, z1: 2.2 }, florist: { z0: 2.4, z1: 5 }, books: { z0: 0, z1: 1 }, nowhere: { z0: 0, z1: 3 } };
+    expect(loadRaw({ ...base, shops }).shops).toEqual({ bakery: { z0: -0.2, z1: 2.2 }, florist: { z0: 2.4, z1: 5 } });
+    expect(loadRaw({ ...base, shops: 'junk' }).shops).toEqual({});
+  });
+
   it('validates effects volume, captions and text size', () => {
     const s = loadRaw({ ...base, settings: { effects: 2, captions: 'yes', textScale: 3 } }).settings;
     expect(s.effects).toBe(1);
