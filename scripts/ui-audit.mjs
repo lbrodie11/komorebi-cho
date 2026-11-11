@@ -7,7 +7,7 @@
 //   node scripts/ui-audit.mjs [baseUrl] [outDir]
 // e.g. node scripts/ui-audit.mjs http://localhost:4173/ shots/ui-audit
 //
-// Prints PASS/FAIL per check, writes results.json, inventory.txt (every HUD button) and a few
+// Prints PASS/FAIL per check (including two tabs open at once: only one may save), writes results.json, inventory.txt (every HUD button) and a few
 // screenshots. It drives the game through window.__komorebi, so it tests real state, not just CSS:
 // desktop (1280×800), corrupt saves, and a touch phone (390×844) with pinch and tap-to-confirm.
 import { chromium } from 'playwright';
@@ -51,6 +51,23 @@ async function boot(browser, opts = {}) {
 const K = (page, fn, arg) => page.evaluate(fn, arg);
 const byLabel = (page, label) => page.locator(`#hud button[aria-label="${label}"]`);
 const byText = (page, scope, text) => page.locator(`${scope} button`, { hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) });
+
+// two-tab helpers
+const ready = (p) => p.waitForFunction(() => (window.__komorebi?.frames ?? 0) > 3, null, { timeout: 90000 });
+const disk = (p) => p.evaluate(() => JSON.parse(localStorage.getItem('komorebi-cho/save') || 'null'));
+const persist = (p) => p.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+const note = (p) => p.evaluate(() => (document.querySelector('.save-note.open') ? document.querySelector('.save-note .text').textContent : null));
+const placeBench = (p) =>
+  p.evaluate(() => {
+    const k = window.__komorebi;
+    for (let x = -12; x <= 12; x += 0.5)
+      for (let z = -8; z <= 8; z += 0.5)
+        if (k.build.canPlace('bench', x, z)) {
+          k.build.place({ id: 'b' + Math.random().toString(36).slice(2), kind: 'bench', x, z, ry: 0 }, true);
+          return k.build.placed.size;
+        }
+    return -1;
+  });
 
 await (async () => {
   const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader'] });
@@ -589,6 +606,105 @@ await (async () => {
     await ctx.close();
   }
 
+  // ── 4. Two tabs: one saves, the other says so and never overwrites ──
+  {
+    const ctx = await browser.newContext();
+    const A = await ctx.newPage();
+    await A.goto(base);
+    await ready(A);
+    await A.evaluate(() => localStorage.clear());
+    await A.reload();
+    await ready(A);
+    const B = await ctx.newPage();
+    await B.goto(base);
+    await ready(B);
+    await B.waitForTimeout(300);
+    {
+      check('tab B shows "open in another tab" at once', /another tab/.test((await note(B)) || ''), await note(B));
+      check('tab A (first) shows no note', (await note(A)) === null);
+    }
+    await placeBench(A);
+    await persist(A);
+    check('A saved its bench', (await disk(A))?.placed?.length === 1);
+    await persist(B); // B's autosave / pagehide with its stale, bench-less town
+    const d = await disk(A);
+    check('B writing does NOT erase A’s bench', d?.placed?.length === 1, `placed on disk: ${d?.placed?.length}`);
+    await B.waitForTimeout(11000); // a real autosave tick in B
+    check('…nor does B’s 10-second autosave', (await disk(A))?.placed?.length === 1);
+
+    // B takes over
+    await placeBench(A); // A has 2 now, not yet saved: the hand-over must save it first
+    const nav = B.waitForEvent('load');
+    await B.locator('.save-note button').click();
+    await nav;
+    await ready(B);
+    await B.waitForTimeout(300);
+    check('after "Use this tab", B reloads with A’s latest town (2 benches)', (await B.evaluate(() => window.__komorebi.build.placed.size)) === 2);
+    check('B no longer shows the note', (await note(B)) === null);
+    check('A now says "carried on in another tab"', /carried on/.test((await note(A)) || ''), await note(A));
+    await placeBench(A);
+    await persist(A);
+    check('A (paused) no longer writes', (await disk(A))?.placed?.length === 2, `placed on disk: ${(await disk(A))?.placed?.length}`);
+    await placeBench(B);
+    await persist(B);
+    check('B (owner) writes', (await disk(B))?.placed?.length === 3);
+
+    // owner closes; A takes over with nobody to answer
+    await B.close({ runBeforeUnload: true });
+    const navA = A.waitForEvent('load');
+    await A.locator('.save-note button').click();
+    await navA;
+    await ready(A);
+    await A.waitForTimeout(300);
+    check(
+      'after B closes, "Use this tab" in A loads B’s last save and saves again',
+      (await A.evaluate(() => window.__komorebi.build.placed.size)) === 3 && (await note(A)) === null,
+    );
+    await ctx.close();
+  }
+  {
+    // no Web Locks: the stamp check alone must stop the stale tab
+    const ctx = await browser.newContext();
+    await ctx.addInitScript(() => {
+      try {
+        Object.defineProperty(Navigator.prototype, 'locks', { get: () => undefined, configurable: true });
+      } catch {
+        /* */
+      }
+    });
+    const A = await ctx.newPage();
+    await A.goto(base);
+    await ready(A);
+    await A.evaluate(() => localStorage.clear());
+    await A.reload();
+    await ready(A);
+    const B = await ctx.newPage();
+    await B.goto(base);
+    await ready(B);
+    check(
+      'no Web Locks: both tabs start without a note',
+      (await note(A)) === null && (await note(B)) === null,
+      String(await A.evaluate(() => 'locks' in navigator && !!navigator.locks)),
+    );
+    await placeBench(A);
+    await persist(A);
+    await persist(B);
+    check('no Web Locks: the stale tab sees the newer save and does not overwrite it', (await disk(A))?.placed?.length === 1);
+    check('no Web Locks: the stale tab says so', /carried on/.test((await note(B)) || ''), await note(B));
+    await ctx.close();
+  }
+  {
+    // scripted runs never touch the save or take the lock
+    const ctx = await browser.newContext();
+    const A = await ctx.newPage();
+    await A.goto(base);
+    await ready(A);
+    const S = await ctx.newPage();
+    await S.goto(base + '?seed=1&hour=12');
+    await ready(S);
+    check('a scripted (?seed) tab shows no note and A keeps saving', (await note(S)) === null && (await note(A)) === null);
+    await ctx.close();
+  }
   await browser.close();
   fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
   const fails = results.filter((r) => !r.ok).length;

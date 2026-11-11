@@ -1,18 +1,10 @@
-/* Self-hosted UI fonts, both SIL OFL 1.1 (public/fonts/LICENSE-OFL.txt), subset by scripts/subset-fonts.sh.
-   The Japanese face is only fetched when Japanese text is on screen (unicode-range). */
+/* Self-hosted UI font, SIL OFL 1.1 (public/fonts/LICENSE-OFL.txt), subset by scripts/subset-fonts.sh. */
 @font-face {
   font-family: 'Pixelify Sans';
   src: url('./fonts/pixelify-sans.woff2') format('woff2');
   font-weight: 400 700;
   font-display: swap;
   unicode-range: U+0020-007E, U+00A0-00FF, U+014C-014D, U+2010-2027;
-}
-@font-face {
-  font-family: 'Noto Sans JP';
-  src: url('./fonts/noto-sans-jp.woff2') format('woff2');
-  font-weight: 400 500;
-  font-display: swap;
-  unicode-range: U+3000-30FF, U+4E00-9FFF, U+FF00-FFEF;
 }
 :root {
   --ink: #0b0a12;
@@ -23,7 +15,7 @@
   --muted: #adb2b8;
   --amber: #ffd37a;
   --vermilion: #d0402a;
-  --font: 'Pixelify Sans', 'Noto Sans JP', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font: 'Pixelify Sans', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
 
 * {
@@ -216,6 +208,28 @@ button.px.warn {
 }
 .toolbar .more {
   display: contents;
+}
+.save-note {
+  display: none;
+  box-sizing: border-box;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  font-size: 13px;
+  max-width: 100%;
+}
+.save-note.open {
+  display: flex;
+}
+.save-note .text {
+  color: var(--amber);
+  /* wrap the sentence, never push the button off a phone screen */
+  flex: 1 1 14em;
+  min-width: 0;
+}
+.save-note button {
+  flex: none;
 }
 .toolbar .more-toggle {
   display: none;
@@ -469,7 +483,7 @@ button.px.warn {
   padding-right: 2px;
   text-align: center;
 }
-.save-note {
+.storage-note {
   color: var(--amber) !important;
 }
 .settings .note {

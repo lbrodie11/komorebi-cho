@@ -36,6 +36,8 @@ export default defineConfig(
           'sessionStorage',
           'Event',
           'PointerEvent',
+          'navigator',
+          'Navigator',
         ].map((g) => [g, 'readonly']),
       ),
     },

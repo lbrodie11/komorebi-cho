@@ -3,7 +3,8 @@ import type { WeatherMode } from '../world/weather';
 import type { PlaceableKind } from '../world/props';
 import { DEFAULT_PIXEL, PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
 import { LEGACY_DIFFUSION_DEFAULT, sanitizeDiffusion } from '../render/diffusion';
-import { isKey, LANGS, type Lang, type Msg, type Params } from '../i18n';
+import { isKey, type Msg, type Params } from '../i18n';
+import type { SaveStamp } from './tabs';
 
 export const SAVE_VERSION = 2;
 const KEY = 'komorebi-cho/save';
@@ -16,7 +17,7 @@ export interface PlacedRecord {
   ry: number;
 }
 
-export interface SaveData {
+export interface SaveData extends SaveStamp {
   version: number;
   minutes: number;
   season: Season;
@@ -42,8 +43,6 @@ export interface SaveData {
     captions: boolean;
     /** HUD text scale: 1, 1.25 or 1.5. */
     textScale: number;
-    /** 'auto' follows the browser. */
-    lang: Lang | 'auto';
   };
 }
 
@@ -108,6 +107,9 @@ export function sanitize(d: Record<string, unknown>): SaveData {
     }
   return {
     version: SAVE_VERSION,
+    // which tab wrote it, and when (save/tabs.ts); optional, so no version bump
+    ...(typeof d.writer === 'string' ? { writer: d.writer } : {}),
+    ...(finite(d.savedAt) ? { savedAt: d.savedAt } : {}),
     minutes: finite(d.minutes) && d.minutes >= 0 ? d.minutes : DEFAULT_MINUTES,
     season: (SEASONS as readonly unknown[]).includes(d.season) ? (d.season as Season) : 'spring',
     weather: (WEATHER_MODES as readonly unknown[]).includes(d.weather) ? (d.weather as WeatherMode) : 'auto',
@@ -126,7 +128,6 @@ export function sanitize(d: Record<string, unknown>): SaveData {
       effects: unit(settings.effects, 0.6),
       captions: settings.captions === true,
       textScale: TEXT_SCALES.includes(settings.textScale as number) ? (settings.textScale as number) : 1,
-      lang: settings.lang === 'auto' || (LANGS as readonly unknown[]).includes(settings.lang) ? (settings.lang as Lang | 'auto') : 'auto',
     },
   };
 }
@@ -153,8 +154,18 @@ export function load(): SaveData | null {
   }
 }
 
-/** The localStorage key, for other tabs' `storage` events. */
-export const SAVE_KEY = KEY;
+/** Just the stamp of what's on disk, for the pre-write check in save/tabs.ts (no migration, no sanitising). */
+export function readStamp(): SaveStamp | null {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const d: unknown = JSON.parse(raw);
+    if (!isObj(d)) return null;
+    return { writer: typeof d.writer === 'string' ? d.writer : undefined, savedAt: finite(d.savedAt) ? d.savedAt : undefined };
+  } catch {
+    return null;
+  }
+}
 
 /** Returns false when the browser won't store it (private mode, sandboxed frames, full): the game runs fine without. */
 export function save(d: SaveData): boolean {

@@ -85,4 +85,4 @@ TypeScript (strict), Vite, three.js `WebGLRenderer` (r187), Web Audio, Vitest. T
 
 ## License
 
-Code: MIT (see [`LICENSE`](LICENSE)). The UI font, Pixelify Sans, is SIL OFL 1.1. It is loaded from Google Fonts during development and will be self-hosted, with its license, before release.
+Code: MIT (see [`LICENSE`](LICENSE)). The UI font, Pixelify Sans, is SIL OFL 1.1. It is self-hosted as a small subset, with its license in [`public/fonts/LICENSE-OFL.txt`](public/fonts/LICENSE-OFL.txt).

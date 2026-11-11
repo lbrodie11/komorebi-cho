@@ -7,7 +7,7 @@ clock.tick(dt) ─► skyAt(hour, rain, season) ─► world.update()        lig
                                              ─► animals.update()
                                              ─► post.set(sky params)
                every 1 s: noticePass, sound.update, HUD clock, story triggers, bells
-               every 10 s: save
+               every 10 s: save (only from the tab that owns the save; see Saves)
 render: iso.update (texel snap) ─► post.render: scene → sceneRT (low res, half-float, linear)
                                                → glowRT (half res: bright-neighbour gather)
                                                → composite → canvas (exact integer upscale, pixelated)
@@ -121,6 +121,15 @@ Passes above 0%:
 ## Seeded runs
 `?seed=N&hour=H&season=S&weather=clear|rain&freeze=1` (`src/core/params.ts`, plus `&diffusion=P` for Film Diffusion in percent) seeds the sim's RNG streams and warms the sim up for 3 in-world hours with a fixed timestep (`src/sim/warmup.ts`), landing exactly on `hour`. `freeze=1` then stops time, residents and animation, so every frame is identical. Scripted runs never read or write the save. At runtime, `__komorebi.freeze({ hour, season, weather, time, target, zoom, yaw })` pins the camera and shader time too, and `__komorebi.setDiffusion(s)` sets Film Diffusion; `scripts/diffusion-shots.mjs` uses both.
 
+## Saves (src/save/storage.ts, tabs.ts)
+One versioned JSON record in `localStorage` (`komorebi-cho/save`), written every 10 s, when the tab is hidden, on `pagehide` and after Reset. `load()` migrates, then `sanitize()` checks every field and falls back field by field, so a corrupt value never blanks the page or costs the rest of the town.
+
+**One saving tab at a time.** Two open tabs used to overwrite each other (each autosaves its own copy). Now:
+- A Web Lock (`komorebi-cho/save-owner`) picks the owner. Any other tab pauses saving straight away and shows a quiet note with **Use this tab**; it stays fully playable. The lock is released when its tab closes or crashes, and can't go stale while a background tab is throttled.
+- Each save carries a stamp (`writer` = the tab's id, `savedAt`). Before writing, the owner checks the stamp on disk; if another tab wrote since this one last loaded or wrote, it pauses instead of overwriting. This covers browsers without Web Locks and the moment around a hand-over.
+- **Use this tab** asks the owner over a `BroadcastChannel` to save and step back, then reloads into the newest save (a reload, not a teleport: nobody is on screen). If the owner doesn't answer within 1.5 s (closed or frozen), the reload steals the lock, and the old tab's stamp check keeps it from writing.
+- Scripted (`?seed`) runs take no part: they never read or write the save.
+
 ## Audio
 Nothing plays until a user gesture (`Sound.enable`). Music schedules ~150 ms ahead on a 25 ms timer. Every note is a few oscillators with envelopes, all routed through lofi → saturation → compressor, plus the reverb send. Ambience is persistent noise beds (rain, wind, water, cicadas) plus scheduled one-shots (birds, insects, crows, bike bells, drips, temple bell).
 
@@ -129,4 +138,4 @@ Nothing plays until a user gesture (`Sound.enable`). Music schedules ~150 ms ahe
 - Buildings are hand-placed in `buildings.ts`, not grammar-generated
 - Placeables only: buildings can't be moved yet
 - Single thread (the sim is DOM-free so it can move to a Worker)
-- Fonts load from Google Fonts in dev; self-host for release
+- The UI font is a self-hosted Pixelify Sans subset (`src/ui/fonts`, `scripts/subset-fonts.sh`); no third-party requests

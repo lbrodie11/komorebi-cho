@@ -7,9 +7,8 @@ import type { ToolMode } from './build';
 import type { ResidentInfo } from '../sim/residents';
 import { PERSONAS } from '../sim/personas';
 import { PIXEL_PRESETS, type PixelPreset } from '../render/pixelscale';
-import { fmt, getLang, t, type Lang, type Msg, type MsgKey } from '../i18n';
+import { fmt, t, type Msg, type MsgKey } from '../i18n';
 
-export type LangSetting = Lang | 'auto';
 export const TEXT_SCALES = [1, 1.25, 1.5] as const;
 export type TextScale = (typeof TEXT_SCALES)[number];
 
@@ -21,6 +20,7 @@ export interface Note {
 }
 /** Notes keeps this many lines (a ring buffer, saved). */
 export const NOTES_MAX = 50;
+import type { PauseReason } from '../save/tabs';
 
 export interface HudActions {
   toggleSound(): Promise<boolean>;
@@ -40,7 +40,6 @@ export interface HudActions {
   setDiffusion(s: number): void;
   setCaptions(on: boolean): void;
   setTextScale(s: TextScale): void;
-  setLang(l: LangSetting): void;
   /** Open a neighbour's card (from the People list). */
   meet(id: string): void;
   /** Bring the camera to a neighbour. */
@@ -76,7 +75,7 @@ const DOCK_IDLE_MS = 6000;
 /** All DOM UI. Deliberately quiet: the diorama is the interface. */
 export class Hud {
   private readonly root: HTMLElement;
-  /** Re-run on a language change: every piece of text the HUD shows. */
+  /** Every piece of text the HUD shows, as a function that (re)writes it from en.ts. */
   private readonly texts: (() => void)[] = [];
   private readonly clock = el('span', 'clock');
   private readonly date = el('span', 'date');
@@ -94,17 +93,18 @@ export class Hud {
   private readonly palette = el('div', 'palette panel');
   private readonly bar = el('div', 'toolbar panel');
   private readonly dock = el('div', 'dock');
+  /** Another tab is saving the town (save/tabs.ts): a note above the dock with "Use this tab". */
+  private readonly saveNote = el('div', 'save-note panel');
   private readonly photoBar = el('div', 'photo-bar panel');
   private readonly modal = el('div', 'modal');
   private readonly hint = el('div', 'hint-spot');
   private readonly hintLabel = el('span', 'hint-label panel');
   private readonly meetHint = el('div', 'meet-hint panel');
-  private readonly saveNote = el('p', 'note save-note');
+  private readonly storageNote = el('p', 'note storage-note');
   private readonly speedBtns: HTMLButtonElement[] = [];
   private readonly weatherBtns = new Map<WeatherMode, HTMLButtonElement>();
   private readonly pixelBtns = new Map<PixelPreset, HTMLButtonElement>();
   private readonly scaleBtns = new Map<TextScale, HTMLButtonElement>();
-  private readonly langBtns = new Map<LangSetting, HTMLButtonElement>();
   private readonly seasonBtn: HTMLButtonElement;
   private readonly soundBtn: HTMLButtonElement;
   private readonly buildBtn: HTMLButtonElement;
@@ -311,7 +311,8 @@ export class Hud {
     this.storyBox.setAttribute('aria-live', 'polite');
     this.text(() => this.storyBox.setAttribute('aria-label', t('story.label')));
     this.captions.setAttribute('aria-hidden', 'true'); // a visual aid; the story log is the screen-reader channel
-    this.dock.append(this.palette, bar);
+    this.saveNote.setAttribute('role', 'status');
+    this.dock.append(this.saveNote, this.palette, bar);
     this.dock.addEventListener('pointerenter', () => (this.dockHover = true));
     this.dock.addEventListener('pointerleave', () => (this.dockHover = false));
 
@@ -363,7 +364,7 @@ export class Hud {
 
   // ── Building blocks ────────────────────────────────────────────────────
 
-  /** Register a piece of text; it runs now and again on every language change. */
+  /** Register a piece of text; relabel() writes it. */
   private text(fn: () => void): void {
     this.texts.push(fn);
   }
@@ -394,10 +395,9 @@ export class Hud {
     b.querySelector('canvas.ico')?.replaceWith(icon(ic));
   }
 
-  /** Re-word everything (a language change). */
+  /** Write every registered piece of text (once at start; again if copy ever changes at run time). */
   relabel(): void {
     for (const fn of this.texts) fn();
-    document.documentElement.lang = getLang();
     this.setSoundLabel();
     this.setSeason(this.season);
     for (const line of this.storyBox.children) {
@@ -473,16 +473,9 @@ export class Hud {
     for (const [k, b] of this.scaleBtns) pressed(b, k === s);
   }
 
-  setLang(l: LangSetting): void {
-    for (const [k, b] of this.langBtns) pressed(b, k === l);
-    this.relabel();
-  }
-
-  /** Where saving stands: fine, impossible in this browser, or handed to another tab. */
-  setSaveStatus(s: 'ok' | 'notSaving' | 'otherTab'): void {
-    this.saveNote.hidden = s === 'ok';
-    this.saveNote.dataset.key = s;
-    if (s !== 'ok') this.saveNote.textContent = t(s === 'notSaving' ? 'settings.notSaving' : 'settings.otherTab');
+  /** Whether this browser will store the town at all (shown in Settings when it won't). */
+  setSaveStatus(s: 'ok' | 'notSaving'): void {
+    this.storageNote.hidden = s === 'ok';
   }
 
   setSeason(season: Season): void {
@@ -514,6 +507,24 @@ export class Hud {
   }
   togglePeople(): void {
     this.toggle(this.people);
+  }
+
+  /**
+   * Another tab is saving the town (save/tabs.ts). Say so, gently, and offer to switch: this tab
+   * stays fully playable, it just won't keep changes. `null` hides the note.
+   */
+  setSaveNote(reason: PauseReason | null, takeOver: () => void): void {
+    this.saveNote.innerHTML = '';
+    this.saveNote.classList.toggle('open', reason !== null);
+    if (!reason) return;
+    const text = el('span', 'text');
+    text.textContent = t(reason === 'other-tab' ? 'save.otherTab' : 'save.moved');
+    const use = this.btn(null, 'save.useThisTab', 'save.useThisTabTitle', () => {
+      use.disabled = true;
+      use.textContent = t('save.switching');
+      takeOver();
+    });
+    this.saveNote.append(text, use);
   }
 
   /** Is the photo preview up? Game keys wait while it is (only Esc and Tab act). */
@@ -797,16 +808,6 @@ export class Hud {
       this.scaleBtns,
       (k) => this.act.setTextScale(k),
     );
-    choice<LangSetting>(
-      'settings.language',
-      [
-        ['auto', 'lang.auto'],
-        ['en', 'lang.en'],
-        ['ja', 'lang.ja'],
-      ],
-      this.langBtns,
-      (k) => this.act.setLang(k),
-    );
     const hintsAgain = this.btn(null, 'settings.resetTutorial', null, () => {
       this.act.resetTutorial();
       hintsAgain.textContent = t('settings.resetTutorialDone');
@@ -836,15 +837,12 @@ export class Hud {
     reset.classList.add('reset', 'wide');
     const note = el('p', 'note');
     this.text(() => (note.textContent = t('settings.resetNote')));
-    this.saveNote.hidden = true;
-    this.text(() => {
-      const k = this.saveNote.dataset.key;
-      if (k === 'notSaving' || k === 'otherTab') this.saveNote.textContent = t(k === 'notSaving' ? 'settings.notSaving' : 'settings.otherTab');
-    });
+    this.storageNote.hidden = true;
+    this.text(() => (this.storageNote.textContent = t('settings.notSaving')));
     s.append(
       note,
       reset,
-      this.saveNote,
+      this.storageNote,
       this.btn(null, 'common.close', null, () => this.toggle(this.settings)),
     );
   }

@@ -8,7 +8,7 @@ A free, web-first, cozy **living miniature** of a fictional Tokyo shitamachi bac
 **Hook:** *Build a tiny neighbourhood, then watch its people discover what you changed.*
 
 ## Non-negotiables
-1. **All art and audio are code.** No image/audio/model files except generated-at-build icons. Fonts: OFL only (Pixelify Sans, Noto Sans JP), self-hosted, license file shipped.
+1. **All art and audio are code.** No image/audio/model files except generated-at-build icons. Fonts: OFL only (Pixelify Sans), self-hosted subset, license file shipped.
 2. **The palette is the art direction.** Every pixel of the diorama snaps to `src/render/palette.ts`. Add a colour only deliberately. Deliberate exceptions:
    - the sky backdrop is a smooth, undithered gradient (a dithered checkerboard behind the silhouettes was distracting);
    - Film Diffusion above 0% adds in-between tones on top of the snapped image;
@@ -21,6 +21,7 @@ A free, web-first, cozy **living miniature** of a fictional Tokyo shitamachi bac
 6. **Determinism.** Procedural decisions use named `Rng` streams (`src/core/rng.ts`). An edit in one place must not reshuffle another.
 7. **Respectful specificity.** Fictional place, fictional shop names, no real brands, no JR liveries, no real shrines/temples copied. Shrines are never "demolished for fun".
 8. **Performance budget:** 60 fps on an M1/M2 MacBook Air and a mid integrated GPU at default pixel scale; idle tab costs ~0.
+9. **Copy is American English**, all of it in `src/i18n/en.ts`; no Japanese script in the UI. Shops have fictional, romanized Tokyo-style names.
 
 ## Stack
 TypeScript (strict) · Vite · three.js `WebGLRenderer` (r187+) · Web Audio API · Vitest · (Playwright for visual tests). No React in the render path. Pure-TS simulation (no DOM in `src/sim`, `src/world/layout.ts`, `src/world/terrain.ts`, `src/audio/theory.ts`, `src/core/*`) so it can move to a Worker later.
@@ -40,11 +41,11 @@ src/sim       grid (nav + A*), smart (affordances/reservations), personas (the n
               animals, bubbles, warmup (fixed-step warm-up for seeded runs)
 src/audio     engine (graph), theory (pure), music (generative piano), ambience (soundscape), sound (facade + sfx)
 src/ui        hud (DOM), build (placement tool), debug (?debug overlay), wordmark (bitmap font), style.css
-src/save      storage (versioned localStorage + migrations)
+src/save      storage (versioned localStorage + migrations + validation), tabs (one saving tab at a time)
 tests/        vitest: core, sim, audio, render maths (lut, shadow, pixel scale), art (glyphs, weathering, leaves, sky keys)
 prompts/      the roadmap: numbered work orders, done in order
 docs/         ARCHITECTURE, COLOR, CONTRIBUTING, VERSIONS
-scripts/      diffusion-shots.mjs (reproducible reference screenshots; Playwright installed --no-save)
+scripts/      diffusion-shots.mjs (reproducible reference screenshots), ui-audit.mjs (every control, touch, two tabs); Playwright installed --no-save
 ```
 
 ## Commands

@@ -14,16 +14,17 @@ import { SmartRegistry, registerStaticObjects } from './sim/smart';
 import { Residents, type Agent } from './sim/residents';
 import { Animals } from './sim/animals';
 import { BuildTool, type ToolMode } from './ui/build';
-import { Hud, TEXT_SCALES, type LangSetting, type TextScale } from './ui/hud';
+import { Hud, TEXT_SCALES, type TextScale } from './ui/hud';
 import { Tutorial } from './ui/tutorial';
 import { DebugOverlay } from './ui/debug';
 import { Sound } from './audio/sound';
-import { load, save, SAVE_KEY, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
+import { load, save, readStamp, SAVE_VERSION, DEFAULT_MINUTES } from './save/storage';
+import { CHANNEL_NAME, SaveGuard, wroteElsewhere } from './save/tabs';
 import { PLACEABLES, type PlaceableKind } from './world/props';
 import { parseLaunchParams, warmupStart } from './core/params';
 import { warmUp } from './sim/warmup';
 import { DEFAULT_DIFFUSION, diffusionOutputSize } from './render/diffusion';
-import { browserLang, msg, setLang, t, type MsgKey } from './i18n';
+import { msg, t, type MsgKey } from './i18n';
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -31,9 +32,6 @@ const hudRoot = document.getElementById('hud') as HTMLElement;
 const params = parseLaunchParams(location.search);
 // Scripted (seeded) runs neither restore nor overwrite the player's save.
 const saved = params.scripted ? null : load();
-/** The player's language choice; 'auto' follows the browser. Set before anything shows words. */
-let langSetting: LangSetting = saved?.settings.lang ?? 'auto';
-setLang(langSetting === 'auto' ? browserLang() : langSetting);
 const WEBGL_RETRIES_KEY = 'komorebi-cho/webgl-retries';
 /**
  * Browsers occasionally lose the WebGL context while it is being created (seen intermittently in
@@ -128,21 +126,39 @@ let reducedMotion = world.reducedMotion;
 build.reducedMotion = reducedMotion;
 iso.instant = reducedMotion;
 residents.guaranteeNext = tutorial.wantsReaction;
-/**
- * Another tab saved the town since this one loaded: two tabs autosaving would overwrite each other
- * (a bench placed in one erased by the other's next save). The newest tab keeps the town; this one stops.
- */
-let otherTab = false;
-window.addEventListener('storage', (e) => {
-  if (e.key !== SAVE_KEY || otherTab || params.scripted) return;
-  otherTab = true;
-  hud.setSaveStatus('otherTab');
-  bus.emit('story', { msg: msg('settings.otherTab') });
-});
+
+/** One tab saves at a time (save/tabs.ts). Scripted runs take no part: they never touch the save. */
+const guard = params.scripted
+  ? null
+  : new SaveGuard({
+      id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+      locks: 'locks' in navigator ? navigator.locks : null,
+      channel: typeof BroadcastChannel === 'function' ? new BroadcastChannel(CHANNEL_NAME) : null,
+      session: (() => {
+        try {
+          return sessionStorage;
+        } catch {
+          return null; // sandboxed frame
+        }
+      })(),
+      reload: () => location.reload(),
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    });
+/** The newest save this tab knows about: the one it loaded, or its own last write. */
+let knownAt = saved?.savedAt ?? 0;
 function persist(): void {
-  if (params.scripted || otherTab) return;
+  if (!guard?.canSave) return;
+  // Another tab wrote since we last knew (no Web Locks here, or mid hand-over): step back, don't overwrite.
+  if (wroteElsewhere(readStamp(), guard.id, knownAt)) {
+    guard.pause('moved');
+    return;
+  }
+  const savedAt = Math.max(Date.now(), knownAt + 1);
+  knownAt = savedAt;
   const ok = save({
     version: SAVE_VERSION,
+    writer: guard.id,
+    savedAt,
     minutes: clock.minutes,
     season: clock.season,
     weather: world.weather.mode,
@@ -159,7 +175,6 @@ function persist(): void {
       diffusion: diffusionSetting,
       captions,
       textScale,
-      lang: langSetting,
     },
   });
   hud.setSaveStatus(ok ? 'ok' : 'notSaving');
@@ -231,12 +246,6 @@ const hud = new Hud(hudRoot, {
     textScale = sc;
     hud.setTextScale(sc);
   },
-  setLang: (l) => {
-    langSetting = l;
-    setLang(l === 'auto' ? browserLang() : l);
-    hud.setLang(l);
-    hud.setClock(clock.label(), clock.day, clock.season);
-  },
   meet: (id) => meet(id),
   showMe: (id) => {
     const a = residents.agents.find((g) => g.p.id === id);
@@ -272,11 +281,15 @@ const hud = new Hud(hudRoot, {
     bus.emit('story', { msg: msg('story.reset') });
   },
 });
+if (guard) {
+  guard.onChange = (reason) => hud.setSaveNote(reason, () => guard.takeOver());
+  guard.beforeRelease = persist; // save the latest before the other tab takes over
+  void guard.start();
+}
 hud.setSpeed(clock.speed, clock.paused);
 hud.setVolumes(sound.musicVolume, sound.ambienceVolume, sound.effectsVolume);
 hud.setCaptions(captions);
 hud.setTextScale(textScale);
-hud.setLang(langSetting);
 if (saved) hud.restoreNotes(saved.notes);
 hud.setPeopleSource((id) => {
   const a = residents.agents.find((g) => g.p.id === id);

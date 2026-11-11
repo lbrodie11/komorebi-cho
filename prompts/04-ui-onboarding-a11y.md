@@ -39,7 +39,7 @@ Don't redo these; build on them and keep `scripts/ui-audit.mjs` green.
 - Corrupt saves fall back field by field; the build ghost and removed objects free their GPU resources.
 
 ## Tasks
-1. **Fonts.** Self-host Pixelify Sans (SIL OFL 1.1) and, if Japanese UI text is used, a subset of Noto Sans JP. Ship `public/fonts/LICENSE-OFL.txt` and remove the Google Fonts link. Subset with `pyftsubset` to the glyphs actually used (the Japanese subset from the strings in `src/i18n/ja.ts`).
+1. **Fonts.** Self-host Pixelify Sans (SIL OFL 1.1). Ship `public/fonts/LICENSE-OFL.txt` and remove the Google Fonts link. Subset with `pyftsubset` to the glyphs actually used (`scripts/subset-fonts.sh`).
 2. **First 90 seconds** (no modal tutorial). Follow the beat sheet in prompt 18:
    - Start at **16:36** in spring with sound off (`DEFAULT_MINUTES`). This is deliberate: the evening bell lands about 84 s in and the lamps come on over the first two minutes. Don't move the start to dusk. If playtesters drift off before the bell, try 17:00.
    - A single quiet prompt: "Turn on sound".
@@ -62,7 +62,7 @@ Don't redo these; build on them and keep `scripts/ui-audit.mjs` green.
    - Caption toggle for sounds ("[temple bell]", "[rain begins]", "[cicadas]").
    - Text scale setting.
    - Validity ring colours that are colour-blind safe: add a shape cue, a solid ring for valid and a dashed ring for invalid.
-6. **i18n scaffolding.** Move all strings into `src/i18n/en.ts` and `ja.ts` with ICU-style placeholders. Persona blurbs are localisable. Diegetic signage stays Japanese. A language choice in Settings, defaulting to the browser language.
+6. **Copy in one place.** Move all player-facing strings into `src/i18n/en.ts` with ICU-style placeholders, persona text included; the simulation emits message keys, not prose. **American English only, and no Japanese script in the UI** (the owner's decision, 2026-11-10). Shops have fictional, romanized Tokyo-style names (Kissa Kotori, Ramen Tsukimi, Komugi Bakery, Hana to Ame, Shiori Books, Komorebi-yu). No language switcher.
 7. **Settings persistence** for every setting, plus a "Reset tutorial" option.
 8. **Audio comfort and lifecycle** (pulled forward from prompt 11, phase 1, because captions and the volume settings depend on it):
    - Turning sound off fades, stops scheduling, then really suspends the `AudioContext`. Ambience timers stop too.
