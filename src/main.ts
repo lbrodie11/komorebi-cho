@@ -625,6 +625,12 @@ window.addEventListener('keydown', (e) => {
   // Esc must work with focus on a Settings slider or checkbox too; every other key belongs to the control
   const inField = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
   if (inField && k !== 'escape') return;
+  // Enter places at the keyboard cursor even with focus still on the item's button (it was chosen with Enter)
+  if (k === 'enter' && kbCursor && build.mode !== 'view' && !photo && !hud.modalOpen) {
+    e.preventDefault();
+    build.click();
+    return;
+  }
   // Space and Enter on a focused button press that button (keyboard users rely on it); they don't pause
   if (t.tagName === 'BUTTON' && (k === ' ' || k === 'enter')) return;
   if (k === 'escape') {
@@ -936,6 +942,8 @@ Object.assign(window, {
     world,
     residents,
     build,
+    sound,
+    tutorial,
     iso,
     grid,
     renderer,

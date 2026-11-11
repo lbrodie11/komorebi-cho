@@ -15,6 +15,7 @@ import {
 } from '../src/world/lighting';
 import { LightPools } from '../src/world/lightpools';
 import { GROUND } from '../src/world/layout';
+import { clusterLights } from '../src/world/crowd';
 
 describe('window schedules', () => {
   it('fade over FADE_H instead of popping, and never jump between minutes', () => {
@@ -147,5 +148,29 @@ describe('light pools', () => {
     p.set(0, 1);
     expect(m.visible).toBe(true);
     expect((m.material as THREE.MeshBasicMaterial).color.r).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe('placed-light clusters', () => {
+  it('gives every light its own pooled light while there are enough', () => {
+    const pts = Array.from({ length: 5 }, (_, i) => ({ x: i * 4, z: 0 }));
+    expect(clusterLights(pts, 8)).toEqual([[0], [1], [2], [3], [4]]);
+  });
+
+  it('shares lights between the nearest neighbors when there are more than the pool, so none goes dark', () => {
+    const pts = Array.from({ length: 12 }, (_, i) => ({ x: (i % 4) * 5, z: Math.floor(i / 4) * 5 + (i % 2) * 0.3 }));
+    const c = clusterLights(pts, 8);
+    expect(c.length).toBe(8);
+    expect(c.flat().sort((a, b) => a - b)).toEqual(pts.map((_, i) => i));
+  });
+
+  it('prefers merging lights of the same color, and is deterministic', () => {
+    const pts = [
+      { x: 0, z: 0, tag: 'warm' },
+      { x: 1, z: 0, tag: 'cool' },
+      { x: 3, z: 0, tag: 'warm' },
+    ];
+    expect(clusterLights(pts, 2)).toEqual([[0, 2], [1]]);
+    expect(clusterLights(pts, 2)).toEqual(clusterLights(pts, 2));
   });
 });

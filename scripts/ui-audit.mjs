@@ -85,7 +85,7 @@ await (async () => {
     await page.screenshot({ path: path.join(out, 'desktop-boot.png') });
 
     // Sound
-    const sound = byLabel(page, 'Toggle music and ambience (M)');
+    const sound = byLabel(page, 'Music and ambience (M)');
     await sound.click();
     await page.waitForTimeout(400);
     check('Sound button: turns on', (await sound.textContent()) === 'Sound on', await sound.textContent());
@@ -97,7 +97,7 @@ await (async () => {
     await page.keyboard.press('m');
     await page.waitForTimeout(400);
     const afterM = await sound.textContent();
-    const enabledAfterM = await K(page, () => document.querySelector('#hud button[aria-label^="Toggle music"]').classList.contains('on'));
+    const enabledAfterM = await K(page, () => document.querySelector('#hud button[aria-label^="Music and ambience"]').classList.contains('on'));
     check('Sound: M key keeps button in sync (audio now off)', afterM === 'Sound off' && !enabledAfterM, `button says "${afterM}"`);
     await page.keyboard.press('m');
     await page.waitForTimeout(300);
@@ -114,8 +114,12 @@ await (async () => {
     check('> plays at 1×', await K(page, () => !window.__komorebi.clock.paused && window.__komorebi.clock.speed === 1));
     await byLabel(page, 'Fast forward').click();
     check('>> plays at 6×', await K(page, () => window.__komorebi.clock.speed === 6));
-    const speedOn = await page.$$eval('#hud .toolbar button.on', (bs) => bs.map((b) => b.textContent));
-    check('speed buttons: exactly one highlighted', speedOn.filter((t) => ['II', '>', '>>'].includes(t)).length === 1, speedOn.join(','));
+    const speedOn = await page.$$eval('#hud .toolbar button.on', (bs) => bs.map((b) => b.getAttribute('aria-label')));
+    check(
+      'speed buttons: exactly one highlighted',
+      speedOn.filter((t) => ['Pause time (Space)', 'Normal speed', 'Fast forward'].includes(t)).length === 1,
+      speedOn.join(','),
+    );
     await byLabel(page, 'Normal speed').click();
 
     // Space while a toolbar button has focus: does it ALSO click the button?
@@ -135,10 +139,10 @@ await (async () => {
 
     // Time jumps
     for (const [label, h] of [
-      ['dawn', 5.8],
-      ['noon', 12],
-      ['dusk', 17.9],
-      ['night', 21.5],
+      ['Dawn (1)', 5.8],
+      ['Noon (2)', 12],
+      ['Dusk (3)', 17.9],
+      ['Night (4)', 21.5],
     ]) {
       await byLabel(page, `Skip to ${label}`).click();
       const hour = await K(page, () => window.__komorebi.clock.hour);
@@ -169,11 +173,11 @@ await (async () => {
     }
 
     // Season
-    const seasonBtn = byLabel(page, 'Change season');
+    const seasonBtn = page.locator('#hud button[aria-label^="Change season"]');
     const s0 = await K(page, () => window.__komorebi.clock.season);
     await seasonBtn.click();
     const s1 = await K(page, () => window.__komorebi.clock.season);
-    const label1 = await seasonBtn.textContent();
+    const label1 = (await seasonBtn.getAttribute('aria-label')).replace(/^Change season: now /, '');
     check('season: one click advances', s1 !== s0, `${s0} → ${s1}`);
     check('season: button label updates immediately', label1.toLowerCase() === s1, `label "${label1}" vs ${s1}`);
     await seasonBtn.click();
@@ -206,7 +210,7 @@ await (async () => {
     // Settings
     await byLabel(page, 'Settings').click();
     check('Settings opens', await page.locator('.settings').evaluate((e) => e.classList.contains('open')));
-    for (const p of ['Fine pixels', 'Classic pixels', 'Chunky pixels', 'Smooth: finer pixels and full-colour shading']) {
+    for (const p of ['Fine pixels', 'Classic pixels', 'Chunky pixels', 'Smooth: finer pixels and full-color shading']) {
       await byLabel(page, p).click();
       await page.waitForTimeout(150);
       const on = await byLabel(page, p).evaluate((b) => b.classList.contains('on'));
@@ -215,16 +219,68 @@ await (async () => {
     const ranges = page.locator('.settings input[type=range]');
     await ranges.nth(0).fill('0.2');
     await ranges.nth(1).fill('0.3');
-    await ranges.nth(2).fill('7');
+    await ranges.nth(2).fill('0.4'); // Effects
+    await ranges.nth(3).fill('7'); // Film Diffusion
     const fd = await K(page, () => ({ label: document.querySelector('.settings output')?.textContent, on: window.__komorebi.post.diffusing }));
     check('Film Diffusion slider drives the post pass', fd.label === '7%' && fd.on === true, JSON.stringify(fd));
     // the volume sliders are checked through the save: see "reload: Music slider shows saved value" below
-    const cb = page.locator('.settings input[type=checkbox]');
+    const cb = page.locator('.settings input[type=checkbox]').first();
     await cb.check();
     check('reduced motion checkbox → world.reducedMotion', await K(page, () => window.__komorebi.world.reducedMotion));
     await page.keyboard.press('Escape');
     check('Escape closes Settings', !(await page.locator('.settings').evaluate((e) => e.classList.contains('open'))));
     await page.evaluate(() => document.querySelector('.settings').classList.remove('open'));
+
+    // Prompt 04 additions: captions, text size, Notes, People, keyboard placement, real audio suspend
+    await byLabel(page, 'Settings').click();
+    await page.locator('.settings input[type=checkbox]').nth(1).check();
+    await byText(page, '.settings', 'Large').click();
+    const ts = await K(page, () => getComputedStyle(document.getElementById('hud')).getPropertyValue('--ts').trim());
+    check('text size: Large scales the HUD', ts === '1.25', ts);
+    await byText(page, '.settings', 'Normal').click();
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 300);
+    await page.keyboard.press('n');
+    check('N opens Notes', await page.locator('.notes').evaluate((e) => e.classList.contains('open')));
+    const noteLines = await page.locator('.notes-list li').count();
+    check('Notes lists what happened', noteLines > 0, `${noteLines} lines`);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('l');
+    check('L opens People', await page.locator('.people').evaluate((e) => e.classList.contains('open')));
+    const people = await page.locator('.people-list button').count();
+    check('People lists all 14 neighbors', people === 14, `${people}`);
+    await page.locator('.people-list button').first().click();
+    check('a name in People opens their card', await page.locator('.card').evaluate((e) => e.classList.contains('open')));
+    await page.keyboard.press('Escape');
+    check('Escape closes the card', !(await page.locator('.card').evaluate((e) => e.classList.contains('open'))));
+    // keyboard-only placement: B, arrows to a free spot, Enter
+    await page.mouse.click(5, 300);
+    await page.keyboard.press('b');
+    const kb0 = await K(page, () => window.__komorebi.build.placed.size);
+    let placedByKeys = false;
+    for (let i = 0; i < 40 && !placedByKeys; i++) {
+      await page.keyboard.press(i % 8 < 4 ? 'ArrowLeft' : 'ArrowDown');
+      await page.keyboard.press('Enter');
+      placedByKeys = (await K(page, () => window.__komorebi.build.placed.size)) > kb0;
+    }
+    check('keyboard only: arrows + Enter place a bench', placedByKeys);
+    if (placedByKeys) {
+      await page.keyboard.press('x');
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowLeft');
+      // the cursor is where the bench went: Enter there removes it
+      const ids = await K(page, () => [...window.__komorebi.build.placed.values()].map((p) => [p.x, p.z]));
+      check('keyboard only: remove mode reachable', (await K(page, () => window.__komorebi.build.mode)) === 'remove', JSON.stringify(ids.length));
+    }
+    await page.keyboard.press('Escape');
+    // Sound off really suspends the AudioContext
+    if ((await sound.getAttribute('aria-pressed')) !== 'true') await sound.click(); // on
+    await page.waitForTimeout(600);
+    const onState = await K(page, () => window.__komorebi.sound.context?.state);
+    await sound.click(); // off
+    await page.waitForTimeout(1200);
+    const offState = await K(page, () => window.__komorebi.sound.context?.state);
+    check('Sound off suspends the AudioContext', offState === 'suspended' || (onState !== 'running' && offState !== 'running'), `${onState} → ${offState}`);
 
     // Build
     const buildBtn = byLabel(page, 'Build mode (B)');
@@ -384,7 +440,7 @@ await (async () => {
       const open = await page.locator('.card').evaluate((e) => e.classList.contains('open'));
       check('click a resident opens their card', open, res.name);
       if (open) {
-        await page.locator('.card button').click();
+        await page.locator('.card button.x').click();
         check('card × closes', !(await page.locator('.card').evaluate((e) => e.classList.contains('open'))));
       }
       // Escape layering: open card, open help → Esc closes help only, then card
@@ -441,7 +497,7 @@ await (async () => {
     await byLabel(page, 'Settings').click();
     page.once('dialog', (d) => d.accept());
     const placedBefore = await K(page, () => window.__komorebi.build.placed.size);
-    await byText(page, '.settings', 'Reset neighbourhood').click();
+    await byText(page, '.settings', 'Reset neighborhood').click();
     await page.waitForTimeout(100);
     const armedCount = await K(page, () => window.__komorebi.build.placed.size);
     check('Reset asks for a second click first', armedCount === placedBefore || placedBefore === 0, `${placedBefore} → ${armedCount} after 1 click`);
@@ -524,11 +580,11 @@ await (async () => {
     const more = page.locator('#hud button.more-toggle');
     if (await more.isVisible()) {
       await more.tap();
-      const vis = await byLabel(page, 'Skip to dusk').isVisible();
+      const vis = await byLabel(page, 'Skip to Dusk (3)').isVisible();
       check('phone: More reveals time/weather/season', vis);
       await page.screenshot({ path: path.join(out, 'phone-more.png') });
       await more.tap();
-    } else check('phone: More reveals time/weather/season', await byLabel(page, 'Skip to dusk').isVisible(), 'no More toggle; jumps visible?');
+    } else check('phone: More reveals time/weather/season', await byLabel(page, 'Skip to Dusk (3)').isVisible(), 'no More toggle; jumps visible?');
     const tbh = await K(page, () => Math.round(document.querySelector('.toolbar').getBoundingClientRect().height));
     check('phone: toolbar ≤ 2 rows (≤ 100 px)', tbh <= 100, `${tbh}px`);
     await byLabel(page, 'Build mode (B)').tap();

@@ -146,3 +146,36 @@ describe('corrupt saves', () => {
     expect(loadRaw({ ...good, placed: 'oops' })!.placed).toEqual([]);
   });
 });
+
+describe('saves: hints, Notes and the newer settings', () => {
+  const base = { version: 2, minutes: 600, season: 'spring', weather: 'auto', placed: [], memory: {}, settings: {} };
+  const loadRaw = (d: unknown) => {
+    mem.set('komorebi-cho/save', JSON.stringify(d));
+    return load()!;
+  };
+
+  it('treats a save from before the hints as a returning player', () => {
+    expect(loadRaw(base).tutorial).toEqual(['meet', 'place', 'react']);
+    expect(loadRaw({ ...base, tutorial: [] }).tutorial).toEqual([]);
+    expect(loadRaw({ ...base, tutorial: ['place', 7] }).tutorial).toEqual(['place']);
+  });
+
+  it('keeps well-formed Notes, drops unknown keys and bad params, and keeps at most 50', () => {
+    const good = { msg: { key: 'story.useBench', params: { who: { key: 'persona.rin.short' } } }, day: 2, minutes: 900 };
+    const notes = [good, { msg: { key: 'story.nope' }, day: 1, minutes: 1 }, { msg: { key: 'story.reset', params: { x: [1] } }, day: 1, minutes: 1 }, 'junk'];
+    expect(loadRaw({ ...base, notes }).notes).toEqual([good]);
+    const many = Array.from({ length: 80 }, (_, i) => ({ msg: { key: 'story.reset' }, day: i, minutes: 0 }));
+    const kept = loadRaw({ ...base, notes: many }).notes;
+    expect(kept).toHaveLength(50);
+    expect(kept[0]!.day).toBe(30);
+  });
+
+  it('validates effects volume, captions and text size', () => {
+    const s = loadRaw({ ...base, settings: { effects: 2, captions: 'yes', textScale: 3 } }).settings;
+    expect(s.effects).toBe(1);
+    expect(s.captions).toBe(false);
+    expect(s.textScale).toBe(1);
+    const ok = loadRaw({ ...base, settings: { effects: 0.2, captions: true, textScale: 1.25 } }).settings;
+    expect([ok.effects, ok.captions, ok.textScale]).toEqual([0.2, true, 1.25]);
+  });
+});

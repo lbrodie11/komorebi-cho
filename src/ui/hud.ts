@@ -244,7 +244,7 @@ export class Hud {
       this.text(() => {
         const name = t(`placeable.${def.kind}` as MsgKey);
         lbl.textContent = name;
-        b.title = t('palette.place', { thing: name });
+        this.name(b, t('palette.place', { thing: name }));
       });
       this.paletteBtns.set(def.kind, b);
       this.palette.append(b);
@@ -420,6 +420,13 @@ export class Hud {
   /** The one way sound is toggled (button and M key), so the button always tells the truth. */
   async toggleSound(): Promise<void> {
     if (this.soundPending) return; // a second press while the audio graph is still starting would race it
+    if (this.soundOn) {
+      // off can't fail: say so now, not after the fade-out (the lifecycle queues it behind any start)
+      this.setSound(false);
+      this.dismissSplash();
+      this.setSound(await this.act.toggleSound().catch(() => false));
+      return;
+    }
     this.soundPending = true;
     try {
       this.setSound(await this.act.toggleSound());
@@ -928,7 +935,10 @@ export class Hud {
     pressed(this.removeBtn, m === 'remove');
     this.palette.classList.toggle('open', m === 'build');
     for (const [kind, b] of this.paletteBtns) pressed(b, m === 'build' && kind === k);
-    if (m !== 'view') this.dock.classList.remove('idle');
+    if (m !== 'view') {
+      this.dock.classList.remove('idle');
+      this.dismissSplash(); // it sits where the palette opens
+    }
   }
 
   /** Hide the toolbar after a while without input: desktop only, never mid-task. */

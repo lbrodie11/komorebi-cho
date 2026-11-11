@@ -131,7 +131,16 @@ One versioned JSON record in `localStorage` (`komorebi-cho/save`), written every
 - Scripted (`?seed`) runs take no part: they never read or write the save.
 
 ## Audio
-Nothing plays until a user gesture (`Sound.enable`). Music schedules ~150 ms ahead on a 25 ms timer. Every note is a few oscillators with envelopes, all routed through lofi → saturation → compressor, plus the reverb send. Ambience is persistent noise beds (rain, wind, water, cicadas) plus scheduled one-shots (birds, insects, crows, bike bells, drips, temple bell).
+Nothing plays until a user gesture. `AudioLifecycle` (`src/audio/lifecycle.ts`, unit-tested) decides when audio runs: only when the player wants sound **and** the tab is visible. Every change queues behind the last, so rapid toggling never leaves two schedulers running. Off really is off: stop the schedulers, fade the master out, then `AudioContext.suspend()`, so a muted or hidden game costs no audio CPU. If the browser interrupts the context (a phone call, iOS "interrupted"), scheduling stops and restarts cleanly at the next gesture.
+
+Music schedules ~150 ms ahead on a 25 ms timer. Every note is a few oscillators with envelopes, through lofi → saturation → compressor. Music and effects have **separate reverb sends** (`musicVerb`, `fxVerb`), so the music's seasonal reverb never changes how effects sound. Ambience is persistent noise beds (rain, wind, water, cicadas) plus scheduled one-shots (birds, insects, crows, bike bells, drips, temple bell). One-shots ask the engine for a voice (`claim`, 24 at most) and are skipped when the budget is full. Noise and impulse buffers come from named `Rng` streams, not `Math.random`. Ambience reports captionable sounds (`onCaption`) for the caption setting. Volumes: Music, Ambience, Effects. The composer itself is unchanged; prompt 11 rewrites it.
+
+## Copy and the HUD
+Every player-facing word is in `src/i18n/en.ts` (American English, no Japanese script). The simulation never writes prose: it emits message keys with parameters (`{ key: 'story.useBench', params: { who: { key: 'persona.rin.short' } } }`), and the HUD formats them with a small ICU subset (`{name}`, plurals). Shops have fictional, romanized names (Kissa Kotori, Ramen Tsukimi, Komugi Bakery, Hana to Ame, Shiori Books, Komorebi-yu).
+
+The HUD (`src/ui/hud.ts`) is DOM over the canvas: pixel icons drawn from 9×9 string bitmaps (`icons.ts`), a story feed that fades, **Notes** (the last 50 story lines with day and time, saved), **People** (every neighbor, opening the same card as a click), sound captions, a text-size setting, and a card that floats beside its neighbor with a leader line on wide screens. The toolbar hides after 6 s without input on desktop (never while building, with a panel open or focus inside it). First-minutes hints (`src/ui/tutorial.ts`, pure and tested): after 10 s a sparkle on open grass suggests a bench; the next placement is guaranteed a reaction from the most curious nearby neighbor (`Residents.guaranteeNext`); then "Click someone to meet them". Each hint is done once and saved.
+
+Input: mouse, keyboard and touch reach everything. In build or remove mode the arrow keys move a cursor on the ground and Enter commits; on touch, the first tap previews and the second commits, and a long press on someone opens their card.
 
 ## Known simplifications (see the prompt pack for upgrades)
 - Grid nav instead of recast TileCache; no local avoidance between residents

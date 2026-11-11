@@ -68,6 +68,14 @@ body {
 #hud > * {
   pointer-events: auto;
 }
+/* overlays that only show things: clicks go through to the diorama (only the sparkle and splash panel take them) */
+#hud > .leader,
+#hud > .hint-spot,
+#hud > .captions,
+#hud > .meet-hint,
+#hud > .splash {
+  pointer-events: none;
+}
 #hud.hidden > *:not(.photo-bar):not(.modal) {
   opacity: 0;
   pointer-events: none;
