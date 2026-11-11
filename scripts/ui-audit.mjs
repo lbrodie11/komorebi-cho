@@ -215,7 +215,7 @@ await (async () => {
     // Settings
     await byLabel(page, 'Settings').click();
     check('Settings opens', await page.locator('.settings').evaluate((e) => e.classList.contains('open')));
-    for (const p of ['Fine pixels', 'Classic pixels', 'Chunky pixels', 'Smooth: finer pixels and full-color shading']) {
+    for (const p of ['Fine pixels', 'Classic pixels', 'Chunky pixels', 'Smooth (the default): finer pixels and full-color shading']) {
       await byLabel(page, p).click();
       await page.waitForTimeout(150);
       const on = await byLabel(page, p).evaluate((b) => b.classList.contains('on'));

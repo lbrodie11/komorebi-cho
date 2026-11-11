@@ -695,6 +695,30 @@ button.px.warn {
   color: var(--muted);
 }
 
+/* Why a spot won't take the item: a small note beside the cursor (positioned by transform) */
+.reason-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  padding: 3px 7px;
+  font-size: calc(12px * var(--ts, 1));
+  color: var(--amber);
+  background: rgba(11, 10, 18, 0.88);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+#hud > .reason-tip {
+  pointer-events: none;
+}
+.reason-tip.open {
+  display: block;
+}
+button.px:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* Zoom: three small buttons at the right edge; they fade back with the dock when idle */
 .zoom-box {
   position: absolute;

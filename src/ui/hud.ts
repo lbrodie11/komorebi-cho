@@ -67,6 +67,8 @@ export interface HudActions {
   setDiffusion(s: number): void;
   setCaptions(on: boolean): void;
   setTextScale(s: TextScale): void;
+  undo(): void;
+  redo(): void;
   /** One zoom step in (1) or out (-1), about the centre. */
   zoom(dir: 1 | -1): void;
   /** Fit the whole town. */
@@ -152,6 +154,10 @@ export class Hud {
   private readonly soundBtn: HTMLButtonElement;
   private readonly buildBtn: HTMLButtonElement;
   private readonly removeBtn: HTMLButtonElement;
+  private readonly moveBtn: HTMLButtonElement;
+  private readonly undoBtn: HTMLButtonElement;
+  private readonly redoBtn: HTMLButtonElement;
+  private readonly reasonTip = el('div', 'reason-tip');
   private readonly settingsBtn: HTMLButtonElement;
   private readonly helpBtn: HTMLButtonElement;
   private readonly notesBtn: HTMLButtonElement;
@@ -243,7 +249,11 @@ export class Hud {
     });
     this.buildBtn = this.btn('build', 'bar.build', 'bar.buildTitle', () => this.act.setTool(this.buildBtn.classList.contains('on') ? 'view' : 'build'));
     this.removeBtn = this.btn('remove', 'bar.remove', 'bar.removeTitle', () => this.act.setTool(this.removeBtn.classList.contains('on') ? 'view' : 'remove'));
-    for (const b of [pause, play, fast, this.buildBtn, this.removeBtn]) b.setAttribute('aria-pressed', 'false');
+    this.moveBtn = this.btn('move', null, 'bar.moveTitle', () => this.act.setTool(this.moveBtn.classList.contains('on') ? 'view' : 'move'));
+    this.undoBtn = this.btn('undo', null, 'bar.undo', () => this.act.undo());
+    this.redoBtn = this.btn('redo', null, 'bar.redo', () => this.act.redo());
+    this.undoBtn.disabled = this.redoBtn.disabled = true;
+    for (const b of [pause, play, fast, this.buildBtn, this.removeBtn, this.moveBtn]) b.setAttribute('aria-pressed', 'false');
     // Time-of-day, weather and season are the "advanced" controls: always shown on wide screens,
     // folded behind "More" on phones so the toolbar stays one row and the diorama stays visible.
     const more = el('span', 'more');
@@ -271,7 +281,21 @@ export class Hud {
     this.moreBtn.classList.add('more-toggle');
     this.moreBtn.setAttribute('aria-controls', 'kc-more');
     this.moreBtn.setAttribute('aria-expanded', 'false');
-    bar.append(this.clock, this.date, pause, play, fast, more, el('span', 'sep'), this.buildBtn, this.removeBtn, this.moreBtn);
+    bar.append(
+      this.clock,
+      this.date,
+      pause,
+      play,
+      fast,
+      more,
+      el('span', 'sep'),
+      this.buildBtn,
+      this.moveBtn,
+      this.removeBtn,
+      this.undoBtn,
+      this.redoBtn,
+      this.moreBtn,
+    );
 
     // ── Build palette ──
     for (const def of Object.values(PLACEABLES)) {
@@ -407,6 +431,7 @@ export class Hud {
       this.captions,
       this.dock,
       this.zoomBox,
+      this.reasonTip,
       this.photoBar,
       this.modal,
       this.splash,
@@ -1097,10 +1122,27 @@ export class Hud {
   setWeather(m: WeatherMode): void {
     for (const [k, b] of this.weatherBtns) pressed(b, k === m);
   }
+  /** Undo and redo are only offered when there is something to undo or redo. */
+  setHistory(canUndo: boolean, canRedo: boolean): void {
+    this.undoBtn.disabled = !canUndo;
+    this.redoBtn.disabled = !canRedo;
+  }
+
+  /** Why the spot under the cursor won't take the item: a small note beside the cursor, or nothing. */
+  setReason(text: string | null, x: number, y: number): void {
+    this.reasonTip.classList.toggle('open', !!text);
+    if (!text) return;
+    this.reasonTip.textContent = text;
+    const r = this.root.getBoundingClientRect();
+    this.reasonTip.style.transform = `translate(${Math.round(x - r.left + 16)}px, ${Math.round(y - r.top + 14)}px)`;
+  }
+
   setTool(m: ToolMode, k: PlaceableKind): void {
     this.tool = m;
+    if (m === 'view') this.setReason(null, 0, 0);
     pressed(this.buildBtn, m === 'build');
     pressed(this.removeBtn, m === 'remove');
+    pressed(this.moveBtn, m === 'move');
     this.palette.classList.toggle('open', m === 'build');
     for (const [kind, b] of this.paletteBtns) pressed(b, m === 'build' && kind === k);
     if (m !== 'view') {
