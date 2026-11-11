@@ -17,6 +17,7 @@ import { BuildTool, type ToolMode } from './ui/build';
 import { Hud, TEXT_SCALES, type TextScale } from './ui/hud';
 import { Tutorial } from './ui/tutorial';
 import { History } from './edit/history';
+import { stream } from './core/rng';
 import { MemoryRecorder, type Memory, type WorldView } from './sim/memories';
 import { DebugOverlay } from './ui/debug';
 import { Sound } from './audio/sound';
@@ -208,6 +209,8 @@ function undoRedo(redo: boolean): void {
   if (c) bus.emit('sfx', { name: 'click' });
   hud.setHistory(history.canUndo, history.canRedo);
 }
+/** When the placed wind chimes ring (a named stream, so it is deterministic per run). */
+const chimeRng = stream('ambience/chimes');
 /** Alt held: place freely, without the grid snap. */
 let freePlace = false;
 
@@ -1085,6 +1088,15 @@ function frame(now: number): void {
     hud.setClock(clock.label(), clock.day, clock.season);
     hud.refreshCard();
     hud.renderPeople();
+    // wind chimes ring now and then, more often in rain and wind (a named stream: deterministic)
+    if (sound.playing && chimeRng.chance(0.04 + world.weather.rain * 0.06)) {
+      const chimes = build.records().filter((r) => PLACEABLES[r.kind].chime);
+      if (chimes.length) {
+        const c = chimes[Math.floor(chimeRng.next() * chimes.length)]!;
+        bus.emit('sfx', { name: 'chime', x: c.x, z: c.z });
+        if (captions) hud.caption(t('caption.chime'));
+      }
+    }
     if (photo) hud.setZoom(iso.zoomGoal); // the photo slider follows wheel and pinch zoom too
     const raining = rain > 0.3;
     if (raining !== wasRaining) {

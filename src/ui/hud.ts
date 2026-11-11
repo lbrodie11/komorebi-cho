@@ -1,6 +1,7 @@
 import { drawWordmark, swatch } from './wordmark';
 import { icon, type IconName } from './icons';
 import { PLACEABLES, type PlaceableKind } from '../world/props';
+import { CATEGORIES, iconCells, type Category, type Shape } from '../world/catalogue';
 import { SEASONS, type Season } from '../core/clock';
 import type { WeatherMode } from '../world/weather';
 import type { ToolMode } from './build';
@@ -96,6 +97,20 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = ''): HTMLElemen
 /** Touch-first device: no hover, so build previews on the first tap and commits on the second. */
 export const coarsePointer = (): boolean => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
+/** A palette icon drawn from a catalogue item's shapes (8×8, enlarged by CSS like the hand-drawn ones). */
+function shapeIcon(shapes: readonly Shape[]): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = c.height = 8;
+  const ctx = c.getContext('2d');
+  if (ctx)
+    iconCells(shapes, 8).forEach((col, i) => {
+      if (!col) return;
+      ctx.fillStyle = col;
+      ctx.fillRect(i % 8, Math.floor(i / 8), 1, 1);
+    });
+  return c;
+}
+
 const FOCUSABLE = 'button, [href], input, [tabindex]:not([tabindex="-1"])';
 
 /** A toggle button's look and its screen-reader state, always together. */
@@ -166,6 +181,7 @@ export class Hud {
   private readonly captureBtn: HTMLButtonElement;
   private readonly moreBtn: HTMLButtonElement;
   private readonly paletteBtns = new Map<PlaceableKind, HTMLButtonElement>();
+  private readonly tabBtns = new Map<Category, HTMLButtonElement>();
   private readonly panels: HTMLElement[];
   private cardFor: (() => ResidentInfo | null) | null = null;
   private cardId: string | null = null;
@@ -297,13 +313,25 @@ export class Hud {
       this.moreBtn,
     );
 
-    // ── Build palette ──
+    // ── Build palette: category tabs, then that category's things ──
+    const tabs = el('div', 'tabs');
+    tabs.setAttribute('role', 'group');
+    this.text(() => tabs.setAttribute('aria-label', t('palette.categories')));
+    for (const c of CATEGORIES) {
+      const tb = this.btn(null, `category.${c}` as MsgKey, null, () => this.showCategory(c));
+      tb.dataset.category = c;
+      tb.setAttribute('aria-pressed', 'false');
+      this.tabBtns.set(c, tb);
+      tabs.append(tb);
+    }
+    this.palette.append(tabs);
     for (const def of Object.values(PLACEABLES)) {
       const b = el('button', 'px');
       b.type = 'button';
+      b.dataset.category = def.category;
       b.addEventListener('click', () => this.act.setTool('build', def.kind));
       b.setAttribute('aria-pressed', 'false');
-      const sw = swatch(def.kind);
+      const sw = def.shapes ? shapeIcon(def.shapes) : swatch(def.kind);
       sw.className = 'sw';
       sw.setAttribute('aria-hidden', 'true');
       const lbl = el('span');
@@ -323,6 +351,7 @@ export class Hud {
     this.palette.append(rotate, pHint);
     this.palette.setAttribute('role', 'toolbar');
     this.text(() => this.palette.setAttribute('aria-label', t('palette.label')));
+    this.showCategory('rest');
 
     // ── Resident card ──
     this.card.setAttribute('role', 'region');
@@ -1122,6 +1151,12 @@ export class Hud {
   setWeather(m: WeatherMode): void {
     for (const [k, b] of this.weatherBtns) pressed(b, k === m);
   }
+  /** Show one category's things in the palette. */
+  private showCategory(c: Category): void {
+    for (const [cat, b] of this.tabBtns) pressed(b, cat === c);
+    for (const b of this.paletteBtns.values()) b.hidden = b.dataset.category !== c;
+  }
+
   /** Undo and redo are only offered when there is something to undo or redo. */
   setHistory(canUndo: boolean, canRedo: boolean): void {
     this.undoBtn.disabled = !canUndo;
@@ -1144,7 +1179,9 @@ export class Hud {
     pressed(this.removeBtn, m === 'remove');
     pressed(this.moveBtn, m === 'move');
     this.palette.classList.toggle('open', m === 'build');
+    this.root.classList.toggle('building', m === 'build');
     for (const [kind, b] of this.paletteBtns) pressed(b, m === 'build' && kind === k);
+    if (m === 'build' && PLACEABLES[k]) this.showCategory(PLACEABLES[k].category); // the tab follows the chosen thing
     if (m !== 'view') {
       this.dock.classList.remove('idle');
       this.dismissSplash(); // it sits where the palette opens

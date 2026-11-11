@@ -23,6 +23,7 @@ import {
 } from './layout';
 import { stream } from '../core/rng';
 import { EMISSIVE } from './lighting';
+import { buildShapes, CATALOGUE, type CatalogueItem, type CatalogueKind, type Category, type Shape } from './catalogue';
 import { groundHeight } from './terrain';
 
 export interface LightRef {
@@ -363,11 +364,18 @@ function buildQuietProps(k: Kit): void {
 }
 
 // ── Player-placeable objects ────────────────────────────────────────────────
-export type PlaceableKind = 'bench' | 'sakura' | 'lantern' | 'vending' | 'planter' | 'catbowl';
+/** The original six placeables, plus everything in the data catalogue (catalogue.ts). */
+export type PlaceableKind = 'bench' | 'sakura' | 'lantern' | 'vending' | 'planter' | 'catbowl' | CatalogueKind;
 
 export interface PlaceableDef {
   kind: PlaceableKind;
   label: string;
+  /** The palette tab it lives under. */
+  category: Category;
+  /** A wind chime: rings now and then while sound is on. */
+  chime?: boolean;
+  /** Catalogue items draw their palette icon from their shapes. */
+  shapes?: readonly Shape[];
   /** Footprint radius for the nav grid. */
   radius: number;
   /** How much residents care that it appeared (0..1). */
@@ -379,11 +387,12 @@ export interface PlaceableDef {
   build: (m: Materials) => { object: THREE.Object3D };
 }
 
-export const PLACEABLES: Record<PlaceableKind, PlaceableDef> = {
-  bench: { kind: 'bench', label: 'Bench', radius: 0.6, novelty: 0.55, affords: ['sit'], build: (m) => ({ object: benchMesh(m) }) },
+const ORIGINAL: Record<'bench' | 'sakura' | 'lantern' | 'vending' | 'planter' | 'catbowl', PlaceableDef> = {
+  bench: { kind: 'bench', label: 'Bench', category: 'rest', radius: 0.6, novelty: 0.55, affords: ['sit'], build: (m) => ({ object: benchMesh(m) }) },
   sakura: {
     kind: 'sakura',
     label: 'Sakura',
+    category: 'green',
     radius: 0.45,
     novelty: 0.9,
     affords: ['admire'],
@@ -404,6 +413,7 @@ export const PLACEABLES: Record<PlaceableKind, PlaceableDef> = {
   lantern: {
     kind: 'lantern',
     label: 'Stone lantern',
+    category: 'light',
     radius: 0.35,
     novelty: 0.6,
     affords: ['admire', 'warmth'],
@@ -423,6 +433,7 @@ export const PLACEABLES: Record<PlaceableKind, PlaceableDef> = {
   vending: {
     kind: 'vending',
     label: 'Vending machine',
+    category: 'street',
     radius: 0.55,
     novelty: 0.5,
     affords: ['drink'],
@@ -434,6 +445,7 @@ export const PLACEABLES: Record<PlaceableKind, PlaceableDef> = {
   planter: {
     kind: 'planter',
     label: 'Flower planter',
+    category: 'green',
     radius: 0.5,
     novelty: 0.4,
     affords: ['admire'],
@@ -454,6 +466,7 @@ export const PLACEABLES: Record<PlaceableKind, PlaceableDef> = {
   catbowl: {
     kind: 'catbowl',
     label: 'Cat bowl',
+    category: 'critters',
     radius: 0.3,
     novelty: 0.35,
     affords: ['feed-cats'],
@@ -468,3 +481,27 @@ export const PLACEABLES: Record<PlaceableKind, PlaceableDef> = {
     },
   },
 };
+
+/** The catalogue's items as placeables (one builder for all: shapes → mesh). */
+function fromCatalogue(): Record<CatalogueKind, PlaceableDef> {
+  const out = {} as Record<CatalogueKind, PlaceableDef>;
+  for (const kind of Object.keys(CATALOGUE) as CatalogueKind[]) {
+    const c: CatalogueItem = CATALOGUE[kind];
+    out[kind] = {
+      kind,
+      label: kind,
+      category: c.category,
+      radius: c.radius,
+      novelty: c.novelty,
+      affords: [...c.affords],
+      ...(c.glow ? { glow: c.glow } : {}),
+      ...(c.chime ? { chime: true } : {}),
+      shapes: c.shapes,
+      build: (m: Materials) => ({ object: buildShapes(m, c.shapes) }),
+    };
+  }
+  return out;
+}
+
+/** Every placeable: the original six, then the catalogue, each as data (en.ts has their names). */
+export const PLACEABLES: Record<PlaceableKind, PlaceableDef> = { ...ORIGINAL, ...fromCatalogue() };

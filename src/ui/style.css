@@ -204,7 +204,8 @@ button.px.warn {
   bottom: 18px;
   transform: translateX(-50%);
   width: max-content;
-  max-width: calc(100vw - 24px);
+  /* keep clear of the zoom buttons at the right edge (and centred, so the same on the left) */
+  max-width: calc(100vw - 150px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -287,6 +288,20 @@ button.px.warn {
   gap: 4px;
   min-width: 76px;
   padding: 8px 6px;
+}
+.palette .tabs {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.palette .tabs button {
+  padding: 4px 8px;
+  font-size: calc(12px * var(--ts, 1));
+}
+.palette button[hidden] {
+  display: none;
 }
 .palette .sw {
   width: 22px;
@@ -897,6 +912,10 @@ button.px:disabled {
   .zoom-box {
     right: 8px;
     bottom: 64px;
+  }
+  /* phones: the palette needs the width while building; pinch still zooms */
+  #hud.building .zoom-box {
+    display: none;
   }
   .meet-hint {
     bottom: 64px;

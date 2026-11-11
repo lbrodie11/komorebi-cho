@@ -472,29 +472,26 @@ export class BuildTool {
     return [...this.placed.keys()].map((id) => this.smart.objects.get(id)).filter((o): o is SmartObject => !!o);
   }
 
+  /** What residents use it for, from its affordances (data), not its name. */
   private smartKind(k: PlaceableKind): SmartObject['kind'] {
-    switch (k) {
-      case 'bench':
-        return 'bench';
-      case 'vending':
-        return 'vending';
-      case 'catbowl':
-        return 'catbowl';
-      default:
-        return 'admire';
-    }
+    const a = PLACEABLES[k].affords;
+    return a.includes('sit') ? 'bench' : a.includes('drink') ? 'vending' : a.includes('feed-cats') ? 'catbowl' : 'admire';
   }
 
+  /** Where residents stand or sit to use it, from what it is for. */
   private slots(rec: PlacedRecord): Slot[] {
-    switch (rec.kind) {
+    const def = PLACEABLES[rec.kind];
+    switch (this.smartKind(rec.kind)) {
       case 'bench':
         return benchSlots(rec.x, rec.z, rec.ry);
       case 'vending':
         return [frontSlot(rec.x, rec.z, rec.ry, 0.85)];
       case 'catbowl':
         return [{ ...frontSlot(rec.x, rec.z, rec.ry, 0.7), pose: 'crouch' }];
-      default:
-        return [frontSlot(rec.x, rec.z, rec.ry, 1.1), frontSlot(rec.x, rec.z, rec.ry + Math.PI, 1.1)];
+      default: {
+        const d = Math.max(1.1, def.radius + 0.5);
+        return [frontSlot(rec.x, rec.z, rec.ry, d), frontSlot(rec.x, rec.z, rec.ry + Math.PI, d)];
+      }
     }
   }
 }

@@ -4,7 +4,7 @@ import { Ambience, type CaptionKind } from './ambience';
 import { AudioLifecycle } from './lifecycle';
 import type { Season } from '../core/clock';
 
-export type SfxName = 'place' | 'remove' | 'flap' | 'meow' | 'click' | 'shutter';
+export type SfxName = 'place' | 'remove' | 'flap' | 'meow' | 'click' | 'shutter' | 'chime';
 export type { CaptionKind };
 
 /**
@@ -147,6 +147,11 @@ export class Sound {
         break;
       case 'click':
         tone(1400, 1100, 0.03, 0.15);
+        break;
+      case 'chime': // a glass wind chime (furin): a bright strike and a long, slightly beating ring
+        tone(2637, 2635, 1.8, 0.05);
+        tone(2650, 2648, 1.6, 0.03);
+        tone(5274, 5270, 0.9, 0.015);
         break;
       case 'shutter': {
         const n = e.noise(false, false);

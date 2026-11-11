@@ -292,7 +292,19 @@ await (async () => {
     await buildBtn.click();
     check('Build opens palette', await page.locator('.palette').evaluate((e) => e.classList.contains('open')));
     const kinds = await page.$$eval('.palette button', (bs) => bs.map((b) => b.getAttribute('aria-label')));
-    for (const k of kinds.filter((k) => k.startsWith('Place '))) {
+    // things to place live under category tabs: open each item's tab before choosing it
+    const openTab = (label) =>
+      page.evaluate(
+        (l) =>
+          document
+            .querySelector(`.palette .tabs button[data-category="${document.querySelector(`.palette button[aria-label="${l}"]`)?.dataset.category}"]`)
+            ?.click(),
+        label,
+      );
+    const items = kinds.filter((k) => k.startsWith('Place '));
+    check('palette offers at least 30 things', items.length >= 30, `${items.length}`);
+    for (const k of items) {
+      await openTab(k);
       await byLabel(page, k).click();
       check(`palette "${k}" selects`, await byLabel(page, k).evaluate((b) => b.classList.contains('on')));
     }
@@ -332,14 +344,13 @@ await (async () => {
         check(`place ${kind}`, false, 'no free on-screen spot');
         continue;
       }
-      await byLabel(
+      const itemLabel = await K(
         page,
-        await K(
-          page,
-          (k) => document.querySelector(`.palette button[aria-label$="${k}"]`)?.getAttribute('aria-label'),
-          { bench: 'Bench', sakura: 'Sakura', lantern: 'Stone lantern', vending: 'Vending machine', planter: 'Flower planter', catbowl: 'Cat bowl' }[kind],
-        ),
-      ).click();
+        (k) => document.querySelector(`.palette button[aria-label$="${k}"]`)?.getAttribute('aria-label'),
+        { bench: 'Bench', sakura: 'Sakura', lantern: 'Stone lantern', vending: 'Vending machine', planter: 'Flower planter', catbowl: 'Cat bowl' }[kind],
+      );
+      await openTab(itemLabel);
+      await byLabel(page, itemLabel).click();
       const n0 = await K(page, () => window.__komorebi.build.placed.size);
       await page.mouse.move(spot.sx, spot.sy);
       await page.mouse.move(spot.sx + 1, spot.sy);
