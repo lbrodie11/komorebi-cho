@@ -24,7 +24,7 @@ export class Sound {
   effectsVolume = 0.6;
   /** Shown in caption mode: each sound worth naming, as it plays. */
   onCaption: ((kind: CaptionKind) => void) | null = null;
-  private state: { hour: number; rain: number; season: Season } = { hour: 16.6, rain: 0, season: 'spring' };
+  private state: { hour: number; rain: number; season: Season; activity: number } = { hour: 16.6, rain: 0, season: 'spring', activity: 0.5 };
 
   constructor() {
     this.life = new AudioLifecycle({
@@ -104,8 +104,9 @@ export class Sound {
     this.engine.sfx.gain.setTargetAtTime(this.effectsVolume, t, 0.2);
   }
 
-  update(hour: number, rain: number, season: Season): void {
-    this.state = { hour, rain, season };
+  /** The world's mood for the score and the soundscape; `activity` is how busy the street is (0..1). */
+  update(hour: number, rain: number, season: Season, activity = 0.5): void {
+    this.state = { hour, rain, season, activity };
     if (!this.playing) return;
     this.music?.setState(this.state);
     this.ambience?.setState(this.state);

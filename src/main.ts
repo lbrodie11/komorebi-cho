@@ -1290,7 +1290,7 @@ function frame(now: number): void {
     const n0 = performance.now();
     if (!frozen) residents.noticePass(build.placedSmart(), hour);
     simMs += performance.now() - n0;
-    sound.update(hour, rain, clock.season);
+    sound.update(hour, rain, clock.season, residents.agents.filter((a) => !a.hidden).length / residents.agents.length);
     hud.setClock(clock.label(), clock.day, clock.season);
     hud.refreshCard();
     hud.renderPeople();
