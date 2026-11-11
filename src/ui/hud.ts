@@ -15,7 +15,9 @@ import type { Memory } from '../sim/memories';
 import { fragment, panel, scene, sheet, unsafeRaw } from '@frame12/static';
 import '@frame12/static/static.css';
 
-export const TEXT_SCALES = [1, 1.25, 1.5] as const;
+export const TEXT_SCALES = [1, 1.25, 1.5, 2] as const;
+/** The HUD's lettering: the pixel font, or the system's plain sans for easier reading. */
+export type UiFont = 'pixel' | 'plain';
 export type TextScale = (typeof TEXT_SCALES)[number];
 
 /** A line in Notes: what happened, and when (in-game day and minutes). */
@@ -69,6 +71,8 @@ export interface HudActions {
   setDiffusion(s: number): void;
   setCaptions(on: boolean): void;
   setTextScale(s: TextScale): void;
+  /** The HUD's lettering (Pixel or Plain). */
+  setFont(f: UiFont): void;
   /** How busy the neighbourhood's own sounds get. */
   setDensity(d: Density): void;
   undo(): void;
@@ -173,6 +177,7 @@ export class Hud {
   private readonly pixelBtns = new Map<PixelPreset, HTMLButtonElement>();
   private readonly scaleBtns = new Map<TextScale, HTMLButtonElement>();
   private readonly densityBtns = new Map<Density, HTMLButtonElement>();
+  private readonly fontBtns = new Map<UiFont, HTMLButtonElement>();
   private readonly seasonBtn: HTMLButtonElement;
   private readonly soundBtn: HTMLButtonElement;
   private readonly buildBtn: HTMLButtonElement;
@@ -627,6 +632,12 @@ export class Hud {
     for (const [k, b] of this.densityBtns) pressed(b, k === d);
   }
 
+  /** The lettering for the whole page (the HUD, the Journal, the splash): pixel or plain. */
+  setFont(f: UiFont): void {
+    document.documentElement.dataset.font = f;
+    for (const [k, b] of this.fontBtns) pressed(b, k === f);
+  }
+
   /** Whether this browser will store the town at all (shown in Settings when it won't). */
   setSaveStatus(s: 'ok' | 'notSaving'): void {
     this.storageNote.hidden = s === 'ok';
@@ -1040,7 +1051,7 @@ export class Hud {
       const wrap = el('div', 'choice');
       const n = el('span');
       this.text(() => (n.textContent = t(label)));
-      const row = el('div', 'row3');
+      const row = el('div', opts.length > 3 ? 'row4' : 'row3');
       row.setAttribute('role', 'group');
       this.text(() => row.setAttribute('aria-label', t(label)));
       for (const [k, words] of opts) {
@@ -1068,9 +1079,19 @@ export class Hud {
         [1, 'settings.text.1'],
         [1.25, 'settings.text.1.25'],
         [1.5, 'settings.text.1.5'],
+        [2, 'settings.text.2'],
       ],
       this.scaleBtns,
       (k) => this.act.setTextScale(k),
+    );
+    choice<UiFont>(
+      'settings.font',
+      [
+        ['pixel', 'settings.font.pixel'],
+        ['plain', 'settings.font.plain'],
+      ],
+      this.fontBtns,
+      (k) => this.act.setFont(k),
     );
     const hintsAgain = this.btn(null, 'settings.resetTutorial', null, () => {
       this.act.resetTutorial();
@@ -1175,6 +1196,10 @@ export class Hud {
     this.clock.textContent = label;
     this.date.textContent = t('bar.date', { day: day + 1, season: t(`season.${season}` as MsgKey) });
     if (season !== this.season) this.setSeason(season);
+  }
+  /** The widest zoom this screen allows (the photo-mode slider's left end). */
+  setZoomMin(min: number): void {
+    this.zoomSlider.min = String(Math.round(min * 100) / 100);
   }
   /** Reflect the zoom in the photo-mode slider. */
   setZoom(z: number): void {

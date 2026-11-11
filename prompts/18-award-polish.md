@@ -71,6 +71,12 @@ The last 10% that people remember.
     - **A Journal wording A/B:** factual ("Haru sat on the bench three evenings") against causal ("Since you placed the bench, Haru has stopped here three evenings"). Judge on trust and repetitiveness, not just preference.
 14. **Reasons to return, never pressure.** The almanac line, "while you were away", festivals and paths worn since last time. No streaks, no daily rewards, no timers. The genre's typical playtime is one to five hours, mostly because building has no consequence; ours should.
 
+15. **Readability audit** (from the 2026-11-11 pixel-readability review):
+    - At Normal, no HUD text is smaller than 12 CSS px (some notes are 10–11 px today).
+    - Every panel works in both letterings (Pixel and Plain) and at all four text sizes, on a 390×844 phone and a 1366×768 laptop. Rows wrap; nothing overlaps or clips.
+    - The painted 3×5 signs read at the default zoom in Classic. Check M against W and N against H; widen to 4×5 where a word fails.
+    - In the Pixel lettering, I, l and 1 and O and 0 are distinct where they appear (times, the date, counts).
+
 ## Acceptance criteria
 - 3 of 3 strangers say "oh!" at the first resident reaction, without prompting.
 - Median session in the playtest is over 20 minutes.

@@ -3,7 +3,7 @@ import { clamp, damp } from '../core/math';
 
 /**
  * Orthographic 2:1 dimetric camera (pitch = atan(1/2), classic pixel-art
- * isometric) with 90-degree rotation steps, a zoom range of 0.65× to 3×, and texel snapping.
+ * isometric) with 90-degree rotation steps, a zoom range of 0.65× (0.5× on a portrait phone) to 3×, and texel snapping.
  *
  * Nothing ever crawls, and nothing ever jumps:
  * - Texel snapping: the camera that renders is rounded to whole render-target pixels along its
@@ -33,9 +33,20 @@ import { clamp, damp } from '../core/math';
  */
 export const BASE_HALF_H = 20;
 export const MIN_ZOOM = 0.65;
+/** How far a portrait phone may zoom out: the narrow view would otherwise show only a slice of the street. */
+export const PHONE_MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 3;
-/** Discrete zoom levels for the palette looks (0.65× is the wide "postcard" view). */
-export const ZOOM_STEPS = [0.65, 0.8, 1, 1.5, 2, 3] as const;
+/** Discrete zoom levels for the palette looks (the widest is the "postcard" view; 0.5× only on narrow screens). */
+export const ZOOM_STEPS = [0.5, 0.65, 0.8, 1, 1.5, 2, 3] as const;
+
+/**
+ * The widest zoom for a view of this aspect (width / height): MIN_ZOOM on a landscape screen,
+ * easing down to PHONE_MIN_ZOOM by a portrait phone's 0.6 (a 390×844 phone is 0.46).
+ */
+export function minZoomFor(aspect: number): number {
+  const k = clamp((1 - aspect) / 0.4, 0, 1);
+  return MIN_ZOOM + (PHONE_MIN_ZOOM - MIN_ZOOM) * k;
+}
 /** Smooth zoom easing rate: settles in about 200 ms. */
 const ZOOM_RATE = 15;
 /**
@@ -158,6 +169,31 @@ export class IsoCamera {
     return this.aspect;
   }
 
+  /** The widest zoom this view allows (wider on a portrait phone; see minZoomFor). */
+  get minZoom(): number {
+    return minZoomFor(this.aspect);
+  }
+
+  /**
+   * The screen changed shape (a phone turned from portrait to landscape): if the view is wider
+   * than this one allows, come in to its widest. Only for the screen: a photo or a Journal capture
+   * borrows the camera at another size and must leave the player's zoom alone.
+   */
+  fitZoomRange(): void {
+    if (this.zoom < this.minZoom - 1e-6) {
+      this.zoom = this.zoomGoal = this.continuous ? this.minZoom : this.steps[0]!;
+      this.halfH = this.baseHalfH / this.zoom;
+      this.updateProjection();
+      this.clampTarget('hard');
+    } else if (this.zoomGoal < this.minZoom) this.zoomGoal = this.minZoom;
+  }
+
+  /** The discrete steps this view allows (the palette looks). */
+  get steps(): readonly number[] {
+    const min = this.minZoom;
+    return ZOOM_STEPS.filter((s) => s >= min - 1e-6);
+  }
+
   rotate(dir: 1 | -1): void {
     // keep yaw bounded so it never accumulates float error over many turns
     this.yaw = (((this.yaw + (dir * Math.PI) / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
@@ -167,16 +203,18 @@ export class IsoCamera {
 
   /** The discrete step the current zoom is at (or just below). */
   private stepIndex(): number {
+    const steps = this.steps;
     let i = 0;
-    for (let k = 0; k < ZOOM_STEPS.length; k++) if (this.zoom >= ZOOM_STEPS[k]! - 1e-6) i = k;
+    for (let k = 0; k < steps.length; k++) if (this.zoom >= steps[k]! - 1e-6) i = k;
     return i;
   }
 
   /** Would a discrete step in `dir` change anything? (Lets the caller skip a pointless dissolve.) */
   canStep(dir: 1 | -1): boolean {
-    const i = this.stepIndex();
-    if (dir < 0 && Math.abs(this.zoom - ZOOM_STEPS[i]!) > 1e-6) return true; // between steps: down to i
-    return clamp(i + dir, 0, ZOOM_STEPS.length - 1) !== i;
+    const i = this.stepIndex(),
+      steps = this.steps;
+    if (dir < 0 && Math.abs(this.zoom - steps[i]!) > 1e-6) return true; // between steps: down to i
+    return clamp(i + dir, 0, steps.length - 1) !== i;
   }
 
   /**
@@ -186,16 +224,17 @@ export class IsoCamera {
    */
   step(dir: 1 | -1, anchor?: { x: number; y: number }): void {
     if (!this.canStep(dir)) return;
-    const i = this.stepIndex();
-    const between = Math.abs(this.zoom - ZOOM_STEPS[i]!) > 1e-6;
-    const next = dir < 0 && between ? i : clamp(i + dir, 0, ZOOM_STEPS.length - 1);
-    this.zoomNow(ZOOM_STEPS[next]!, anchor ?? { x: 0, y: 0 });
+    const i = this.stepIndex(),
+      steps = this.steps;
+    const between = Math.abs(this.zoom - steps[i]!) > 1e-6;
+    const next = dir < 0 && between ? i : clamp(i + dir, 0, steps.length - 1);
+    this.zoomNow(steps[next]!, anchor ?? { x: 0, y: 0 });
   }
 
   /** Jump the zoom to `z` (clamped) about `anchor`, and leave the bounds to ease the view (see applyZoom). */
   private zoomNow(z: number, anchor: { x: number; y: number }): void {
     this.anchor = anchor;
-    this.zoomGoal = clamp(z, MIN_ZOOM, MAX_ZOOM);
+    this.zoomGoal = clamp(z, this.minZoom, MAX_ZOOM);
     this.applyZoom(this.zoomGoal);
     this.anchor = null;
   }
@@ -220,9 +259,9 @@ export class IsoCamera {
 
   /** Zoom to `z` (clamped), anchored. Continuous looks ease there; palette looks snap to the nearest step. */
   zoomTo(z: number, anchor?: { x: number; y: number }): void {
-    const goal = clamp(z, MIN_ZOOM, MAX_ZOOM);
+    const goal = clamp(z, this.minZoom, MAX_ZOOM);
     if (!this.continuous) {
-      const near = ZOOM_STEPS.reduce((a, b) => (Math.abs(Math.log(b / goal)) < Math.abs(Math.log(a / goal)) ? b : a));
+      const near = this.steps.reduce((a, b) => (Math.abs(Math.log(b / goal)) < Math.abs(Math.log(a / goal)) ? b : a));
       this.setZoomNow(near, anchor);
       return;
     }
@@ -235,7 +274,7 @@ export class IsoCamera {
   /** Set the zoom immediately (no easing), anchored. The view lands inside the bounds (callers dissolve). */
   setZoomNow(z: number, anchor?: { x: number; y: number }): void {
     this.anchor = anchor ?? { x: 0, y: 0 };
-    this.zoomGoal = clamp(z, MIN_ZOOM, MAX_ZOOM);
+    this.zoomGoal = clamp(z, this.minZoom, MAX_ZOOM);
     this.applyZoom(this.zoomGoal);
     this.anchor = null;
     this.clampTarget('hard');
@@ -361,8 +400,9 @@ export class IsoCamera {
       (this.baseHalfH * this.aspect * FIT_FILL_R) / Math.max((sp.r1 - sp.r0) / 2, 1e-3),
       (this.baseHalfH * FIT_FILL_U) / Math.max((sp.u1 - sp.u0) / 2, 1e-3),
     );
-    if (zFit <= MIN_ZOOM + 1e-6) return 1; // it never fits (a portrait phone): nothing to hold centred
-    return clamp((this.zoom - MIN_ZOOM) / (zFit - MIN_ZOOM), 0, 1);
+    const min = this.minZoom;
+    if (zFit <= min + 1e-6) return 1; // it never fits (a portrait phone): nothing to hold centred
+    return clamp((this.zoom - min) / (zFit - min), 0, 1);
   }
 
   /**
@@ -454,16 +494,17 @@ export class IsoCamera {
   /**
    * The zoom that frames the whole town (plinth and chimney) with room for the HUD, or the
    * closest allowed to it: a portrait phone can't fit the whole town without everything going
-   * tiny, so it gets the widest view (0.65×) centred on the street instead.
+   * tiny, so it gets its widest view (0.5×) centred on the street instead.
    */
   fitZoom(points: readonly THREE.Vector3[], centre: THREE.Vector3): number {
     const e = this.extent(points, centre);
     const zx = (this.baseHalfH * this.aspect * FIT_FILL_R) / Math.max(e.w, 1e-3);
     const zy = (this.baseHalfH * FIT_FILL_U) / Math.max(e.h, 1e-3);
-    const z = clamp(Math.min(zx, zy), MIN_ZOOM, MAX_ZOOM);
+    const z = clamp(Math.min(zx, zy), this.minZoom, MAX_ZOOM);
     if (this.continuous) return z;
     // palette looks: the largest step that still fits
-    return [...ZOOM_STEPS].reverse().find((s) => s <= z + 1e-6) ?? MIN_ZOOM;
+    const steps = this.steps;
+    return [...steps].reverse().find((s) => s <= z + 1e-6) ?? steps[0]!;
   }
 
   /** Frame the whole town: centre on its projected middle and zoom to fit. Instant (the caller dissolves). */

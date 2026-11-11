@@ -17,6 +17,11 @@
   --vermilion: #d0402a;
   --font: 'Pixelify Sans', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
+/* Settings → Lettering → Plain: the system's own sans, for readers who find the pixel font hard
+   (Dead Cells offers the same choice). The diorama's painted signs stay pixel lettering. */
+:root[data-font='plain'] {
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
 
 * {
   box-sizing: border-box;
@@ -436,7 +441,8 @@ button.px.warn {
   position: absolute;
   right: 22px;
   top: 70px;
-  width: 300px;
+  /* a little wider as the text grows (300 px at Normal, 340 at Largest), never wider than the screen */
+  width: calc(260px + 40px * var(--ts, 1));
   max-width: calc(100vw - 32px);
   padding: 12px 14px;
   display: none;
@@ -594,15 +600,21 @@ button.px.warn {
 .settings .choice {
   margin: 10px 0;
 }
-.settings .row3 {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+/* rows of choices: even widths while they fit, wrapping onto a second line at the larger text sizes
+   (Largest on a phone) instead of letters running into each other */
+.settings .row3,
+.settings .row4 {
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
 }
-.settings .row3 button {
-  padding-left: 2px;
-  padding-right: 2px;
+.settings .row3 button,
+.settings .row4 button {
+  flex: 1 1 0;
+  min-width: max-content;
+  padding-left: 3px;
+  padding-right: 3px;
   text-align: center;
 }
 .storage-note {
@@ -635,14 +647,16 @@ button.px.warn {
   color: var(--amber);
 }
 .settings .row {
-  /* the four looks as one even row: Fine, Classic, Chunky, Smooth */
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* the four looks as one even row (Smooth, Fine, Classic, Chunky), wrapping at the larger text sizes */
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .settings .row button {
-  padding-left: 2px;
-  padding-right: 2px;
+  flex: 1 1 0;
+  min-width: max-content;
+  padding-left: 3px;
+  padding-right: 3px;
   text-align: center;
 }
 .settings label span {

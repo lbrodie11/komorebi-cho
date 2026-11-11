@@ -188,4 +188,11 @@ describe('saves: hints, Notes and the newer settings', () => {
     const ok = loadRaw({ ...base, settings: { effects: 0.2, captions: true, textScale: 1.25 } }).settings;
     expect([ok.effects, ok.captions, ok.textScale]).toEqual([0.2, true, 1.25]);
   });
+
+  it('keeps the largest text size and the plain lettering, and falls back to pixel for anything else', () => {
+    const big = loadRaw({ ...base, settings: { textScale: 2, font: 'plain' } }).settings;
+    expect([big.textScale, big.font]).toEqual([2, 'plain']);
+    expect(loadRaw({ ...base, settings: { font: 'comic' } }).settings.font).toBe('pixel');
+    expect(loadRaw(base).settings.font).toBe('pixel');
+  });
 });

@@ -60,6 +60,12 @@ Confidence to change anything without fear.
     - targets are at least 24×24 CSS px (2.5.8);
     - nothing is told by color alone (the routine ring, and the bond rungs on the card, also have a shape or words).
 
+14. **Pixel checks (from the 2026-11-11 pixel-readability review):**
+    - **A device-pixel-ratio matrix.** At DPR 1, 2 and 3 (and a fractional 1.25 and 1.5), in every look, the canvas is a whole-number upscale of the render target in the palette looks. The unit test `canvasLayout` already checks this; add a browser shot that measures it from the canvas's CSS box and `devicePixelContentBoxSize`.
+    - **Contrast over the scene.** HUD text that floats over the diorama (the story feed, the captions, the title and subtitle, bubbles) can't be checked by axe, which doesn't see the canvas. Sample the canvas pixels behind each text box at noon, golden hour, night and in snow, and check 4.5:1 against the text color and its outline or backing.
+    - **Texture filters.** A unit test asserts that every sprite and sign texture (bubbles, painted signs, glyphs) magnifies with `NearestFilter` and has no partly transparent texels. Tiling surface textures keep mipmapped minification on purpose: nearest minification shimmers as the camera moves.
+    - **Shimmer.** Pan slowly across the street in Classic at 0.65×, 1× and 2×: no pixel crawl. The texel snap plus the sub-pixel presentation should hold; this is the regression guard.
+
 ## Acceptance criteria
 - CI runs unit, visual, replay and fuzz suites in under 15 minutes, and all are green.
 - A known bug injected into nav, AI or post is caught by at least one suite (show this).

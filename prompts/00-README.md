@@ -22,6 +22,7 @@ These prompts take the scaffold in `komorebi-cho/` to a polished, free, web rele
 | 08 | Resident AI v2 | Response curves, social life, memory, visible adaptation, diaries |
 | 09 | Animation & feel | Procedural walk cycles, sit/stand contracts, doors, glances/nods/waves, material-and-surface placement sounds, juice |
 | 09b | The Noticing Engine | A place field, triangulators, a bond ladder from co-presence, but-for credit for the edit that made a friendship possible |
+| 09c | Birds | Species with a place and a season (sparrows, white-eyes, wagtails, crows, swallows), perches as data, sound from the birds themselves |
 | 10 | Time, weather & seasons v2 | Weather states, snow cover, festivals, wind and chimes, desire paths and moss, a 72-microseason almanac, real-date option |
 | 11 | Music & sound v2 | Bigger composer, spatial emitters, mix targets, captions |
 | 12 | Performance & companion mode | Sim snapshots, a Worker sim, batching, cached shadows, idle rendering, desktop strip mode |
@@ -34,7 +35,7 @@ These prompts take the scaffold in `komorebi-cho/` to a polished, free, web rele
 
 **Recommended order after 04** (from the 2026-11-11 review, `docs/REVIEW-2026-11-11.md`): do task 9 of prompt 08 (favourites for Mitsuko, Haru and Rin) and task 7 of prompt 10 (lighting gaps) before 05–07. Prompts 05–07 grow the world; those two grow attachment, which is the weakest link today. Then playtest with people who haven't seen it before going wider.
 
-**Added from the 2026-11-11 research review** (`RESEARCH-NOTES.md`, "The Noticing Engine"): prompt 09b runs between 09 and 10. It is the award hook: bonds that grow from co-presence, credited to the edit that made them possible. Later prompts carry its pieces: wind, chimes, desire paths and the almanac (10), sim snapshots and a Worker (12), story postcards (13), its QA (15), claims and credits (16), the festival calendar (17) and the playtest measures (18).
+**Added from the 2026-11-11 research review** (`RESEARCH-NOTES.md`, "The Noticing Engine"): prompt 09b runs between 09 and 10. It is the award hook: bonds that grow from co-presence, credited to the edit that made them possible. Prompt 09c (birds) follows it; its first pass shipped with the pixel-readability review. Later prompts carry its pieces: wind, chimes, desire paths and the almanac (10), sim snapshots and a Worker (12), story postcards (13), its QA (15), claims and credits (16), the festival calendar (17) and the playtest measures (18).
 
 `_PREAMBLE.md` holds the shared context and is already embedded at the top of every prompt. `RESEARCH-NOTES.md` lists the verified facts behind the design decisions.
 

@@ -53,8 +53,14 @@ Working method:
     - **`OffscreenCanvas` rendering in a worker is optional.** Safari only added the WebGL context in workers in 17.0 (16.4–16.6 broke feature detection), so feature-detect inside the worker and keep the main-thread renderer as the fallback.
     - Measure headless fast-forward (game minutes per real second) and record it in `docs/PERF.md`.
 
+11. **A fixed simulation step.** Today the residents step with the frame's own `dt` (clamped to 50 ms), so a 120 Hz screen and a 60 Hz screen walk slightly different routes. A live session can't be replayed (prompt 15), and seeded warm-up already uses a fixed step.
+    - Step the simulation at a fixed rate (20 Hz, as warm-up does) from an accumulator.
+    - Draw residents, cats and birds interpolated between the last two steps (`prev + α·(curr − prev)`), so motion stays smooth at any refresh rate.
+    - This comes naturally with the Worker in task 10.
+
 ## Acceptance criteria
 - Under 250 draw calls and under 8 ms GPU on the reference laptop at the default view, at night with rain.
 - Idle at noon: under 3% CPU in Chrome's task manager.
 - Memory flat across 200 edits.
 - Snapshot, restore and run gives the same world and bond hashes as an uninterrupted run.
+- The same seed and inputs give identical resident positions at 60 Hz and 120 Hz (a test runs the loop with both frame times).

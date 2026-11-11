@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { IsoCamera, MAX_ZOOM, MIN_ZOOM, ZOOM_STEPS, viewRange } from '../src/render/camera';
+import { IsoCamera, MAX_ZOOM, MIN_ZOOM, PHONE_MIN_ZOOM, ZOOM_STEPS, minZoomFor, viewRange } from '../src/render/camera';
 import { canvasLayout, presentOffset, type CanvasLayout } from '../src/render/pixelscale';
 import { G, GROUND, PLINTH } from '../src/world/layout';
 import { townOutline } from '../src/world/world';
@@ -61,10 +61,31 @@ describe('camera zoom', () => {
       c.step(1);
       seen.push(c.zoom);
     }
-    expect(seen).toEqual([...ZOOM_STEPS]);
+    expect(seen).toEqual(ZOOM_STEPS.filter((z) => z >= MIN_ZOOM)); // 0.5× is for narrow screens only
     expect(c.canStep(1)).toBe(false);
     c.setZoomNow(MIN_ZOOM);
     expect(c.canStep(-1)).toBe(false);
+  });
+
+  it('lets a portrait phone zoom out further than a landscape screen, and comes back in when it turns', () => {
+    expect(minZoomFor(16 / 9)).toBe(MIN_ZOOM);
+    expect(minZoomFor(1)).toBe(MIN_ZOOM);
+    expect(minZoomFor(390 / 844)).toBe(PHONE_MIN_ZOOM);
+    expect(minZoomFor(0.8)).toBeLessThan(MIN_ZOOM);
+    for (const continuous of [false, true]) {
+      const phone = make(390 / 844, continuous);
+      phone.setZoomNow(0.01);
+      expect(phone.zoom).toBe(PHONE_MIN_ZOOM);
+      if (!continuous) expect(phone.steps[0]).toBe(0.5);
+      // Fit on a phone: the town never fits, so its widest view
+      expect(phone.fitZoom(FIT, CENTRE)).toBe(PHONE_MIN_ZOOM);
+      // turned to landscape: it comes in to that screen's widest
+      phone.setViewport(960, 540);
+      expect(phone.zoom).toBe(PHONE_MIN_ZOOM); // a capture at another size leaves it alone...
+      phone.fitZoomRange(); // ...the screen itself turning doesn't
+      expect(phone.zoom).toBe(MIN_ZOOM);
+      expect(phone.zoomGoal).toBe(MIN_ZOOM);
+    }
   });
 
   it('keeps the point under the cursor in place, zooming in and out (stepped and smooth)', () => {
@@ -533,7 +554,7 @@ describe('camera framing', () => {
     expect(z).toBeGreaterThanOrEqual(MIN_ZOOM);
     expect(z).toBeLessThan(1.3);
     const phone = make(0.46, true);
-    expect(phone.fitZoom(FIT, CENTRE)).toBe(MIN_ZOOM);
+    expect(phone.fitZoom(FIT, CENTRE)).toBe(PHONE_MIN_ZOOM);
     const stepped = make(16 / 9, false);
     expect(ZOOM_STEPS as readonly number[]).toContain(stepped.fitZoom(FIT, CENTRE));
   });

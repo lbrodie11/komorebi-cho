@@ -38,7 +38,7 @@ src/world     layout (THE DATA), grammar/ (building specs → parts → geometry
               lightpools (ground pool decals), buildings, shopstreet (the shop row, rebuildable shop by shop), nature, props (+ placeables), crowd (light sharing),
               weather, world (assembly + time-driven updates)
 src/sim       grid (nav + A*, regions/islands), town (the town's grid + anchors), passage (narrow passages take turns), smart (affordances/reservations/queues), places (familiarity, favourites), utility (curves, hysteresis), diary, personas (the neighbours), residents (schedule → needs → utility → action), memories (true-to-sim journal events + scene snapshots),
-              animals, bubbles, warmup (fixed-step warm-up for seeded runs)
+              animals, birds (a small rig, wing frames on twos), bubbles, warmup (fixed-step warm-up for seeded runs)
 src/audio     engine (graph), theory (pure: chords, voice leading, grooves), themes (the authored pieces), director (what plays when, its own clock), music (instruments + bars),
               ambience (positioned soundscape), spatial + soundscape (pure: placement, layers, density budget), loudness (BS.1770, WAV), sound (facade + sfx)
 src/dev       soundtrack (the export page: soundtrack.html, dev only)

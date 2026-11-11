@@ -14,7 +14,7 @@ import { SmartRegistry, registerStaticObjects } from './sim/smart';
 import { Residents, type Agent } from './sim/residents';
 import { Animals } from './sim/animals';
 import { BuildTool, type ToolMode } from './ui/build';
-import { Hud, TEXT_SCALES, type TextScale } from './ui/hud';
+import { Hud, TEXT_SCALES, type TextScale, type UiFont } from './ui/hud';
 import type { Density } from './audio/soundscape';
 import { Tutorial } from './ui/tutorial';
 import { History } from './edit/history';
@@ -110,6 +110,8 @@ let photo = false;
 // ── Persistence ───────────────────────────────────────────────────────────
 let captions = false;
 let textScale: TextScale = 1;
+/** The HUD's lettering (Settings): the pixel font, or plain for easier reading. */
+let uiFont: UiFont = 'pixel';
 /** How busy the neighbourhood's sounds get (Settings). */
 let density: Density = 'balanced';
 const tutorial = new Tutorial(params.scripted ? ['place', 'react', 'meet'] : (saved?.tutorial ?? []));
@@ -134,6 +136,7 @@ if (saved) {
   captions = saved.settings.captions;
   textScale = (TEXT_SCALES as readonly number[]).includes(saved.settings.textScale) ? (saved.settings.textScale as TextScale) : 1;
   density = saved.settings.density ?? 'balanced';
+  uiFont = saved.settings.font ?? 'pixel';
   world.reducedMotion = saved.settings.reducedMotion;
   residents.reducedMotion = saved.settings.reducedMotion;
   diffusionSetting = saved.settings.diffusion;
@@ -202,6 +205,7 @@ function persist(): void {
       captions,
       textScale,
       density,
+      font: uiFont,
     },
   });
   hud.setSaveStatus(ok ? 'ok' : 'notSaving');
@@ -305,6 +309,10 @@ const hud = new Hud(hudRoot, {
     textScale = sc;
     hud.setTextScale(sc);
   },
+  setFont: (f) => {
+    uiFont = f;
+    hud.setFont(f);
+  },
   setDensity: (d) => {
     density = d;
     sound.setDensity(d);
@@ -367,6 +375,7 @@ hud.setSpeed(clock.speed, clock.paused);
 hud.setVolumes(sound.musicVolume, sound.ambienceVolume, sound.effectsVolume);
 hud.setCaptions(captions);
 hud.setTextScale(textScale);
+hud.setFont(uiFont);
 hud.setDensity(density);
 sound.setDensity(density);
 if (saved) hud.restoreNotes(saved.notes);
@@ -477,6 +486,8 @@ function resize(): void {
     iso.continuous = continuous;
     if (!continuous) iso.zoomTo(iso.zoom);
   }
+  iso.fitZoomRange(); // a phone turned to landscape may not zoom out as far as in portrait
+  hud.setZoomMin(iso.minZoom);
   const out = diffusionOutputSize(l.cssW, l.cssH, dpr);
   post.setOutputSize(out.w, out.h);
   const active = post.setDiffusion(renderer, diffusion, out.w / l.bw);
@@ -1450,6 +1461,7 @@ Object.assign(window, {
     clock,
     world,
     residents,
+    animals,
     build,
     history,
     /** The town's placed things, sorted: undo/redo of any edits must return it byte for byte. */

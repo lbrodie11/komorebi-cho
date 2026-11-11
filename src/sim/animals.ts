@@ -3,11 +3,13 @@ import { Rng } from '../core/rng';
 import type { EventBus, GameEvents } from '../core/events';
 import type { Materials } from '../render/materials';
 import { G, ISLET, TG } from '../world/layout';
+import { clamp } from '../core/math';
 import { groundHeight } from '../world/terrain';
 import type { NavGrid } from './grid';
 import type { Agent } from './residents';
 import type { SmartRegistry } from './smart';
 import type { Season } from '../core/clock';
+import { BirdRig, flapFrame, hopHeight } from './birds';
 
 interface Cat {
   root: THREE.Group;
@@ -20,13 +22,39 @@ interface Cat {
 }
 
 interface Pigeon {
-  mesh: THREE.Mesh;
+  rig: BirdRig;
   home: THREE.Vector3;
   fly: number; // 0 = grounded, >0 = seconds left in flight
   from: THREE.Vector3;
   to: THREE.Vector3;
   ph: number;
+  /** Seconds to the next small thing (a peck, a turn, a step), and a peck under way (s left). */
+  next: number;
+  pecking: number;
 }
+
+/**
+ * A tree sparrow: forages in hops (both feet together) near the shop street and the park edge, and
+ * the flock goes up together when someone comes close.
+ */
+interface Sparrow {
+  rig: BirdRig;
+  /** A hop or a flight under way: from, to, how far (0..1), how long (s), how high (m). */
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  u: number;
+  dur: number;
+  arc: number;
+  flying: boolean;
+  next: number;
+  pecking: number;
+}
+
+/** Seconds a pigeon's flight takes, and a sparrow's (low and short). */
+const PIGEON_FLIGHT = 2.2;
+const SPARROW_FLIGHT = 0.9;
+/** Where the sparrows forage: the lane by the shops, and the park's edge. */
+const SPARROW_AREA = { x0: -8.6, x1: -3, z0: -3.4, z1: 8 };
 
 /** Yanaka is "cat town": the cats are the real residents. */
 const CAT_SPOTS: [number, number][] = [
@@ -53,7 +81,8 @@ export class Animals {
   private readonly sleepers: THREE.Mesh[] = [];
   private readonly pigeons: Pigeon[] = [];
   private readonly koi: { mesh: THREE.Mesh; r: number; ph: number; sp: number }[] = [];
-  private readonly crows: { mesh: THREE.Mesh; r: number; ph: number }[] = [];
+  private readonly crows: { rig: BirdRig; r: number; ph: number }[] = [];
+  private readonly sparrows: Sparrow[] = [];
   private readonly butterflies: { mesh: THREE.Mesh; c: THREE.Vector3; ph: number }[] = [];
   private readonly rng: Rng;
   private flapCooldown = 0;
@@ -101,12 +130,23 @@ export class Animals {
       this.sleepers.push(s);
     }
     for (let i = 0; i < 7; i++) {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.2, 0.18), m.solid(i % 3 ? '#8a8f99' : '#686d78'));
-      const home = new THREE.Vector3(-3.2 + (i % 4) * 0.55, G + 0.2, -1.4 + Math.floor(i / 4) * 0.5);
-      mesh.position.copy(home);
-      mesh.castShadow = true;
-      root.add(mesh);
-      this.pigeons.push({ mesh, home: home.clone(), fly: 0, from: home.clone(), to: home.clone(), ph: i * 1.3 });
+      const rig = new BirdRig('pigeon', m);
+      const home = new THREE.Vector3(-3.2 + (i % 4) * 0.55, G, -1.4 + Math.floor(i / 4) * 0.5);
+      rig.root.position.copy(home);
+      rig.root.rotation.y = this.rng.range(0, Math.PI * 2);
+      root.add(rig.root);
+      this.pigeons.push({ rig, home: home.clone(), fly: 0, from: home.clone(), to: home.clone(), ph: i * 1.3, next: this.rng.range(0.5, 3), pecking: 0 });
+    }
+    for (let i = 0; i < 5; i++) {
+      const rig = new BirdRig('sparrow', m);
+      const x = this.rng.range(SPARROW_AREA.x0, SPARROW_AREA.x1),
+        z = this.rng.range(-1, 3);
+      const at = this.grid.nearestOpen(x, z, 3) ?? [x, z];
+      rig.root.position.set(at[0], groundHeight(at[0], at[1]), at[1]);
+      rig.root.rotation.y = this.rng.range(0, Math.PI * 2);
+      root.add(rig.root);
+      const p = rig.root.position.clone();
+      this.sparrows.push({ rig, from: p.clone(), to: p, u: 1, dur: 0.25, arc: 0, flying: false, next: this.rng.range(0.3, 2), pecking: 0 });
     }
     ['#ff6b3d', '#f6efe0', '#d0402a', '#ffa94d', '#f6efe0', '#ff6b3d'].forEach((c, i) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.06, 0.14), m.solid(c));
@@ -114,9 +154,9 @@ export class Animals {
       this.koi.push({ mesh, r: 1.2 + i * 0.22, ph: i * 1.3, sp: 0.22 + i * 0.04 });
     });
     for (let i = 0; i < 3; i++) {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.25), m.solid('#16141f'));
-      root.add(mesh);
-      this.crows.push({ mesh, r: 2.6 + i * 1.1, ph: i * 2.1 });
+      const rig = new BirdRig('crow', m);
+      root.add(rig.root);
+      this.crows.push({ rig, r: 2.6 + i * 1.1, ph: i * 2.1 });
     }
     for (let i = 0; i < 4; i++) {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.02, 0.1), m.solid(i % 2 ? '#fff1c4' : '#f6efe0'));
@@ -170,33 +210,36 @@ export class Animals {
     }
     for (const s of this.sleepers) s.scale.y = 1 + Math.sin(time * 1.4 + s.position.x) * 0.08;
 
-    // pigeons: scatter when someone walks within 1.4 m, land again elsewhere in the park
+    // pigeons: peck and potter about; scatter when someone walks within 1.4 m, land again elsewhere in the park
     for (const p of this.pigeons) {
+      const r = p.rig;
       if (p.fly > 0) {
         p.fly -= dt;
-        const t = 1 - p.fly / 2.2;
-        p.mesh.position.lerpVectors(p.from, p.to, t);
-        p.mesh.position.y += Math.sin(t * Math.PI) * 2.6;
-        p.mesh.scale.x = 0.6 + Math.abs(Math.sin(time * 22)) * 1.2;
-        if (p.fly <= 0) p.mesh.scale.x = 1;
+        const t = 1 - p.fly / PIGEON_FLIGHT;
+        r.root.position.lerpVectors(p.from, p.to, t);
+        r.root.position.y += Math.sin(t * Math.PI) * 2.6;
+        r.root.rotation.y = Math.atan2(p.to.x - p.from.x, p.to.z - p.from.z);
+        r.setWings(flapFrame('pigeon', PIGEON_FLIGHT - p.fly));
+        r.setPeck(0);
+        if (p.fly <= 0) r.setWings('folded');
         continue;
       }
-      p.mesh.position.y = p.home.y + Math.max(0, Math.sin(time * 3 + p.ph)) * 0.08;
-      p.mesh.rotation.y = Math.sin(time * 0.5 + p.ph) * 2;
-      p.mesh.visible = !night;
-      const near = agents.some((a) => !a.hidden && Math.hypot(a.x - p.mesh.position.x, a.z - p.mesh.position.z) < 1.4);
+      r.root.visible = !night;
+      this.potter(p, dt);
+      const near = agents.some((a) => !a.hidden && Math.hypot(a.x - r.root.position.x, a.z - r.root.position.z) < 1.4);
       if (near && !night) {
         const dest = this.grid.randomOpenIn(() => this.rng.next(), -7, 7, -3.4, 8) ?? [p.home.x, p.home.z];
-        p.from.copy(p.mesh.position);
-        p.to.set(dest[0], G + 0.2, dest[1]);
+        p.from.copy(r.root.position);
+        p.to.set(dest[0], groundHeight(dest[0], dest[1]), dest[1]); // lands on the ground there, not at the plaza's height
         p.home.copy(p.to);
-        p.fly = 2.2;
+        p.fly = PIGEON_FLIGHT;
         if (this.flapCooldown <= 0) {
           this.bus.emit('sfx', { name: 'flap', x: p.from.x, z: p.from.z });
           this.flapCooldown = 1.5;
         }
       }
     }
+    this.sparrowsUpdate(dt, night, rain, agents);
     // koi circle the pond (skipping under the islet is fine: they're fish)
     for (const k of this.koi) {
       const a = time * k.sp + k.ph;
@@ -208,10 +251,11 @@ export class Animals {
     // crows circle the sento chimney by day and gather at dusk
     for (const c of this.crows) {
       const a = time * 0.35 + c.ph;
-      c.mesh.position.set(this.chimney.x + Math.cos(a) * c.r, this.chimney.y + 1.4 + Math.sin(a * 1.7) * 0.8, this.chimney.z + Math.sin(a) * c.r);
-      c.mesh.rotation.y = -a;
-      c.mesh.scale.x = 0.6 + Math.abs(Math.sin(time * 6 + c.ph)) * 0.6;
-      c.mesh.visible = !night && rain < 0.5;
+      c.rig.root.position.set(this.chimney.x + Math.cos(a) * c.r, this.chimney.y + 1.4 + Math.sin(a * 1.7) * 0.8, this.chimney.z + Math.sin(a) * c.r);
+      // facing along the circle (its tangent), wings beating and gliding in held frames
+      c.rig.root.rotation.y = Math.atan2(-Math.sin(a), Math.cos(a));
+      c.rig.setWings(flapFrame('crow', time + c.ph));
+      c.rig.root.visible = !night && rain < 0.5;
     }
     // butterflies over the flower stall and the allotment
     const bugs = (season === 'spring' || season === 'summer') && !night && rain < 0.2;
@@ -222,5 +266,97 @@ export class Animals {
       b.mesh.position.set(b.c.x + Math.sin(t) * 1.2, b.c.y + Math.sin(t * 2.3) * 0.4, b.c.z + Math.cos(t * 0.7) * 1.4);
       b.mesh.scale.x = 0.4 + Math.abs(Math.sin(time * 18 + b.ph)) * 0.8;
     }
+  }
+
+  /** A grounded pigeon's small business: pecks, a turn by a step, a short walk-hop. Never a spin. */
+  private potter(p: Pigeon, dt: number): void {
+    const r = p.rig;
+    p.next -= dt;
+    if (p.pecking > 0) {
+      p.pecking = Math.max(0, p.pecking - dt);
+      r.setPeck(Math.sin((Math.PI * p.pecking) / 0.35));
+    } else r.setPeck(0);
+    r.root.position.y = groundHeight(r.root.position.x, r.root.position.z);
+    if (p.next > 0) return;
+    p.next = this.rng.range(0.6, 2.8);
+    const roll = this.rng.next();
+    if (roll < 0.5) p.pecking = 0.35;
+    else if (roll < 0.8) r.root.rotation.y += this.rng.pick([-0.6, -0.3, 0.3, 0.6]);
+    else {
+      // a step or two forward, if the ground is open
+      const yaw = r.root.rotation.y;
+      const nx = r.root.position.x + Math.sin(yaw) * 0.18,
+        nz = r.root.position.z + Math.cos(yaw) * 0.18;
+      if (this.grid.isOpenAt(nx, nz)) r.root.position.set(nx, groundHeight(nx, nz), nz);
+    }
+  }
+
+  /**
+   * Sparrows: by day, in any season, out of heavy rain. They hop (never walk) and peck; when someone
+   * comes within 1.2 m, that bird and the flock-mates near it go up together, low and short, and
+   * land a few meters on.
+   */
+  private sparrowsUpdate(dt: number, night: boolean, rain: number, agents: readonly Agent[]): void {
+    const out = !night && rain < 0.6;
+    let startle: THREE.Vector3 | null = null;
+    for (const b of this.sparrows) {
+      const r = b.rig;
+      r.root.visible = out;
+      if (!out) continue;
+      if (b.u < 1) {
+        b.u = Math.min(1, b.u + dt / b.dur);
+        r.root.position.lerpVectors(b.from, b.to, b.u);
+        r.root.position.y += hopHeight(b.u, b.arc);
+        r.setWings(b.flying ? flapFrame('sparrow', b.u * b.dur) : 'folded');
+        if (b.u >= 1) r.setWings('folded');
+        continue;
+      }
+      b.flying = false;
+      if (b.pecking > 0) {
+        b.pecking = Math.max(0, b.pecking - dt);
+        r.setPeck(Math.sin((Math.PI * b.pecking) / 0.2));
+      } else r.setPeck(0);
+      const p = r.root.position;
+      if (!startle && agents.some((a) => !a.hidden && Math.hypot(a.x - p.x, a.z - p.z) < 1.2)) startle = p.clone();
+      b.next -= dt;
+      if (b.next > 0) continue;
+      b.next = this.rng.range(0.4, 1.6);
+      if (this.rng.chance(0.45)) {
+        b.pecking = 0.2;
+        continue;
+      }
+      // a hop: a short arc, turning to face where it lands
+      const yaw = r.root.rotation.y + this.rng.range(-1.2, 1.2);
+      const d = this.rng.range(0.12, 0.3);
+      const tx = clamp(p.x + Math.sin(yaw) * d, SPARROW_AREA.x0, SPARROW_AREA.x1),
+        tz = clamp(p.z + Math.cos(yaw) * d, SPARROW_AREA.z0, SPARROW_AREA.z1);
+      if (!this.grid.isOpenAt(tx, tz)) continue;
+      this.launch(b, tx, tz, 0.22, 0.07, false);
+    }
+    if (!startle) return;
+    // the flock goes up together: everyone grounded within 1.5 m of the startled bird
+    for (const b of this.sparrows) {
+      const p = b.rig.root.position;
+      if (b.u < 1 || Math.hypot(p.x - startle.x, p.z - startle.z) > 1.5) continue;
+      const dest = this.grid.randomOpenIn(() => this.rng.next(), SPARROW_AREA.x0, SPARROW_AREA.x1, SPARROW_AREA.z0, SPARROW_AREA.z1);
+      if (dest) this.launch(b, dest[0], dest[1], SPARROW_FLIGHT + this.rng.range(0, 0.25), 1.1, true);
+    }
+  }
+
+  private launch(b: Sparrow, x: number, z: number, dur: number, arc: number, flying: boolean): void {
+    const p = b.rig.root.position;
+    b.from.set(p.x, groundHeight(p.x, p.z), p.z);
+    b.to.set(x, groundHeight(x, z), z);
+    b.u = 0;
+    b.dur = dur;
+    b.arc = arc;
+    b.flying = flying;
+    b.rig.root.rotation.y = Math.atan2(x - p.x, z - p.z);
+    b.rig.setPeck(0);
+  }
+
+  /** The birds, for tests and the debug overlay. */
+  get birds(): { pigeons: readonly BirdRig[]; sparrows: readonly BirdRig[]; crows: readonly BirdRig[] } {
+    return { pigeons: this.pigeons.map((p) => p.rig), sparrows: this.sparrows.map((b) => b.rig), crows: this.crows.map((c) => c.rig) };
   }
 }

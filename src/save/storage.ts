@@ -60,10 +60,12 @@ export interface SaveData extends SaveStamp {
     textScale: number;
     /** How busy the neighbourhood's sounds get. Optional on disk. */
     density?: 'quiet' | 'balanced' | 'lively';
+    /** The HUD's lettering: the pixel font or a plain one. Optional on disk. */
+    font?: 'pixel' | 'plain';
   };
 }
 
-const TEXT_SCALES = [1, 1.25, 1.5];
+const TEXT_SCALES = [1, 1.25, 1.5, 2];
 /** The shopping street as first laid out: saved shop extents are checked against it. */
 const SHOP_ROW_BASE = SHOPS.map(({ id, z0, z1 }) => ({ id, z0, z1 }));
 const MEMORY_KINDS = ['noticed', 'favorite', 'together', 'rainy', 'routine'];
@@ -219,6 +221,7 @@ export function sanitize(d: Record<string, unknown>): SaveData {
       captions: settings.captions === true,
       textScale: TEXT_SCALES.includes(settings.textScale as number) ? (settings.textScale as number) : 1,
       density: settings.density === 'quiet' || settings.density === 'lively' ? settings.density : 'balanced',
+      font: settings.font === 'plain' ? 'plain' : 'pixel',
     },
   };
 }

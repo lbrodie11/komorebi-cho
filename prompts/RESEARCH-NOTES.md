@@ -65,3 +65,31 @@ Three outside reports were reviewed: "The Noticing Engine", "Causal Weave" and "
 
 **Treat with care:** the third report said the repository was inaccessible and built on guesses (Japanese web fonts, a 128×128 grid, a 2D top-down game). Its specific numbers (704 KB fields, pathfinding timings, a 27% conversion rate, a six-month development time) weren't verified. Only the ideas above were taken from it.
 
+## Pixel-readability review (2026-11-11), checked against the code
+Two outside reports on pixel text, pixel-perfect rendering and code-made birds. Both said they couldn't see the repository, so each claim was checked against the code.
+
+**Already true:**
+- **Whole-number upscaling** of a low-resolution render target in the palette looks: `pixelscale.ts`, with a render height of 220–300 rows. Smooth is a deliberate full-color look at 540 rows.
+- **Exact pixel sizing:** `renderer.setPixelRatio(1)`, with the canvas sized from `devicePixelContentBoxSize`.
+- **No jitter:** the camera snaps to whole texels every frame and the leftover sub-pixel is presented through a one-pixel overscan (`camera.ts`). That is the WebGL version of the reports' "+2 px overscan, fractional blit".
+- **Nearest filtering where it matters:** sprites and painted signs magnify with `NearestFilter`.
+- **A stable post pass:** the palette and dither are world-anchored and stable.
+- **Accessibility:** reduced motion exists, and the HUD is DOM text (screen-reader friendly), with Text size.
+
+**Fixed after the review:**
+- **Birds** were single boxes that stretched and spun. They now have a rig and held wing frames on twos, pigeons peck instead of spinning, and a sparrow flock hops and startles together. More species are in prompt 09c.
+- **Lettering:** a Plain choice (the system sans), as Dead Cells offers, for readers who find the pixel font hard.
+- **Text size:** a Largest step at 2× (WCAG resize text), with Settings rows that wrap instead of overlapping.
+- **Phones** zoom out to 0.5× (0.65× before), so the first view on a portrait phone shows the whole diorama.
+
+**Not applicable, or set aside:**
+- **Canvas 2D advice** (`fillText` blur, `imageSmoothingEnabled`, a 320×180 Canvas buffer, Bresenham clean-up): we render in WebGL, and the HUD is DOM text, not text drawn into the low-resolution buffer.
+- **"NearestFilter on every texture":** tiling surface textures keep mipmapped minification on purpose. Nearest minification sparkles as the camera moves, which is worse than the slight softening the palette snap removes anyway.
+- **Japanese bitmap fonts** (Misaki, PixelMplus, k8x12, DotGothic16): the game shows no Japanese script.
+- **Radiance Cascades and pentatonic scales:** set aside earlier (see "The Noticing Engine").
+
+**Taken into later prompts:**
+- a fixed simulation step with interpolation (12);
+- a DPR matrix, contrast sampled over the canvas, texture-filter and shimmer checks (15);
+- a readability audit (18).
+
