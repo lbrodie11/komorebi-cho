@@ -122,4 +122,13 @@ describe('neighborhood memories', () => {
     expect(r.bond('genzo', 'nana', 'b1', view(DAY + 600))).toBeNull(); // told once, whichever way round
     expect(r.bond('nana', 'genzo', 'gone', view(700))).toBeNull(); // nothing to show for a thing that isn't there
   });
+
+  it('words a bond whose thing has since been removed as outliving it', async () => {
+    const { memoryWords } = await import('../src/ui/hud');
+    const r = new MemoryRecorder();
+    const m = r.bond('nana', 'genzo', 'b1', view(600))!;
+    expect(memoryWords(m).caption).toBe('Genzo and Nana got to know each other at the bench you placed.');
+    expect(memoryWords(m, true).caption).toMatch(/at a bench you placed\. It is gone now; they still stop for each other\.$/);
+    expect(memoryWords(m).title).toBe('Because of you');
+  });
 });

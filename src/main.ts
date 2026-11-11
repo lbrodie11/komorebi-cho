@@ -391,6 +391,12 @@ hud.setFont(uiFont);
 hud.setDensity(density);
 sound.setDensity(density);
 if (saved) hud.restoreNotes(saved.notes);
+// coming back: the last thing that happened between two neighbours, as it was told then (nothing is
+// invented for the time away: the town stands still while you're gone)
+{
+  const last = saved ? [...saved.notes].reverse().find((n) => n.msg.key.startsWith('story.bond.')) : undefined;
+  if (last) window.setTimeout(() => bus.emit('story', { msg: msg('story.lastTime', { what: last.msg }), fleeting: true }), 4000);
+}
 hud.setPeopleSource((id) => {
   const a = residents.agents.find((g) => g.p.id === id);
   return a ? residents.info(a) : null;
@@ -441,7 +447,7 @@ bus.on('bond', ({ a, b, to, credited }) => {
   if (id) announce(memories.bond(a, b, id, worldView()));
 });
 bus.on('objectRemoved', ({ id }) => memories.removed(id));
-hud.setMemorySource({ list: () => memories.memories, render: (m, cut) => renderMemory(m, cut) });
+hud.setMemorySource({ list: () => memories.memories, render: (m, cut) => renderMemory(m, cut), gone: (id) => !smart.objects.has(id) });
 bus.on('objectPlaced', () => tutorial.placed());
 sound.onCaption = (k) => {
   if (captions) hud.caption(t(`caption.${k}` as MsgKey));

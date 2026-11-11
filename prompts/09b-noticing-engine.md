@@ -181,9 +181,16 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
     - The bare town credits nothing.
     - Story diversity is over 0.75.
     - The ledger is deterministic.
+- **Seventh step (2026-11-11): the consistency tests, the cost, and two things the player sees.**
+  - **Metamorphic tests** (`tests/hook.test.ts`):
+    - something unrelated placed in the far corner changes no promotion and no credit;
+    - naming the edits differently changes nothing but the names.
+  - **Cost:** 0.06 ms per tick for the whole resident simulation with bonds, the field and attribution, measured headless over 7,200 ticks on a busy laptop. The prompt's budget for the engine alone was 0.2 ms.
+  - **"Since removed":** a bond memory whose object is gone says so. "It is gone now; they still stop for each other."
+  - **Coming back:** the feed opens with "Last time:" and the last thing that happened between two neighbors, as it was told then. Nothing is invented for the time away; the town stands still while you're gone.
 - **Still to do:**
   - Task 1, the scoring split and the "Why?" view.
   - Task 3, the rest: per-item attention profiles as catalogue data (radius, when), and festivals (prompt 10).
-  - Task 5, the rest: the but-for check covers seats only. Extend it to other choices (a route past a vending machine, a view), and add the "helped" label for overdetermined cases.
-  - The three-panel bond sheet and the "while you were away" line.
-  - The metamorphic tests (an unrelated object moved far away changes no credit; renamed ids change nothing) and the cost measurement.
+  - Task 5, the rest: the but-for check covers seats only. Extend it to other choices (a route past a vending machine, a view).
+  - The three-panel bond sheet (the edit, a shared moment, the promotion), and "knows" counting people on the card.
+  - The playtest: 4 of 5 people can say which edit made a friendship.

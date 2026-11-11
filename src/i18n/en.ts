@@ -244,6 +244,8 @@ export const en = {
   'memory.title.together': 'Side by side',
   'memory.title.bond': 'Because of you',
   'memory.bond': '{who} and {other} got to know each other at the {thing} you placed.',
+  'memory.bond.gone': '{who} and {other} got to know each other at a {thing} you placed. It is gone now; they still stop for each other.',
+  'story.lastTime': 'Last time: {what}',
   'memory.noticed': '{who} was the first to notice the new {thing}.',
   'memory.favorite': 'The {thing} has become {who}’s favorite spot.',
   'memory.together': '{who} and {other} shared the {thing}.',

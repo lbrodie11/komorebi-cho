@@ -31,13 +31,17 @@ export interface MemorySource {
   list(): readonly Memory[];
   /** Render cut 0 (wide), 1 (medium) or 2 (close) of a memory; a PNG data URL, or null if it can't now. */
   render(m: Memory, cut: 0 | 1 | 2): string | null;
+  /** Is the thing a memory is about gone from the town now? (A bond it made stays: the caption says so.) */
+  gone?(objectId: string): boolean;
 }
 
 /** The words for a memory: its title and caption, true to the event that made it. */
-export function memoryWords(m: Memory): { title: string; caption: string; when: string } {
+export function memoryWords(m: Memory, gone = false): { title: string; caption: string; when: string } {
   const who = (id: string | undefined) => msg(`persona.${id ?? ''}.short` as MsgKey);
   const thing = msg(`noun.${m.objectKind}` as MsgKey);
-  const caption = t(`memory.${m.kind}` as MsgKey, { who: who(m.who[0]), other: who(m.who[1]), thing });
+  // a bond outlives the thing that made it: "they still say hello, though the bench is gone"
+  const key = m.kind === 'bond' && gone ? 'memory.bond.gone' : (`memory.${m.kind}` as MsgKey);
+  const caption = t(key, { who: who(m.who[0]), other: who(m.who[1]), thing });
   const mins = Math.floor(m.snapshot.minutes % 1440);
   const time = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
   const when = t('memory.when', { day: Math.floor(m.snapshot.minutes / 1440) + 1, season: t(`season.${m.snapshot.season}` as MsgKey), time });
@@ -835,7 +839,9 @@ export class Hud {
   private renderMemories(force = false): void {
     const box = this.memoriesBox;
     const list = this.memorySource?.list() ?? [];
-    const shown = `${this.memoryOpen ?? ''}|${list.length}|${list[list.length - 1]?.id ?? ''}`;
+    // (and which of their things are gone now: a caption changes when its bench is removed)
+    const gone = list.map((m) => (this.memorySource?.gone?.(m.objectId) ? 1 : 0)).join('');
+    const shown = `${this.memoryOpen ?? ''}|${list.length}|${list[list.length - 1]?.id ?? ''}|${gone}`;
     if (!force && shown === this.memoriesShown) return;
     this.memoriesShown = shown;
     box.innerHTML = '';
@@ -846,7 +852,7 @@ export class Hud {
       return;
     }
     const open = list.find((m) => m.id === this.memoryOpen) ?? list[list.length - 1]!;
-    const words = memoryWords(open);
+    const words = memoryWords(open, this.memorySource?.gone?.(open.objectId) ?? false);
     const head = el('div', 'mem-head');
     const title = el('div', 'mem-title');
     title.tabIndex = -1;
@@ -883,7 +889,7 @@ export class Hud {
       h.textContent = t('journal.older');
       const ul = el('ul', 'mem-list');
       for (const m of [...older].reverse()) {
-        const w = memoryWords(m);
+        const w = memoryWords(m, this.memorySource?.gone?.(m.objectId) ?? false);
         const li = el('li');
         const b = el('button', 'px');
         b.type = 'button';
