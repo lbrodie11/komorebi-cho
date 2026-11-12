@@ -1239,6 +1239,15 @@ const MEMORY_CUTS = [
   { mag: 2, y: 2, turn: 0 },
   { mag: 3, y: 1, turn: 1 },
 ] as const;
+/**
+ * A bond's three panels tell it in order: what you placed (the thing alone, close), where they met
+ * (the two of them by it), and the two of them (close on the pair, a quarter turn round).
+ */
+const BOND_CUTS = [
+  { mag: 3, y: 1, turn: 0, alone: true, pair: false },
+  { mag: 2, y: 2, turn: 0, alone: false, pair: false },
+  { mag: 3, y: 1.2, turn: 1, alone: false, pair: true },
+] as const;
 
 /**
  * Render one cut of a memory from its snapshot: the world is put into the memory's hour, weather
@@ -1249,7 +1258,8 @@ const MEMORY_CUTS = [
 function renderMemory(m: Memory, cut: 0 | 1 | 2): string | null {
   if (contextLost) return null;
   const snap = m.snapshot;
-  const c = MEMORY_CUTS[cut];
+  const bond = m.kind === 'bond' ? BOND_CUTS[cut] : null;
+  const c = bond ?? MEMORY_CUTS[cut];
   const cam = { yaw: iso.yaw, zoom: iso.zoom, goal: iso.zoomGoal, t: iso.target.clone(), tg: iso.targetGoal.clone(), bounds: iso.bounds };
   const weather = { rain: world.weather.rain, wet: world.weather.wetness, lamp: world.lampLevel };
   const people = residents.agents.map((a) => ({ a, visible: a.root.visible, pos: a.root.position.clone(), pose: a.pose, ry: a.root.rotation.y }));
@@ -1288,6 +1298,13 @@ function renderMemory(m: Memory, cut: 0 | 1 | 2): string | null {
     for (let i = 0; i < c.turn; i++) iso.rotate(1);
     iso.setZoomNow(c.mag);
     iso.target.set(snap.focus.x, c.y, snap.focus.z);
+    if (bond?.alone) for (const { a } of people) a.root.visible = false; // the first panel is the thing itself
+    if (bond?.pair && snap.people.length) {
+      // the last panel is about the two of them: look at the middle of where they stood
+      const mx = snap.people.reduce((s, p) => s + p.x, 0) / snap.people.length,
+        mz = snap.people.reduce((s, p) => s + p.z, 0) / snap.people.length;
+      iso.target.set(mx, c.y, mz);
+    }
     iso.targetGoal.copy(iso.target);
     url = captureFrame(MEMORY_W, MEMORY_H);
   } finally {

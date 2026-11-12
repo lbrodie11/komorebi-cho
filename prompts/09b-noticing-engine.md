@@ -191,9 +191,16 @@ Background and sources are in `RESEARCH-NOTES.md` under "The Noticing Engine". R
 - **Eighth step (2026-11-11): attention reach as data, and the "Why?" view.**
   - **Reach:** `drawRadius()` in `props.ts` gives every placeable a reach from its size (3 to 6 m, a meter more for wind chimes). It is carried on the smart object (`draw`) and used for admiring, dusk lanterns and chimes. A new placeable gets a sensible reach without touching the sim.
   - **"Why?":** with `?debug`, a neighbor's card shows the working behind their last free choice. That is the top three options with their scores, a seat's place-field parts, and "but for:" the placed things that decided it.
+- **Ninth step (2026-11-11): the bond sheet, and a browser check.**
+  - **The sheet:** a bond memory's three panels tell it in order. "What you placed" is the thing alone, "Where they met" is the two of them by it, and "The two of them" is close on the pair.
+  - **Seen working in the real game** (headless browser):
+    - the `?debug` "Why?" view;
+    - the bond sheet, with three different pictures;
+    - the "gone now" caption after removing the object;
+    - "Last time:" after a reload.
+  - **A limit to know:** the snapshot is taken at the promotion, so the first two panels show that moment, not the earlier shared moments themselves.
 - **Still to do:**
   - Task 1, the rest: `freeTime` still builds its options inline. Splitting it into a pure `scoreOptions(agent, view)` is a refactor for when the Worker arrives (prompt 12).
   - Task 3, the rest: festivals as triangulators (prompt 10).
   - Task 5, the rest: the but-for check covers seats only. Extend it to other choices (a route past a vending machine, a view).
-  - The three-panel bond sheet (the edit, a shared moment, the promotion), and "knows" counting people on the card.
   - The playtest: 4 of 5 people can say which edit made a friendship.

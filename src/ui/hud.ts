@@ -52,6 +52,12 @@ const CUTS: [MsgKey, string][] = [
   ['memory.cut.medium', 'C—02'],
   ['memory.cut.close', 'C—03'],
 ];
+/** A bond's panels are a little story in order: what you placed, where they met, the two of them. */
+const BOND_CUTS: [MsgKey, string][] = [
+  ['memory.cut.placed', 'C—01'],
+  ['memory.cut.met', 'C—02'],
+  ['memory.cut.pair', 'C—03'],
+];
 
 /** Notes keeps this many lines (a ring buffer, saved). */
 export const NOTES_MAX = 50;
@@ -864,9 +870,12 @@ export class Hud {
     const cap = el('p', 'mem-caption');
     cap.textContent = words.caption;
     head.append(title, when, cap);
+    const cutsFor = open.kind === 'bond' ? BOND_CUTS : CUTS;
     // FRAME/12 markup (escaped by the renderer); the images go in after, from our own canvas
     const cuts = fragment(
-      ...CUTS.map(([label, cut], i) => panel({ variant: 'quiet', cut, label: t(label), children: unsafeRaw(`<div class="mem-img" data-cut="${i}"></div>`) })),
+      ...cutsFor.map(([label, cut], i) =>
+        panel({ variant: 'quiet', cut, label: t(label), children: unsafeRaw(`<div class="mem-img" data-cut="${i}"></div>`) }),
+      ),
     );
     const board = el('div');
     board.innerHTML = String(sheet({ children: scene({ layout: 'three', children: cuts }) }));
@@ -882,7 +891,7 @@ export class Hud {
       if (!url) continue;
       const img = el('img');
       img.src = url;
-      img.alt = t('memory.alt', { view: t(CUTS[i]![0]), caption: words.caption });
+      img.alt = t('memory.alt', { view: t(cutsFor[i]![0]), caption: words.caption });
       slot.append(img);
     }
     const older = list.filter((m) => m !== open);
